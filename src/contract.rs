@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 
 use crate::msg::{AllowanceResponse, BalanceResponse, MigrateMsg,HandleMsg, InitMsg, QueryMsg};
-use cosmwasm_std::{log, to_binary, to_vec, Api, Binary, CanonicalAddr, Env, Extern, HandleResponse, HumanAddr, generic_err, InitResponse, MigrateResponse, Querier, ReadonlyStorage, StdResult, Storage, Uint128, CosmosMsg, BankMsg, Coin};
+use cosmwasm_std::{log, to_binary, to_vec, Api, Binary, CanonicalAddr, Env, Extern, HandleResponse, HumanAddr, generic_err, InitResponse, MigrateResponse, Querier, ReadonlyStorage, StdResult, Storage, Uint128, CosmosMsg, BankMsg, Coin, Decimal};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -53,11 +53,11 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     }
 
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
-    let constants = to_vec(&Constants {
+    let constants = bincode2::serialize(&Constants {
         name: msg.name,
         symbol: msg.symbol,
         decimals: msg.decimals,
-    })?;
+    }).unwrap();
     config_store.set(KEY_CONSTANTS, &constants);
     config_store.set(KEY_TOTAL_SUPPLY, &total_supply.to_be_bytes());
 
@@ -72,6 +72,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     match msg {
         HandleMsg::Withdraw { amount } => try_withdraw(deps, env, amount),
         HandleMsg::Deposit {} => try_deposit(deps, env),
+        HandleMsg::Balance {} => try_balance(deps, env),
+        HandleMsg::Allowance {spender} => try_check_allowance(deps, env, spender),
         HandleMsg::Approve { spender, amount } => try_approve(deps, env, &spender, &amount),
         HandleMsg::Transfer { recipient, amount } => try_transfer(deps, env, &recipient, &amount),
         HandleMsg::TransferFrom {
@@ -84,27 +86,98 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 }
 
 pub fn query<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    msg: QueryMsg,
+    _deps: &Extern<S, A, Q>,
+    _msg: QueryMsg,
 ) -> StdResult<Binary> {
-    match msg {
-        QueryMsg::Balance { address } => {
-            let address_key = deps.api.canonical_address(&address)?;
-            let balance = read_balance(&deps.storage, &address_key)?;
-            let out = to_binary(&BalanceResponse {
-                balance: Uint128::from(balance),
-            })?;
-            Ok(out)
-        }
-        QueryMsg::Allowance { owner, spender } => {
-            let owner_key = deps.api.canonical_address(&owner)?;
-            let spender_key = deps.api.canonical_address(&spender)?;
-            let allowance = read_allowance(&deps.storage, &owner_key, &spender_key)?;
-            let out = to_binary(&AllowanceResponse {
-                allowance: Uint128::from(allowance),
-            })?;
-            Ok(out)
-        }
+    Err(generic_err("Queries are not supported in this contract"))
+}
+
+
+pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    spender: HumanAddr) -> StdResult<HandleResponse> {
+
+    let sender_address_raw = &env.message.sender;
+    let allownace = read_allowance(&deps.storage, sender_address_raw, &deps.api.canonical_address(&spender)?);
+
+    if let Err(e) = allownace {
+        Ok(HandleResponse {
+            messages: vec![],
+            log: vec![
+                log("action", "check_allownace"),
+                log(
+                    "account",
+                    deps.api.human_address(&env.message.sender)?.as_str(),
+                ),
+                log(
+                    "spender",
+                    &spender.as_str(),
+                ),
+                log("amount", "0"),
+            ],
+            data: None,
+        })
+    }
+    else {
+        Ok(HandleResponse {
+            messages: vec![],
+            log: vec![
+                log("action", "check_allownace"),
+                log(
+                    "account",
+                    deps.api.human_address(&env.message.sender)?.as_str(),
+                ),
+                log(
+                    "spender",
+                    &spender.as_str(),
+                ),
+                log("amount", allownace.unwrap()),
+            ],
+            data: None,
+        })
+    }
+}
+
+pub fn try_balance<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env) -> StdResult<HandleResponse> {
+
+    let sender_address_raw = &env.message.sender;
+    let account_balance = read_balance(&deps.storage, sender_address_raw);
+
+    let consts = read_constants(&deps.storage)?;
+
+    if let Err(_e) = account_balance {
+        Ok(HandleResponse {
+            messages: vec![],
+            log: vec![
+                log("action", "balance"),
+                log(
+                    "account",
+                    deps.api.human_address(&env.message.sender)?.as_str(),
+                ),
+                log("amount", "0"),
+            ],
+            data: None,
+        })
+    }
+    else {
+
+        let printable_token = to_display_token(account_balance.unwrap(), &consts.symbol, consts.decimals);
+
+        Ok(HandleResponse {
+            messages: vec![],
+            log: vec![
+                log("action", "balance"),
+                log(
+                    "account",
+                    deps.api.human_address(&env.message.sender)?.as_str(),
+                ),
+                log("amount", printable_token),
+            ],
+            data: None,
+        })
     }
 }
 
@@ -473,6 +546,26 @@ fn is_valid_symbol(symbol: &str) -> bool {
         }
     }
     true
+}
+
+fn read_constants<S: Storage>(
+    store: &S,
+) -> StdResult<Constants> {
+    let mut config_store = ReadonlyPrefixedStorage::new(PREFIX_CONFIG, store);
+    let consts_bytes = config_store.get(KEY_CONSTANTS).unwrap();
+
+    let consts: Constants = bincode2::deserialize(&consts_bytes).unwrap();
+
+    Ok(consts)
+}
+
+fn to_display_token(amount: u128, symbol: &String, decimals: u8) -> String {
+
+    let base: u32 = 10;
+
+    let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u64);
+
+    format!("{} {}", amnt, symbol)
 }
 
 pub fn migrate<S: Storage, A: Api, Q: Querier>(

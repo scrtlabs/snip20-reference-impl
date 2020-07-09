@@ -40,19 +40,15 @@ pub enum HandleMsg {
     Burn {
         amount: Uint128,
     },
+    Balance { },
+    Allowance {
+        spender: HumanAddr,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum QueryMsg {
-    Balance {
-        address: HumanAddr,
-    },
-    Allowance {
-        owner: HumanAddr,
-        spender: HumanAddr,
-    },
-}
+pub enum QueryMsg {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
