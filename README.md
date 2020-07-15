@@ -26,5 +26,9 @@ To send SSCRT: ***(Only you will be able to see the parameters you send here)***
 To check your balance: ***(Only you will be able to see the parameters you send here)***
 
 ```./secretcli tx compute <contract-address> '{"balance": {}}'```
+
 ```./secretcli q compute tx <returned tx-hash>```
 
+To withdraw:
+
+```./secretcli tx compute <contract-address> '{"withdraw": {"amount": "<amount in uscrt>"}}'```
