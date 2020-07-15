@@ -10,6 +10,8 @@ One caveat is that in order to achieve this level of privacy, querying your bala
 
 This is a slightly naive implementation, and more advanced uses could find creative ways to allow wallets to still notify you of incoming transactions without paying excessive fees, but that is an execise left to the reader.
 
+The usual disclaimer: Don't use this in production, I take no responsibility for anything anywhere anytime etc.
+
 ## Usage examples:
 
 
