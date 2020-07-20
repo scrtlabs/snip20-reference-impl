@@ -17,15 +17,15 @@ The usual disclaimer: Don't use this in production, I take no responsibility for
 
 To deposit: ***(This is public)***
 
-```./secretcli tx compute <contract-address> '{"deposit": {}}' --sent-funds 1000000uscrt```
+```./secretcli tx compute execute <contract-address> '{"deposit": {}}' --amount 1000000uscrt```
 
 To send SSCRT: ***(Only you will be able to see the parameters you send here)***
 
-```./secretcli tx compute <contract-address> '{"send": {"address": "<destination_address>"}}'```
+```./secretcli tx compute execute <contract-address> '{"send": {"address": "<destination_address>"}}'```
 
 To check your balance: ***(Only you will be able to see the parameters you send here)***
 
-```./secretcli tx compute <contract-address> '{"balance": {}}'```
+```./secretcli tx compute execute <contract-address> '{"balance": {}}'```
 
 ```./secretcli q compute tx <returned tx-hash>```
 
