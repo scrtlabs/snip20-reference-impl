@@ -14,7 +14,6 @@ The usual disclaimer: Don't use this in production, I take no responsibility for
 
 ## Usage examples:
 
-
 To deposit: ***(This is public)***
 
 ```./secretcli tx compute execute <contract-address> '{"deposit": {}}' --amount 1000000uscrt```
@@ -32,3 +31,7 @@ To check your balance: ***(Only you will be able to see the parameters you send 
 To withdraw: ***(This is public)***
 
 ```./secretcli tx compute <contract-address> '{"withdraw": {"amount": "<amount in uscrt>"}}'```
+
+## Play with it on testnet
+
+The deployed SSCRT contract address on the testnet is `secret1vjecguu37pmd577339wrdp208ddzymku0apnlw`
