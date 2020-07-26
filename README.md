@@ -16,22 +16,22 @@ The usual disclaimer: Don't use this in production, I take no responsibility for
 
 To deposit: ***(This is public)***
 
-```./secretcli tx compute execute <contract-address> '{"deposit": {}}' --amount 1000000uscrt```
+```./secretcli tx compute execute <contract-address> '{"deposit": {}}' --amount 1000000uscrt --from <account>``` 
 
 To send SSCRT: ***(Only you will be able to see the parameters you send here)***
 
-```./secretcli tx compute execute <contract-address> '{"send": {"address": "<destination_address>"}}'```
+```./secretcli tx compute execute <contract-address> '{"send": {"address": "<destination_address>"}}' --from <account>```
 
 To check your balance: ***(Only you will be able to see the parameters you send here)***
 
-```./secretcli tx compute execute <contract-address> '{"balance": {}}'```
+```./secretcli tx compute execute <contract-address> '{"balance": {}}' --from <account>```
 
 ```./secretcli q compute tx <returned tx-hash>```
 
 To withdraw: ***(This is public)***
 
-```./secretcli tx compute <contract-address> '{"withdraw": {"amount": "<amount in uscrt>"}}'```
+```./secretcli tx compute <contract-address> '{"withdraw": {"amount": "<amount in uscrt>"}}' --from <account>```
 
 ## Play with it on testnet
 
-The deployed SSCRT contract address on the testnet is `secret1vjecguu37pmd577339wrdp208ddzymku0apnlw`
+The deployed SSCRT contract address on the testnet is `secret1448nqda3f74dnylz2qlnze9jsagct38hch7l2p`
