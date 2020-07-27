@@ -20,7 +20,7 @@ To deposit: ***(This is public)***
 
 To send SSCRT: ***(Only you will be able to see the parameters you send here)***
 
-```./secretcli tx compute execute <contract-address> '{"send": {"address": "<destination_address>", "amount": <amount_to_send>}}' --from <account>```
+```./secretcli tx compute execute <contract-address> '{"transfer": {"recepient": "<destination_address>", "amount": <amount_to_send>}}' --from <account>```
 
 To check your balance: ***(Only you will be able to see the parameters you send here)***
 
