@@ -35,3 +35,9 @@ To withdraw: ***(This is public)***
 ## Play with it on testnet
 
 The deployed SSCRT contract address on the testnet is `secret1448nqda3f74dnylz2qlnze9jsagct38hch7l2p`
+
+## Troubleshooting 
+
+All transactions are encrypted, so if you want to see the error returned by a failed transaction, you need to use the command
+
+`secretcli q compute tx <TX_HASH>`
