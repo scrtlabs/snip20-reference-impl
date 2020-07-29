@@ -30,7 +30,7 @@ To check your balance: ***(Only you will be able to see the parameters you send 
 
 To withdraw: ***(This is public)***
 
-```./secretcli tx compute <contract-address> '{"withdraw": {"amount": "<amount in uscrt>"}}' --from <account>```
+```./secretcli tx compute execute <contract-address> '{"withdraw": {"amount": "<amount in uscrt>"}}' --from <account>```
 
 ## Play with it on testnet
 
