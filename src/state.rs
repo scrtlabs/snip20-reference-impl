@@ -1,5 +1,4 @@
 use bincode2;
-use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{CanonicalAddr, Storage, StdResult, StdError};
 
