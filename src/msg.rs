@@ -60,6 +60,7 @@ pub enum HandleMsg {
 pub enum QueryMsg {
     Balance { address: HumanAddr, key: String },
     Transfers { address: HumanAddr, key: String },
+    Test {},
 }
 
 impl QueryMsg {
@@ -67,6 +68,7 @@ impl QueryMsg {
         match self {
             Self::Balance { address, key} => (address, ViewingKey(key.clone())),
             Self::Transfers { address, key} => (address, ViewingKey(key.clone())),
+            _ => (panic!("lol"))
         }
     }
 }

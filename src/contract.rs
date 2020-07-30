@@ -5,7 +5,7 @@ use std::convert::TryInto;
 use crate::msg::{AllowanceResponse, BalanceResponse, HandleMsg, InitMsg, QueryMsg};
 use cosmwasm_std::{log, Api, Binary, CanonicalAddr, Env, Extern, HandleResponse, HumanAddr, generic_err, InitResponse, Querier, ReadonlyStorage, StdResult, Storage, Uint128, CosmosMsg, BankMsg, Coin, Decimal, QueryResult};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
-use crate::utils::ConstLenStr;
+use crate::utils::{ConstLenStr, ct_slice_compare};
 use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
 
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -94,6 +94,8 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     msg: QueryMsg,
 ) -> StdResult<Binary> {
 
+    ct_slice_compare(b"abc", b"xyz");
+
     let (address, key) = msg.get_validation_params();
 
     let canonical_addr = deps.api.canonical_address(address)?;
@@ -104,7 +106,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
         return Ok(Binary(b"Wrong viewing key for this address or viewing key not set".to_vec()));
     }
 
-    if !key.check_viewing_key(&*expected_key.unwrap()) {
+    if !key.check_viewing_key(expected_key.unwrap().as_slice()) {
         return Ok(Binary(b"Wrong viewing key for this address or viewing key not set".to_vec()));
     }
 
