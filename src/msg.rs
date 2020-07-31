@@ -79,12 +79,12 @@ pub struct BalanceResponse {
     pub token: String,
 }
 
-impl Serialize for BalanceResponse {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
-        S: Serializer {
-        unimplemented!()
-    }
-}
+// impl Serialize for BalanceResponse {
+//     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
+//         S: Serializer {
+//         unimplemented!()
+//     }
+// }
 
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]

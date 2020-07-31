@@ -5,8 +5,9 @@ use std::convert::TryInto;
 use crate::msg::{AllowanceResponse, BalanceResponse, HandleMsg, InitMsg, QueryMsg};
 use cosmwasm_std::{log, Api, Binary, CanonicalAddr, Env, Extern, HandleResponse, HumanAddr, generic_err, InitResponse, Querier, ReadonlyStorage, StdResult, Storage, Uint128, CosmosMsg, BankMsg, Coin, Decimal, QueryResult};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
-use crate::utils::{ConstLenStr, ct_slice_compare};
+use crate::utils::{ConstLenStr, ct_slice_compare, create_hashed_password};
 use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
+use crate::state::{store_transfer, get_transfers};
 
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Constants {
@@ -21,6 +22,7 @@ pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const KEY_CONSTANTS: &[u8] = b"constants";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
+
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -94,16 +96,18 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     msg: QueryMsg,
 ) -> StdResult<Binary> {
 
-    ct_slice_compare(b"abc", b"xyz");
-
     let (address, key) = msg.get_validation_params();
 
     let canonical_addr = deps.api.canonical_address(address)?;
 
     let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
 
+    // checking the key will take significant time. We don't want to exit immediately if it isn't set
+    // in a way which will allow to time the command and determine if a viewing key doesn't exist
     if let None = expected_key {
-        return Ok(Binary(b"Wrong viewing key for this address or viewing key not set".to_vec()));
+        if !key.check_viewing_key(&[0u8; 24]) {
+            return Ok(Binary(b"Wrong viewing key for this address or viewing key not set".to_vec()));
+        }
     }
 
     if !key.check_viewing_key(expected_key.unwrap().as_slice()) {
@@ -111,9 +115,19 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     }
 
     match msg {
-        QueryMsg::Balance { address, key } => { query_balance(&deps, &address) }
-        _ => {Ok(Binary(b"yo".to_vec()))}
+        QueryMsg::Balance { address, .. } => { query_balance(&deps, &address) }
+        QueryMsg::Transfers { address, .. } => {query_transactions(&deps, &address)}
+        _ => {
+            unimplemented!()
+        }
     }
+}
+
+pub fn query_transactions<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, account: &HumanAddr) -> StdResult<Binary>{
+    let address = deps.api.canonical_address(account).unwrap();
+    let address = get_transfers(&deps.storage, &address)?;
+
+    Ok(Binary(format!("{:?}", address).into_bytes().to_vec()))
 }
 
 pub fn query_balance<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, account: &HumanAddr) -> StdResult<Binary>{
@@ -161,6 +175,7 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
 
     let vk = ViewingKey::new(&env, b"yo", (&entropy).as_ref());
+
     write_viewing_key(&mut deps.storage, &env.message.sender, &vk)?;
 
     Ok(HandleResponse{
@@ -391,6 +406,10 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
         amount_raw,
     )?;
 
+    let symbol = read_constants(&deps.storage)?.symbol;
+
+    store_transfer(&deps.api, &mut deps.storage, sender_address_raw, &recipient_address_raw, amount, symbol);
+
     let res = HandleResponse {
         messages: vec![],
         log: vec![
@@ -438,6 +457,10 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
         &recipient_address_raw,
         amount_raw,
     )?;
+
+    let symbol = read_constants(&deps.storage)?.symbol;
+
+    store_transfer(&deps.api, &mut deps.storage, &owner_address_raw, &recipient_address_raw, amount, symbol);
 
     let res = HandleResponse {
         messages: vec![],
@@ -584,7 +607,7 @@ pub fn read_u128<S: ReadonlyStorage>(store: &S, key: &[u8]) -> StdResult<u128> {
 
 fn write_viewing_key<S: Storage>(store: &mut S, owner: &CanonicalAddr, key: &ViewingKey) -> StdResult<()> {
     let mut balance_store = PrefixedStorage::new(PREFIX_VIEW_KEY, store);
-    balance_store.set(owner.as_slice(), key.as_bytes());
+    balance_store.set(owner.as_slice(), key.to_hashed().as_ref());
     Ok(())
 }
 

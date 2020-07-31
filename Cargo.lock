@@ -55,14 +55,15 @@ version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "bcrypt"
-version = "0.8.1"
+name = "bcrypt-pbkdf"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "base64 0.12.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "blowfish 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "getrandom 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crypto-mac 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "pbkdf2 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sha2 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zeroize 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -227,6 +228,15 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "crypto-mac"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "generic-array 0.14.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "subtle 2.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "derive_more"
 version = "0.99.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -378,6 +388,14 @@ version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "pbkdf2"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "crypto-mac 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -484,7 +502,7 @@ name = "secret-secret"
 version = "0.1.0"
 dependencies = [
  "base64 0.12.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "bcrypt 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bcrypt-pbkdf 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bincode2 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "cosmwasm-schema 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "cosmwasm-sgx-vm 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)",
@@ -496,6 +514,7 @@ dependencies = [
  "serde 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
  "sha2 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "snafu 0.6.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "subtle 2.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -607,6 +626,11 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "subtle"
+version = "2.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "syn"
 version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -712,6 +736,11 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
+[[package]]
+name = "zeroize"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
 [metadata]
 "checksum addr2line 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1b6a2d3371669ab3ca9797670853d61402b03d0b4b9ebf33d677dfa720203072"
 "checksum adler 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "ccc9a9dd069569f212bc4330af9f17c4afb5e8ce185e83dbb14f1349dda18b10"
@@ -720,7 +749,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum backtrace 0.3.50 (registry+https://github.com/rust-lang/crates.io-index)" = "46254cf2fdcdf1badb5934448c1bcbe046a56537b3987d96c51a7afc5d03f293"
 "checksum base64 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
 "checksum base64 0.12.3 (registry+https://github.com/rust-lang/crates.io-index)" = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
-"checksum bcrypt 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "6378bd17c4830c1b7ed644dde88f247b1560d46c68ff3da1b788984b09c0df31"
+"checksum bcrypt-pbkdf 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "61efa3a7c675c7fe8ac7dfc9e0c6591afb6e8ddbbb0621fde41e1e2fc2fe30d9"
 "checksum bincode2 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f49f6183038e081170ebbbadee6678966c7d54728938a3e7de7f4e780770318f"
 "checksum bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 "checksum block-buffer 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)" = "c0940dc441f31689269e10ac70eb1002a3a1d3ad1390e030043662eb7fe4688b"
@@ -738,6 +767,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum cosmwasm-std 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)" = "<none>"
 "checksum cosmwasm-storage 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)" = "<none>"
 "checksum cpuid-bool 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "8aebca1129a03dc6dc2b127edd729435bbc4a37e1d5f4d7513165089ceb02634"
+"checksum crypto-mac 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b584a330336237c1eecd3e94266efb216c56ed91225d634cb2991c5f3fd1aeab"
 "checksum derive_more 0.99.9 (registry+https://github.com/rust-lang/crates.io-index)" = "298998b1cf6b5b2c8a7b023dfd45821825ce3ba8a8af55c921a0e734e4653f76"
 "checksum digest 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f3d0c8c8752312f9713efd397ff63acb9f85585afbf179282e720e7704954dd5"
 "checksum digest 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d3dd60d1080a57a05ab032377049e0591415d2b31afd7028356dbf3cc6dcb066"
@@ -760,6 +790,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum opaque-debug 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "2839e79665f131bdb5782e51f2c6c9599c133c6098982a54c794358bf432529c"
 "checksum opaque-debug 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 "checksum parity-wasm 0.41.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ddfc878dac00da22f8f61e7af3157988424567ab01d9920b962ef7dcbd7cd865"
+"checksum pbkdf2 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "216eaa586a190f0a738f2f918511eecfa90f13295abec0e457cdebcceda80cbd"
 "checksum ppv-lite86 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)" = "237a5ed80e274dbc66f86bd59c1e25edc039660be53194b5fe0a482e0f2612ea"
 "checksum proc-macro2 1.0.18 (registry+https://github.com/rust-lang/crates.io-index)" = "beae6331a816b1f65d04c45b078fd8e6c93e8071771f41b8163255bbd8d7c8fa"
 "checksum quote 1.0.7 (registry+https://github.com/rust-lang/crates.io-index)" = "aa563d17ecb180e500da1cfd2b028310ac758de548efdd203e18f283af693f37"
@@ -785,6 +816,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum snafu 0.6.8 (registry+https://github.com/rust-lang/crates.io-index)" = "c7f5aed652511f5c9123cf2afbe9c244c29db6effa2abb05c866e965c82405ce"
 "checksum snafu-derive 0.6.8 (registry+https://github.com/rust-lang/crates.io-index)" = "ebf8f7d5720104a9df0f7076a8682024e958bba0fe9848767bb44f251f3648e9"
 "checksum strsim 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
+"checksum subtle 2.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "502d53007c02d7605a05df1c1a73ee436952781653da5d0bf57ad608f66932c1"
 "checksum syn 1.0.33 (registry+https://github.com/rust-lang/crates.io-index)" = "e8d5d96e8cbb005d6959f119f773bfaebb5684296108fb32600c00cde305b2cd"
 "checksum tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7a6e24d9338a0a5be79593e2fa15a648add6138caa803e2d5bc782c371732ca9"
 "checksum textwrap 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d326610f408c7a4eb6f51c37c330e496b08506c9457c9d34287ecc38809fb060"
@@ -800,3 +832,4 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum winapi 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)" = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
 "checksum winapi-i686-pc-windows-gnu 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
 "checksum winapi-x86_64-pc-windows-gnu 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+"checksum zeroize 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3cbac2ed2ba24cc90f5e06485ac8c7c1e5449fe8911aef4d8877218af021a5b8"

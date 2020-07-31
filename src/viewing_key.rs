@@ -12,9 +12,10 @@ pub struct ViewingKey(pub String);
 
 impl ViewingKey {
     pub fn check_viewing_key(&self, hashed_pw: &[u8]) -> bool {
+
         let mine_hashed = create_hashed_password(&self.0);
 
-        ct_slice_compare(mine_hashed.as_ref(), hashed_pw)
+        ct_slice_compare(mine_hashed.to_vec().as_slice(), hashed_pw)
     }
 
     pub fn new(env: &Env, seed: &[u8], entropy: &[u8]) -> Self {
@@ -30,6 +31,10 @@ impl ViewingKey {
         let key = sha_256(unsafe { mem::transmute::<[u32; 8], [u8; 32]>(rng.rand_slice()) }.as_ref() );
 
         Self("api_key_".to_string() + &base64::encode(key))
+    }
+
+    pub fn to_hashed(&self) -> [u8; 24] {
+        create_hashed_password(&self.0)
     }
 
     pub fn as_bytes(&self) -> &[u8] {

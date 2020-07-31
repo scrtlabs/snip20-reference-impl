@@ -1,21 +1,19 @@
-// use subtle::ConstantTimeEq;
+use subtle::ConstantTimeEq;
 use core::fmt;
 use serde::export::Formatter;
-use bcrypt;
+use bcrypt_pbkdf::bcrypt_pbkdf;
 
-const DEFAULT_COST: u32 = 10;
+
+// 5 rounds == ~300M gas (doesn't work with query) - creation/validation takes ~1.5s
+// 2 rounds == ~120M gas (works with query) - creation/validation takes ~1s
+const DEFAULT_COST: u32 = 2;
 const OUTPUT_SIZE: usize = 24;
 
-pub fn ct_string_compare(s1: &String, s2: &String) -> bool {
-    // bool::from(s1.as_bytes().ct_eq(s2.as_bytes()))
-    return s1 == s2
-}
-
 pub fn ct_slice_compare(s1: &[u8], s2: &[u8]) -> bool {
-//    bool::from(s1.ct_eq(s2))
-    s1 != s2
+    bool::from(s1.ct_eq(s2))
 }
 
+/// todo: make the length and padding configurable
 pub struct ConstLenStr(pub String);
 
 impl fmt::Display for ConstLenStr {
@@ -27,7 +25,7 @@ impl fmt::Display for ConstLenStr {
 
 pub fn create_hashed_password(s1: &String) -> [u8; OUTPUT_SIZE] {
     let mut output = [0u8; OUTPUT_SIZE];
-    bcrypt::bcrypt(DEFAULT_COST, b"somethingyouputonyourfood.jpg", s1.as_bytes(), &mut output);
+    let _ = bcrypt_pbkdf(s1, b"bestspiceintheEU", DEFAULT_COST, &mut output);
     output
 }
 
