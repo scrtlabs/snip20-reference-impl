@@ -1,3 +1,6 @@
+mod rand;
+mod viewing_key;
+mod utils;
 pub mod contract;
 pub mod msg;
 pub mod state;
