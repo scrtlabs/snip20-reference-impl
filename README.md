@@ -1,14 +1,12 @@
 # Secret-SCRT - Privacy coin backed by SCRT
 
-This is a quick and dirty PoC of how to create a privacy token on the Secret Network backed by a native coin.
+This is a PoC of how to create a privacy token on the Secret Network backed by a native coin.
 
 Usage is pretty simple - you deposit SCRT into the contract, and you get SSCRT (or Secret-SCRT), which you can then use with the ERC-20-like functionality that the contract provides including: sending/receiving/allowance and withdrawing back to SCRT. 
 
 In terms of privacy the deposit & withdrawals are public, as they are transactions on-chain. The rest of the functionality is private (so no one can see if you send SSCRT and to whom, and receiving SSCRT is also hidden). 
 
-One caveat is that in order to achieve this level of privacy, querying your balance is done as a transaction (and so you must pay fees and wait for an on-chain response) rather than a free query. This is done to be able to validate the account sender and keep your balance hidden from others, otherwise anyone would be able to query anyone else's balance.
-
-This is a slightly naive implementation, and more advanced uses could find creative ways to allow wallets to still notify you of incoming transactions without paying excessive fees, but that is an execise left to the reader.
+The code was updated with a new mechanism, which I call viewing keys. This allows a user to generate a key that enables off-chain queries. This way you can perform balance and transaction history queries without waiting for a transaction on-chain. The tranaction to create a viewing key is expensive, to the tune of about 3M gas. This is intended to make queries take a long time to execute to be resistent to brute-force attacks.
 
 The usual disclaimer: Don't use this in production, I take no responsibility for anything anywhere anytime etc.
 
@@ -32,9 +30,25 @@ To withdraw: ***(This is public)***
 
 ```./secretcli tx compute execute <contract-address> '{"withdraw": {"amount": "<amount in uscrt>"}}' --from <account>```
 
+To set your viewing key: 
+
+```./secretcli tx compute execute <contract-address> '{"create_viewing_key": {"entropy": "<random_phrase>"}}'```
+
+Make your random phrase as long as you want. At least 15 characters are recommended. You do not have to remember it - it will simply be used to randomize your generated viewing key. After this is done you can get your viewing key:
+
+```./secretcli q compute tx <returned tx-hash>```
+
+The key will start with the prefix `api_key_....`
+
+To use your viewing key, you can query your balance or the transaction history:
+
+```./secretcli tx compute query <contract-address> '{"balance": {"address": "<your_address>", "viewing_key": "<your_viewing_key>"}}'```
+
+```./secretcli tx compute query <contract-address> '{"transfers": {"address": "<your_address>", "viewing_key": "<your_viewing_key>"}}'```
+
 ## Play with it on testnet
 
-The deployed SSCRT contract address on the testnet is `secret1448nqda3f74dnylz2qlnze9jsagct38hch7l2p`
+The deployed SSCRT contract address on the testnet is `TBD` and label `TBD`
 
 ## Troubleshooting 
 
