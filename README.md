@@ -48,7 +48,7 @@ To use your viewing key, you can query your balance or the transaction history:
 
 ## Play with it on testnet
 
-The deployed SSCRT contract address on the testnet is `TBD` and label `TBD`
+The deployed SSCRT contract address on the testnet is `secret1umwqjum7f4zmp9alr2kpmq4y5j4hyxlam896r3` and label `sscrt`
 
 ## Troubleshooting 
 
