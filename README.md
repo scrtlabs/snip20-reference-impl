@@ -32,7 +32,7 @@ To withdraw: ***(This is public)***
 
 To set your viewing key: 
 
-```./secretcli tx compute execute <contract-address> '{"create_viewing_key": {"entropy": "<random_phrase>"}}'```
+```./secretcli tx compute execute <contract-address> '{"create_viewing_key": {"entropy": "<random_phrase>"}}' --from <account>```
 
 Make your random phrase as long as you want. At least 15 characters are recommended. You do not have to remember it - it will simply be used to randomize your generated viewing key. After this is done you can get your viewing key:
 
