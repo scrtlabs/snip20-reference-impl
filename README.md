@@ -24,7 +24,7 @@ To check your balance: ***(Only you will be able to see the parameters you send 
 
 ```./secretcli tx compute execute <contract-address> '{"balance": {}}' --from <account>```
 
-```./secretcli q compute tx <returned tx-hash>```
+```./secretcli q compute tx <returned tx-hash> --trust-node```
 
 To withdraw: ***(This is public)***
 
