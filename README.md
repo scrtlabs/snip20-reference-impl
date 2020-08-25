@@ -6,7 +6,7 @@ Usage is pretty simple - you deposit SCRT into the contract, and you get SSCRT (
 
 In terms of privacy the deposit & withdrawals are public, as they are transactions on-chain. The rest of the functionality is private (so no one can see if you send SSCRT and to whom, and receiving SSCRT is also hidden). 
 
-The code was updated with a new mechanism, which I call viewing keys. This allows a user to generate a key that enables off-chain queries. This way you can perform balance and transaction history queries without waiting for a transaction on-chain. The tranaction to create a viewing key is expensive, to the tune of about 3M gas. This is intended to make queries take a long time to execute to be resistent to brute-force attacks.
+The code was updated with a new mechanism, which I call viewing keys. This allows a user to generate a key that enables off-chain queries. This way you can perform balance and transaction history queries without waiting for a transaction on-chain. The tranaction to create a viewing key is expensive, to the tune of about 3M gas. This is intended to make queries take a long time to execute to be resistant to brute-force attacks.
 
 The usual disclaimer: Don't use this in production, I take no responsibility for anything anywhere anytime etc.
 
