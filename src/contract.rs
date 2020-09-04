@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
@@ -33,9 +35,9 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     {
         // Initial balances
         let mut balances_store = PrefixedStorage::new(PREFIX_BALANCES, &mut deps.storage);
-        for row in msg.initial_balances {
-            let raw_address = deps.api.canonical_address(&row.address)?;
-            let amount_raw = row.amount.u128();
+        for balance in msg.initial_balances {
+            let raw_address = deps.api.canonical_address(&balance.address)?;
+            let amount_raw = balance.amount.u128();
             balances_store.set(raw_address.as_slice(), &amount_raw.to_be_bytes());
             total_supply += amount_raw;
         }
@@ -282,7 +284,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env) -> StdResult<HandleResponse> {
 
-    let mut amount_raw: Uint128 = Uint128::default();
+    let mut amount_raw = Uint128::zero();
 
     for coin in &env.message.sent_funds {
         if coin.denom == "uscrt" {
@@ -290,7 +292,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
         }
     }
 
-    if amount_raw == Uint128::default() {
+    if amount_raw.is_zero() {
         return Err(generic_err(format!("Lol send some funds dude")));
     }
 
@@ -302,8 +304,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     account_balance += amount;
 
-    let mut balances_store = PrefixedStorage::new(PREFIX_BALANCES, &mut deps.storage);
-    balances_store.set(sender_address_raw.as_slice(), &account_balance.to_be_bytes());
+    write_balance(&mut deps.storage, sender_address_raw, account_balance);
 
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
     let data = config_store
@@ -349,8 +350,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     }
     account_balance -= amount_raw;
 
-    let mut balances_store = PrefixedStorage::new(PREFIX_BALANCES, &mut deps.storage);
-    balances_store.set(owner_address_raw.as_slice(), &account_balance.to_be_bytes());
+    write_balance(&mut deps.storage, owner_address_raw, account_balance);
 
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
     let data = config_store
@@ -530,8 +530,7 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     }
     account_balance -= amount_raw;
 
-    let mut balances_store = PrefixedStorage::new(PREFIX_BALANCES, &mut deps.storage);
-    balances_store.set(owner_address_raw.as_slice(), &account_balance.to_be_bytes());
+    write_balance(&mut deps.storage, owner_address_raw, account_balance);
 
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
     let data = config_store
@@ -587,7 +586,7 @@ fn perform_transfer<T: Storage>(
 // Converts 16 bytes value into u128
 // Errors if data found that is not 16 bytes
 pub fn bytes_to_u128(data: &[u8]) -> StdResult<u128> {
-    match data[0..16].try_into() {
+    match <[u8; 16]>::try_from(data) {
         Ok(bytes) => Ok(u128::from_be_bytes(bytes)),
         Err(_) => Err(generic_err(
             "Corrupted data found. 16 byte expected.",
@@ -611,7 +610,6 @@ fn write_viewing_key<S: Storage>(store: &mut S, owner: &CanonicalAddr, key: &Vie
     Ok(())
 }
 
-
 fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<Vec<u8>> {
     let balance_store = ReadonlyPrefixedStorage::new(PREFIX_VIEW_KEY, store);
     balance_store.get(owner.as_slice())
@@ -620,6 +618,11 @@ fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<Vec<
 fn read_balance<S: Storage>(store: &S, owner: &CanonicalAddr) -> StdResult<u128> {
     let balance_store = ReadonlyPrefixedStorage::new(PREFIX_BALANCES, store);
     read_u128(&balance_store, owner.as_slice())
+}
+
+fn write_balance<S: Storage>(store: &mut S, owner: &CanonicalAddr, amount: u128) {
+    let mut balances_store = PrefixedStorage::new(PREFIX_BALANCES, store);
+    balances_store.set(owner.as_slice(), &amount.to_be_bytes());
 }
 
 fn read_allowance<S: Storage>(
@@ -645,24 +648,15 @@ fn write_allowance<S: Storage>(
 }
 
 fn is_valid_name(name: &str) -> bool {
-    let bytes = name.as_bytes();
-    if bytes.len() < 3 || bytes.len() > 30 {
-        return false;
-    }
-    true
+    let len = name.len();
+    3 <= len && len <= 30
 }
 
 fn is_valid_symbol(symbol: &str) -> bool {
-    let bytes = symbol.as_bytes();
-    if bytes.len() < 3 || bytes.len() > 6 {
-        return false;
-    }
-    for byte in bytes.iter() {
-        if *byte < 65 || *byte > 90 {
-            return false;
-        }
-    }
-    true
+    let len = symbol.len();
+    let len_is_valid = 3 <= len && len <= 6;
+
+    len_is_valid && symbol.bytes().all(|byte| b'A' <= byte && byte <= b'Z')
 }
 
 fn read_constants<S: Storage>(
