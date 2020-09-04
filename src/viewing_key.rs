@@ -1,4 +1,4 @@
-use core::{fmt, mem};
+use std::fmt;
 
 use cosmwasm_std::Env;
 
@@ -21,13 +21,20 @@ impl ViewingKey {
         let mut rng_entropy: Vec<u8> = vec![];
         rng_entropy.extend_from_slice(&env.block.height.to_be_bytes());
         rng_entropy.extend_from_slice(&env.block.time.to_be_bytes());
-        rng_entropy.extend_from_slice(&env.message.sender.as_slice());
+        rng_entropy.extend_from_slice(&env.message.sender.0.as_bytes());
         rng_entropy.extend_from_slice(entropy);
 
         let mut rng = Prng::new(seed, &*rng_entropy);
 
-        let key =
-            sha_256(unsafe { mem::transmute::<[u32; 8], [u8; 32]>(rng.rand_slice()) }.as_ref());
+        let rand_slice = rng.rand_slice();
+        let mut rand_vec = Vec::with_capacity(32);
+        for n in &rand_slice {
+            for n in &n.to_le_bytes() {
+                rand_vec.push(*n);
+            }
+        }
+
+        let key = sha_256(rand_vec.as_slice());
 
         Self("api_key_".to_string() + &base64::encode(key))
     }

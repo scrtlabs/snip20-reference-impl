@@ -1,6 +1,6 @@
 use bcrypt_pbkdf::bcrypt_pbkdf;
-use core::fmt;
 use serde::export::Formatter;
+use std::fmt;
 use subtle::ConstantTimeEq;
 
 // 5 rounds == ~300M gas (doesn't work with query) - creation/validation takes ~1.5s

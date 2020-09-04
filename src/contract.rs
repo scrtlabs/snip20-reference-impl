@@ -8,9 +8,9 @@ use crate::state::{get_transfers, store_transfer};
 use crate::utils::ConstLenStr;
 use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
 use cosmwasm_std::{
-    generic_err, log, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
-    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdResult,
-    Storage, Uint128,
+    log, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
+    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
+    StdResult, Storage, Uint128,
 };
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
@@ -47,17 +47,17 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     // Check name, symbol, decimals
     if !is_valid_name(&msg.name) {
-        return Err(generic_err(
+        return Err(StdError::generic_err(
             "Name is not in the expected format (3-30 UTF-8 bytes)",
         ));
     }
     if !is_valid_symbol(&msg.symbol) {
-        return Err(generic_err(
+        return Err(StdError::generic_err(
             "Ticker symbol is not in expected format [A-Z]{3,6}",
         ));
     }
     if msg.decimals > 18 {
-        return Err(generic_err("Decimals must not exceed 18"));
+        return Err(StdError::generic_err("Decimals must not exceed 18"));
     }
 
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
@@ -167,7 +167,8 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
         });
     }
 
-    write_viewing_key(&mut deps.storage, &env.message.sender, &vk)?;
+    let canonical_message_sender = deps.api.canonical_address(&env.message.sender)?;
+    write_viewing_key(&mut deps.storage, &canonical_message_sender, &vk)?;
 
     Ok(HandleResponse {
         messages: vec![],
@@ -186,7 +187,8 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let vk = ViewingKey::new(&env, b"yo", (&entropy).as_ref());
 
-    write_viewing_key(&mut deps.storage, &env.message.sender, &vk)?;
+    let canonical_message_sender = deps.api.canonical_address(&env.message.sender)?;
+    write_viewing_key(&mut deps.storage, &canonical_message_sender, &vk)?;
 
     Ok(HandleResponse {
         messages: vec![],
@@ -200,10 +202,10 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
     env: Env,
     spender: HumanAddr,
 ) -> StdResult<HandleResponse> {
-    let sender_address_raw = &env.message.sender;
+    let sender_address_raw = deps.api.canonical_address(&env.message.sender)?;
     let allowance = read_allowance(
         &deps.storage,
-        sender_address_raw,
+        &sender_address_raw,
         &deps.api.canonical_address(&spender)?,
     );
 
@@ -212,7 +214,7 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
             messages: vec![],
             log: vec![
                 log("action", "check_allowance"),
-                log("account", deps.api.human_address(&env.message.sender)?.0),
+                log("account", env.message.sender.0),
                 log("spender", &spender.as_str()),
                 log("amount", ConstLenStr("0".to_string())),
             ],
@@ -223,7 +225,7 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
             messages: vec![],
             log: vec![
                 log("action", "check_allowance"),
-                log("account", deps.api.human_address(&env.message.sender)?.0),
+                log("account", env.message.sender.0),
                 log("spender", &spender.as_str()),
                 log("amount", ConstLenStr(allowance.unwrap().to_string())),
             ],
@@ -236,15 +238,15 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
 ) -> StdResult<HandleResponse> {
-    let sender_address_raw = &env.message.sender;
-    let account_balance = get_balance(deps, sender_address_raw);
+    let sender_address_raw = deps.api.canonical_address(&env.message.sender)?;
+    let account_balance = get_balance(deps, &sender_address_raw);
 
     if let Err(_e) = account_balance {
         Ok(HandleResponse {
             messages: vec![],
             log: vec![
                 log("action", "balance"),
-                log("account", deps.api.human_address(&env.message.sender)?.0),
+                log("account", env.message.sender.0),
                 log("amount", ConstLenStr("0".to_string())),
             ],
             data: None,
@@ -254,7 +256,7 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
             messages: vec![],
             log: vec![
                 log("action", "balance"),
-                log("account", deps.api.human_address(&env.message.sender)?.0),
+                log("account", env.message.sender.0),
                 log("amount", ConstLenStr(account_balance.unwrap())),
             ],
             data: None,
@@ -290,18 +292,18 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     }
 
     if amount_raw.is_zero() {
-        return Err(generic_err("Lol send some funds dude"));
+        return Err(StdError::generic_err("Lol send some funds dude"));
     }
 
     let amount = amount_raw.u128();
 
-    let sender_address_raw = &env.message.sender;
+    let sender_address_raw = deps.api.canonical_address(&env.message.sender)?;
 
-    let mut account_balance = read_balance(&deps.storage, sender_address_raw)?;
+    let mut account_balance = read_balance(&deps.storage, &sender_address_raw)?;
 
     account_balance += amount;
 
-    write_balance(&mut deps.storage, sender_address_raw, account_balance);
+    write_balance(&mut deps.storage, &sender_address_raw, account_balance);
 
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
     let data = config_store
@@ -317,7 +319,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![
             log("action", "deposit"),
-            log("account", deps.api.human_address(&env.message.sender)?.0),
+            log("account", env.message.sender.0),
             log("amount", &amount.to_string()),
         ],
         data: None,
@@ -331,20 +333,20 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let owner_address_raw = &env.message.sender;
+    let owner_address_raw = deps.api.canonical_address(&env.message.sender)?;
     let amount_raw = amount.u128();
 
-    let mut account_balance = read_balance(&deps.storage, owner_address_raw)?;
+    let mut account_balance = read_balance(&deps.storage, &owner_address_raw)?;
 
     if account_balance < amount_raw {
-        return Err(generic_err(format!(
+        return Err(StdError::generic_err(format!(
             "insufficient funds to burn: balance={}, required={}",
             account_balance, amount_raw
         )));
     }
     account_balance -= amount_raw;
 
-    write_balance(&mut deps.storage, owner_address_raw, account_balance);
+    write_balance(&mut deps.storage, &owner_address_raw, account_balance);
 
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
     let data = config_store
@@ -356,9 +358,6 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
 
     config_store.set(KEY_TOTAL_SUPPLY, &total_supply.to_be_bytes());
 
-    let contract_addr = deps.api.human_address(&env.contract.address)?;
-    let withdrawl_addr = deps.api.human_address(owner_address_raw)?;
-
     let withdrawl_coins: Vec<Coin> = vec![Coin {
         denom: "uscrt".to_string(),
         amount,
@@ -366,13 +365,13 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
 
     let res = HandleResponse {
         messages: vec![CosmosMsg::Bank(BankMsg::Send {
-            from_address: contract_addr,
-            to_address: withdrawl_addr,
+            from_address: env.contract.address,
+            to_address: env.message.sender.clone(),
             amount: withdrawl_coins,
         })],
         log: vec![
             log("action", "withdraw"),
-            log("account", deps.api.human_address(&env.message.sender)?.0),
+            log("account", env.message.sender.0),
             log("amount", &amount.to_string()),
         ],
         data: None,
@@ -387,7 +386,7 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     recipient: &HumanAddr,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let sender_address_raw = &env.message.sender;
+    let sender_address_raw = deps.api.canonical_address(&env.message.sender)?;
     let recipient_address_raw = deps.api.canonical_address(recipient)?;
     let amount_raw = amount.u128();
 
@@ -403,7 +402,7 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     store_transfer(
         &deps.api,
         &mut deps.storage,
-        sender_address_raw,
+        &sender_address_raw,
         &recipient_address_raw,
         amount,
         symbol,
@@ -413,7 +412,7 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![
             log("action", "transfer"),
-            log("sender", deps.api.human_address(&env.message.sender)?.0),
+            log("sender", env.message.sender.0),
             log("recipient", recipient.as_str()),
         ],
         data: None,
@@ -428,14 +427,14 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     recipient: &HumanAddr,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let spender_address_raw = &env.message.sender;
+    let spender_address_raw = deps.api.canonical_address(&env.message.sender)?;
     let owner_address_raw = deps.api.canonical_address(owner)?;
     let recipient_address_raw = deps.api.canonical_address(recipient)?;
     let amount_raw = amount.u128();
 
     let mut allowance = read_allowance(&deps.storage, &owner_address_raw, &spender_address_raw)?;
     if allowance < amount_raw {
-        return Err(generic_err(format!(
+        return Err(StdError::generic_err(format!(
             "Insufficient allowance: allowance={}, required={}",
             allowance, amount_raw
         )));
@@ -469,7 +468,7 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![
             log("action", "transfer_from"),
-            log("spender", deps.api.human_address(&env.message.sender)?.0),
+            log("spender", env.message.sender.0),
             log("sender", owner.as_str()),
             log("recipient", recipient.as_str()),
         ],
@@ -484,7 +483,7 @@ fn try_approve<S: Storage, A: Api, Q: Querier>(
     spender: &HumanAddr,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let owner_address_raw = &env.message.sender;
+    let owner_address_raw = deps.api.canonical_address(&env.message.sender)?;
     let spender_address_raw = deps.api.canonical_address(spender)?;
     write_allowance(
         &mut deps.storage,
@@ -496,7 +495,7 @@ fn try_approve<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![
             log("action", "approve"),
-            log("owner", deps.api.human_address(&env.message.sender)?.0),
+            log("owner", env.message.sender.0),
             log("spender", spender.as_str()),
         ],
         data: None,
@@ -514,20 +513,20 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let owner_address_raw = &env.message.sender;
+    let owner_address_raw = deps.api.canonical_address(&env.message.sender)?;
     let amount_raw = amount.u128();
 
-    let mut account_balance = read_balance(&deps.storage, owner_address_raw)?;
+    let mut account_balance = read_balance(&deps.storage, &owner_address_raw)?;
 
     if account_balance < amount_raw {
-        return Err(generic_err(format!(
+        return Err(StdError::generic_err(format!(
             "insufficient funds to burn: balance={}, required={}",
             account_balance, amount_raw
         )));
     }
     account_balance -= amount_raw;
 
-    write_balance(&mut deps.storage, owner_address_raw, account_balance);
+    write_balance(&mut deps.storage, &owner_address_raw, account_balance);
 
     let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
     let data = config_store
@@ -543,7 +542,7 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![
             log("action", "burn"),
-            log("account", deps.api.human_address(&env.message.sender)?.0),
+            log("account", env.message.sender.0),
             log("amount", amount.to_string()),
         ],
         data: None,
@@ -562,7 +561,7 @@ fn perform_transfer<T: Storage>(
 
     let mut from_balance = read_u128(&balances_store, from.as_slice())?;
     if from_balance < amount {
-        return Err(generic_err(format!(
+        return Err(StdError::generic_err(format!(
             "Insufficient funds: balance={}, required={}",
             from_balance, amount
         )));
@@ -582,7 +581,9 @@ fn perform_transfer<T: Storage>(
 pub fn bytes_to_u128(data: &[u8]) -> StdResult<u128> {
     match <[u8; 16]>::try_from(data) {
         Ok(bytes) => Ok(u128::from_be_bytes(bytes)),
-        Err(_) => Err(generic_err("Corrupted data found. 16 byte expected.")),
+        Err(_) => Err(StdError::generic_err(
+            "Corrupted data found. 16 byte expected.",
+        )),
     }
 }
 
