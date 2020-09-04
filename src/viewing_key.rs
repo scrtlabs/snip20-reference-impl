@@ -41,10 +41,7 @@ impl ViewingKey {
     }
 
     pub fn is_valid(&self) -> bool {
-        if self.0.len() != API_KEY_LENGTH {
-            return false;
-        }
-        return true;
+        self.0.len() == API_KEY_LENGTH
     }
 }
 

@@ -21,11 +21,11 @@ pub struct Prng {
 
 impl Prng {
     pub fn new(seed: &[u8], entropy: &[u8]) -> Self {
-        return Self {
+        Self {
             seed: seed.to_vec(),
             entropy: entropy.to_vec(),
             pos: 0,
-        };
+        }
     }
 
     pub fn rand_slice(&mut self) -> [u32; 8] {
@@ -41,7 +41,7 @@ impl Prng {
 
         let mut rng: ChaChaRng = ChaChaRng::from_seed(result);
 
-        rng.set_word_pos(self.pos.into());
+        rng.set_word_pos(self.pos);
         self.pos += 8;
 
         let mut output = [0u32; 8];

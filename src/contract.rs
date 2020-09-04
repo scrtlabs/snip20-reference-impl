@@ -83,14 +83,14 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::Deposit {} => try_deposit(deps, env),
         HandleMsg::Balance {} => try_balance(deps, env),
         HandleMsg::Allowance { spender } => try_check_allowance(deps, env, spender),
-        HandleMsg::Approve { spender, amount } => try_approve(deps, env, &spender, &amount),
-        HandleMsg::Transfer { recipient, amount } => try_transfer(deps, env, &recipient, &amount),
+        HandleMsg::Approve { spender, amount } => try_approve(deps, env, &spender, amount),
+        HandleMsg::Transfer { recipient, amount } => try_transfer(deps, env, &recipient, amount),
         HandleMsg::TransferFrom {
             owner,
             recipient,
             amount,
-        } => try_transfer_from(deps, env, &owner, &recipient, &amount),
-        HandleMsg::Burn { amount } => try_burn(deps, env, &amount),
+        } => try_transfer_from(deps, env, &owner, &recipient, amount),
+        HandleMsg::Burn { amount } => try_burn(deps, env, amount),
         HandleMsg::CreateViewingKey { entropy } => try_create_key(deps, env, entropy),
         HandleMsg::SetViewingKey { key } => try_set_key(deps, env, key),
     }
@@ -105,12 +105,10 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
 
     // checking the key will take significant time. We don't want to exit immediately if it isn't set
     // in a way which will allow to time the command and determine if a viewing key doesn't exist
-    if let None = expected_key {
-        if !key.check_viewing_key(&[0u8; 24]) {
-            return Ok(Binary(
-                b"Wrong viewing key for this address or viewing key not set".to_vec(),
-            ));
-        }
+    if expected_key.is_none() && !key.check_viewing_key(&[0u8; 24]) {
+        return Ok(Binary(
+            b"Wrong viewing key for this address or viewing key not set".to_vec(),
+        ));
     }
 
     if !key.check_viewing_key(expected_key.unwrap().as_slice()) {
@@ -214,10 +212,7 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
             messages: vec![],
             log: vec![
                 log("action", "check_allowance"),
-                log(
-                    "account",
-                    deps.api.human_address(&env.message.sender)?.as_str(),
-                ),
+                log("account", deps.api.human_address(&env.message.sender)?.0),
                 log("spender", &spender.as_str()),
                 log("amount", ConstLenStr("0".to_string())),
             ],
@@ -228,10 +223,7 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
             messages: vec![],
             log: vec![
                 log("action", "check_allowance"),
-                log(
-                    "account",
-                    deps.api.human_address(&env.message.sender)?.as_str(),
-                ),
+                log("account", deps.api.human_address(&env.message.sender)?.0),
                 log("spender", &spender.as_str()),
                 log("amount", ConstLenStr(allowance.unwrap().to_string())),
             ],
@@ -252,10 +244,7 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
             messages: vec![],
             log: vec![
                 log("action", "balance"),
-                log(
-                    "account",
-                    deps.api.human_address(&env.message.sender)?.as_str(),
-                ),
+                log("account", deps.api.human_address(&env.message.sender)?.0),
                 log("amount", ConstLenStr("0".to_string())),
             ],
             data: None,
@@ -265,10 +254,7 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
             messages: vec![],
             log: vec![
                 log("action", "balance"),
-                log(
-                    "account",
-                    deps.api.human_address(&env.message.sender)?.as_str(),
-                ),
+                log("account", deps.api.human_address(&env.message.sender)?.0),
                 log("amount", ConstLenStr(account_balance.unwrap())),
             ],
             data: None,
@@ -304,7 +290,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     }
 
     if amount_raw.is_zero() {
-        return Err(generic_err(format!("Lol send some funds dude")));
+        return Err(generic_err("Lol send some funds dude"));
     }
 
     let amount = amount_raw.u128();
@@ -331,10 +317,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![
             log("action", "deposit"),
-            log(
-                "account",
-                deps.api.human_address(&env.message.sender)?.as_str(),
-            ),
+            log("account", deps.api.human_address(&env.message.sender)?.0),
             log("amount", &amount.to_string()),
         ],
         data: None,
@@ -389,10 +372,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         })],
         log: vec![
             log("action", "withdraw"),
-            log(
-                "account",
-                deps.api.human_address(&env.message.sender)?.as_str(),
-            ),
+            log("account", deps.api.human_address(&env.message.sender)?.0),
             log("amount", &amount.to_string()),
         ],
         data: None,
@@ -405,7 +385,7 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     recipient: &HumanAddr,
-    amount: &Uint128,
+    amount: Uint128,
 ) -> StdResult<HandleResponse> {
     let sender_address_raw = &env.message.sender;
     let recipient_address_raw = deps.api.canonical_address(recipient)?;
@@ -433,10 +413,7 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![
             log("action", "transfer"),
-            log(
-                "sender",
-                deps.api.human_address(&env.message.sender)?.as_str(),
-            ),
+            log("sender", deps.api.human_address(&env.message.sender)?.0),
             log("recipient", recipient.as_str()),
         ],
         data: None,
@@ -449,7 +426,7 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     env: Env,
     owner: &HumanAddr,
     recipient: &HumanAddr,
-    amount: &Uint128,
+    amount: Uint128,
 ) -> StdResult<HandleResponse> {
     let spender_address_raw = &env.message.sender;
     let owner_address_raw = deps.api.canonical_address(owner)?;
@@ -492,10 +469,7 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![
             log("action", "transfer_from"),
-            log(
-                "spender",
-                deps.api.human_address(&env.message.sender)?.as_str(),
-            ),
+            log("spender", deps.api.human_address(&env.message.sender)?.0),
             log("sender", owner.as_str()),
             log("recipient", recipient.as_str()),
         ],
@@ -508,7 +482,7 @@ fn try_approve<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     spender: &HumanAddr,
-    amount: &Uint128,
+    amount: Uint128,
 ) -> StdResult<HandleResponse> {
     let owner_address_raw = &env.message.sender;
     let spender_address_raw = deps.api.canonical_address(spender)?;
@@ -522,10 +496,7 @@ fn try_approve<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![
             log("action", "approve"),
-            log(
-                "owner",
-                deps.api.human_address(&env.message.sender)?.as_str(),
-            ),
+            log("owner", deps.api.human_address(&env.message.sender)?.0),
             log("spender", spender.as_str()),
         ],
         data: None,
@@ -541,7 +512,7 @@ fn try_approve<S: Storage, A: Api, Q: Querier>(
 fn try_burn<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    amount: &Uint128,
+    amount: Uint128,
 ) -> StdResult<HandleResponse> {
     let owner_address_raw = &env.message.sender;
     let amount_raw = amount.u128();
@@ -572,11 +543,8 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![
             log("action", "burn"),
-            log(
-                "account",
-                deps.api.human_address(&env.message.sender)?.as_str(),
-            ),
-            log("amount", &amount.to_string()),
+            log("account", deps.api.human_address(&env.message.sender)?.0),
+            log("amount", amount.to_string()),
         ],
         data: None,
     };
@@ -696,7 +664,7 @@ fn read_constants<S: Storage>(store: &S) -> StdResult<Constants> {
     Ok(consts)
 }
 
-fn to_display_token(amount: u128, symbol: &String, decimals: u8) -> String {
+fn to_display_token(amount: u128, symbol: &str, decimals: u8) -> String {
     let base: u32 = 10;
 
     let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u64);

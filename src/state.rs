@@ -1,4 +1,3 @@
-use bincode2;
 use cosmwasm_std::{
     Api, CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdResult, Storage, Uint128,
 };
@@ -40,15 +39,12 @@ pub fn store_transfer<A: Api, S: Storage>(
     storage: &mut S,
     from_address: &CanonicalAddr,
     to_address: &CanonicalAddr,
-    amount: &Uint128,
-    symbol: String,
+    amount: Uint128,
+    denom: String,
 ) {
     let sender = api.human_address(from_address).unwrap();
     let receiver = api.human_address(to_address).unwrap();
-    let coins = Coin {
-        denom: symbol,
-        amount: amount.clone(),
-    };
+    let coins = Coin { denom, amount };
 
     let tx = Tx {
         sender,

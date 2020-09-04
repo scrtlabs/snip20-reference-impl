@@ -22,7 +22,7 @@ impl fmt::Display for ConstLenStr {
     }
 }
 
-pub fn create_hashed_password(s1: &String) -> [u8; OUTPUT_SIZE] {
+pub fn create_hashed_password(s1: &str) -> [u8; OUTPUT_SIZE] {
     let mut output = [0u8; OUTPUT_SIZE];
     let _ = bcrypt_pbkdf(s1, b"bestspiceintheEU", DEFAULT_COST, &mut output);
     output
