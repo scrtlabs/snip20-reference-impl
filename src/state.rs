@@ -1,13 +1,9 @@
-use crate::utils::ConstLenStr;
 use bincode2;
-use core::fmt;
 use cosmwasm_std::{
-    Api, CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
+    Api, CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdResult, Storage, Uint128,
 };
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
-use serde::export::Formatter;
 use serde::{Deserialize, Serialize};
-use std::path::Display;
 
 pub static CONFIG_KEY: &[u8] = b"config";
 pub const PREFIX_TXS: &[u8] = b"transfers";

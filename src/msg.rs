@@ -1,5 +1,5 @@
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use crate::viewing_key::ViewingKey;
 use cosmwasm_std::{HumanAddr, Uint128};
@@ -76,6 +76,7 @@ impl QueryMsg {
     }
 }
 
+/*
 #[derive(Clone, PartialEq)]
 pub struct BalanceResponse {
     pub balance: Uint128,
@@ -93,6 +94,7 @@ pub struct BalanceResponse {
 pub struct AllowanceResponse {
     pub allowance: Uint128,
 }
+*/
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct CreateViewingKeyResponse {
