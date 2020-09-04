@@ -5,11 +5,15 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 
 use crate::msg::{AllowanceResponse, BalanceResponse, HandleMsg, InitMsg, QueryMsg};
-use cosmwasm_std::{log, Api, Binary, CanonicalAddr, Env, Extern, HandleResponse, HumanAddr, generic_err, InitResponse, Querier, ReadonlyStorage, StdResult, Storage, Uint128, CosmosMsg, BankMsg, Coin, Decimal, QueryResult};
-use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
-use crate::utils::{ConstLenStr, ct_slice_compare, create_hashed_password};
+use crate::state::{get_transfers, store_transfer};
+use crate::utils::{create_hashed_password, ct_slice_compare, ConstLenStr};
 use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
-use crate::state::{store_transfer, get_transfers};
+use cosmwasm_std::{
+    generic_err, log, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
+    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdResult,
+    Storage, Uint128,
+};
+use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Constants {
@@ -24,7 +28,6 @@ pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const KEY_CONSTANTS: &[u8] = b"constants";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
-
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -63,7 +66,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         name: msg.name,
         symbol: msg.symbol,
         decimals: msg.decimals,
-    }).unwrap();
+    })
+    .unwrap();
     config_store.set(KEY_CONSTANTS, &constants);
     config_store.set(KEY_TOTAL_SUPPLY, &total_supply.to_be_bytes());
 
@@ -79,7 +83,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::Withdraw { amount } => try_withdraw(deps, env, amount),
         HandleMsg::Deposit {} => try_deposit(deps, env),
         HandleMsg::Balance {} => try_balance(deps, env),
-        HandleMsg::Allowance {spender} => try_check_allowance(deps, env, spender),
+        HandleMsg::Allowance { spender } => try_check_allowance(deps, env, spender),
         HandleMsg::Approve { spender, amount } => try_approve(deps, env, &spender, &amount),
         HandleMsg::Transfer { recipient, amount } => try_transfer(deps, env, &recipient, &amount),
         HandleMsg::TransferFrom {
@@ -97,7 +101,6 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     msg: QueryMsg,
 ) -> StdResult<Binary> {
-
     let (address, key) = msg.get_validation_params();
 
     let canonical_addr = deps.api.canonical_address(address)?;
@@ -108,32 +111,39 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
     // in a way which will allow to time the command and determine if a viewing key doesn't exist
     if let None = expected_key {
         if !key.check_viewing_key(&[0u8; 24]) {
-            return Ok(Binary(b"Wrong viewing key for this address or viewing key not set".to_vec()));
+            return Ok(Binary(
+                b"Wrong viewing key for this address or viewing key not set".to_vec(),
+            ));
         }
     }
 
     if !key.check_viewing_key(expected_key.unwrap().as_slice()) {
-        return Ok(Binary(b"Wrong viewing key for this address or viewing key not set".to_vec()));
+        return Ok(Binary(
+            b"Wrong viewing key for this address or viewing key not set".to_vec(),
+        ));
     }
 
     match msg {
-        QueryMsg::Balance { address, .. } => { query_balance(&deps, &address) }
-        QueryMsg::Transfers { address, .. } => {query_transactions(&deps, &address)}
-        _ => {
-            unimplemented!()
-        }
+        QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
+        QueryMsg::Transfers { address, .. } => query_transactions(&deps, &address),
+        _ => unimplemented!(),
     }
 }
 
-pub fn query_transactions<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, account: &HumanAddr) -> StdResult<Binary>{
+pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    account: &HumanAddr,
+) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account).unwrap();
     let address = get_transfers(&deps.storage, &address)?;
 
     Ok(Binary(format!("{:?}", address).into_bytes().to_vec()))
 }
 
-pub fn query_balance<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, account: &HumanAddr) -> StdResult<Binary>{
-
+pub fn query_balance<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    account: &HumanAddr,
+) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account)?;
 
     Ok(Binary(Vec::from(get_balance(deps, &address)?)))
@@ -142,60 +152,66 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, acc
 pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    key: String
+    key: String,
 ) -> StdResult<HandleResponse> {
-
     let vk = ViewingKey(key);
 
     if !vk.is_valid() {
-        return Ok(HandleResponse{
+        return Ok(HandleResponse {
             messages: vec![],
             log: vec![
                 log("result", "failed!"),
-                log("viewing key", format!("viewing key must be a string exactly {} characters!", API_KEY_LENGTH))
+                log(
+                    "viewing key",
+                    format!(
+                        "viewing key must be a string exactly {} characters!",
+                        API_KEY_LENGTH
+                    ),
+                ),
             ],
-            data: None
+            data: None,
         });
     }
 
     write_viewing_key(&mut deps.storage, &env.message.sender, &vk)?;
 
-    Ok(HandleResponse{
+    Ok(HandleResponse {
         messages: vec![],
         log: vec![
             log("result", "success"),
-            log("viewing key", format!("{}", vk))
+            log("viewing key", format!("{}", vk)),
         ],
-        data: None
+        data: None,
     })
 }
 
 pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    entropy: String
+    entropy: String,
 ) -> StdResult<HandleResponse> {
-
     let vk = ViewingKey::new(&env, b"yo", (&entropy).as_ref());
 
     write_viewing_key(&mut deps.storage, &env.message.sender, &vk)?;
 
-    Ok(HandleResponse{
+    Ok(HandleResponse {
         messages: vec![],
-        log: vec![
-            log("viewing key", format!("{}", vk))
-        ],
-        data: None
+        log: vec![log("viewing key", format!("{}", vk))],
+        data: None,
     })
 }
 
 pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    spender: HumanAddr) -> StdResult<HandleResponse> {
-
+    spender: HumanAddr,
+) -> StdResult<HandleResponse> {
     let sender_address_raw = &env.message.sender;
-    let allowance = read_allowance(&deps.storage, sender_address_raw, &deps.api.canonical_address(&spender)?);
+    let allowance = read_allowance(
+        &deps.storage,
+        sender_address_raw,
+        &deps.api.canonical_address(&spender)?,
+    );
 
     if let Err(_e) = allowance {
         Ok(HandleResponse {
@@ -206,16 +222,12 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
                     "account",
                     deps.api.human_address(&env.message.sender)?.as_str(),
                 ),
-                log(
-                    "spender",
-                    &spender.as_str(),
-                ),
+                log("spender", &spender.as_str()),
                 log("amount", ConstLenStr("0".to_string())),
             ],
             data: None,
         })
-    }
-    else {
+    } else {
         Ok(HandleResponse {
             messages: vec![],
             log: vec![
@@ -224,10 +236,7 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
                     "account",
                     deps.api.human_address(&env.message.sender)?.as_str(),
                 ),
-                log(
-                    "spender",
-                    &spender.as_str(),
-                ),
+                log("spender", &spender.as_str()),
                 log("amount", ConstLenStr(allowance.unwrap().to_string())),
             ],
             data: None,
@@ -237,8 +246,8 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
 
 pub fn try_balance<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    env: Env) -> StdResult<HandleResponse> {
-
+    env: Env,
+) -> StdResult<HandleResponse> {
     let sender_address_raw = &env.message.sender;
     let account_balance = get_balance(deps, sender_address_raw);
 
@@ -255,8 +264,7 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
             ],
             data: None,
         })
-    }
-    else {
+    } else {
         Ok(HandleResponse {
             messages: vec![],
             log: vec![
@@ -272,18 +280,25 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
     }
 }
 
-fn get_balance<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, account: &CanonicalAddr) -> StdResult<String> {
+fn get_balance<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    account: &CanonicalAddr,
+) -> StdResult<String> {
     let account_balance = read_balance(&deps.storage, account);
 
     let consts = read_constants(&deps.storage)?;
 
-    Ok(to_display_token(account_balance?, &consts.symbol, consts.decimals))
+    Ok(to_display_token(
+        account_balance?,
+        &consts.symbol,
+        consts.decimals,
+    ))
 }
 
 fn try_deposit<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    env: Env) -> StdResult<HandleResponse> {
-
+    env: Env,
+) -> StdResult<HandleResponse> {
     let mut amount_raw = Uint128::zero();
 
     for coin in &env.message.sent_funds {
@@ -330,13 +345,13 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     };
 
     Ok(res)
-
 }
 
 fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    amount: Uint128) -> StdResult<HandleResponse> {
+    amount: Uint128,
+) -> StdResult<HandleResponse> {
     let owner_address_raw = &env.message.sender;
     let amount_raw = amount.u128();
 
@@ -365,8 +380,10 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let contract_addr = deps.api.human_address(&env.contract.address)?;
     let withdrawl_addr = deps.api.human_address(owner_address_raw)?;
 
-    let withdrawl_coins: Vec<Coin> = vec![Coin {denom: "uscrt".to_string(), amount}];
-
+    let withdrawl_coins: Vec<Coin> = vec![Coin {
+        denom: "uscrt".to_string(),
+        amount,
+    }];
 
     let res = HandleResponse {
         messages: vec![CosmosMsg::Bank(BankMsg::Send {
@@ -386,7 +403,6 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     };
 
     Ok(res)
-
 }
 
 fn try_transfer<S: Storage, A: Api, Q: Querier>(
@@ -408,7 +424,14 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
 
     let symbol = read_constants(&deps.storage)?.symbol;
 
-    store_transfer(&deps.api, &mut deps.storage, sender_address_raw, &recipient_address_raw, amount, symbol);
+    store_transfer(
+        &deps.api,
+        &mut deps.storage,
+        sender_address_raw,
+        &recipient_address_raw,
+        amount,
+        symbol,
+    );
 
     let res = HandleResponse {
         messages: vec![],
@@ -460,7 +483,14 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
 
     let symbol = read_constants(&deps.storage)?.symbol;
 
-    store_transfer(&deps.api, &mut deps.storage, &owner_address_raw, &recipient_address_raw, amount, symbol);
+    store_transfer(
+        &deps.api,
+        &mut deps.storage,
+        &owner_address_raw,
+        &recipient_address_raw,
+        amount,
+        symbol,
+    );
 
     let res = HandleResponse {
         messages: vec![],
@@ -588,9 +618,7 @@ fn perform_transfer<T: Storage>(
 pub fn bytes_to_u128(data: &[u8]) -> StdResult<u128> {
     match <[u8; 16]>::try_from(data) {
         Ok(bytes) => Ok(u128::from_be_bytes(bytes)),
-        Err(_) => Err(generic_err(
-            "Corrupted data found. 16 byte expected.",
-        )),
+        Err(_) => Err(generic_err("Corrupted data found. 16 byte expected.")),
     }
 }
 
@@ -604,7 +632,11 @@ pub fn read_u128<S: ReadonlyStorage>(store: &S, key: &[u8]) -> StdResult<u128> {
     }
 }
 
-fn write_viewing_key<S: Storage>(store: &mut S, owner: &CanonicalAddr, key: &ViewingKey) -> StdResult<()> {
+fn write_viewing_key<S: Storage>(
+    store: &mut S,
+    owner: &CanonicalAddr,
+    key: &ViewingKey,
+) -> StdResult<()> {
     let mut balance_store = PrefixedStorage::new(PREFIX_VIEW_KEY, store);
     balance_store.set(owner.as_slice(), key.to_hashed().as_ref());
     Ok(())
@@ -659,9 +691,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
     len_is_valid && symbol.bytes().all(|byte| b'A' <= byte && byte <= b'Z')
 }
 
-fn read_constants<S: Storage>(
-    store: &S,
-) -> StdResult<Constants> {
+fn read_constants<S: Storage>(store: &S) -> StdResult<Constants> {
     let config_store = ReadonlyPrefixedStorage::new(PREFIX_CONFIG, store);
     let consts_bytes = config_store.get(KEY_CONSTANTS).unwrap();
 
@@ -671,7 +701,6 @@ fn read_constants<S: Storage>(
 }
 
 fn to_display_token(amount: u128, symbol: &String, decimals: u8) -> String {
-
     let base: u32 = 10;
 
     let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u64);

@@ -1,11 +1,13 @@
-use bincode2;
-use serde::{Deserialize, Serialize};
-use cosmwasm_std::{Api, CanonicalAddr, Storage, StdResult, StdError, HumanAddr, Coin, Uint128, ReadonlyStorage};
-use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use crate::utils::ConstLenStr;
-use std::path::Display;
+use bincode2;
 use core::fmt;
+use cosmwasm_std::{
+    Api, CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
+};
+use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use serde::export::Formatter;
+use serde::{Deserialize, Serialize};
+use std::path::Display;
 
 pub static CONFIG_KEY: &[u8] = b"config";
 pub const PREFIX_TXS: &[u8] = b"transfers";
@@ -14,7 +16,7 @@ pub const PREFIX_TXS: &[u8] = b"transfers";
 pub struct Tx {
     pub sender: HumanAddr,
     pub receiver: HumanAddr,
-    pub coins: Coin
+    pub coins: Coin,
 }
 
 /// This is here so we can create constant length transactions if we want to return this on-chain instead of a query
@@ -25,8 +27,8 @@ impl Default for Tx {
             receiver: Default::default(),
             coins: Coin {
                 denom: "EMPT".to_string(),
-                amount: Uint128::zero()
-            }
+                amount: Uint128::zero(),
+            },
         }
     }
 }
@@ -37,8 +39,14 @@ impl Default for Tx {
 //     }
 // }
 
-pub fn store_transfer<A: Api, S: Storage>(api: &A, storage: &mut S, from_address: &CanonicalAddr, to_address: &CanonicalAddr, amount: &Uint128, symbol: String) {
-
+pub fn store_transfer<A: Api, S: Storage>(
+    api: &A,
+    storage: &mut S,
+    from_address: &CanonicalAddr,
+    to_address: &CanonicalAddr,
+    amount: &Uint128,
+    symbol: String,
+) {
     let sender = api.human_address(from_address).unwrap();
     let receiver = api.human_address(to_address).unwrap();
     let coins = Coin {
@@ -49,7 +57,7 @@ pub fn store_transfer<A: Api, S: Storage>(api: &A, storage: &mut S, from_address
     let tx = Tx {
         sender,
         receiver,
-        coins
+        coins,
     };
 
     let mut store = PrefixedStorage::new(PREFIX_TXS, storage);

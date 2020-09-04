@@ -1,8 +1,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, Serializer};
 
-use cosmwasm_std::{HumanAddr, Uint128};
 use crate::viewing_key::ViewingKey;
+use cosmwasm_std::{HumanAddr, Uint128};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct InitialBalance {
@@ -21,12 +21,11 @@ pub struct InitMsg {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
-
     // Native coin interactions
     Withdraw {
         amount: Uint128,
     },
-    Deposit { },
+    Deposit {},
 
     // ERC-20 stuff
     Approve {
@@ -45,14 +44,18 @@ pub enum HandleMsg {
     Burn {
         amount: Uint128,
     },
-    Balance { },
+    Balance {},
     Allowance {
         spender: HumanAddr,
     },
 
     // Privacy stuff
-    SetViewingKey { key: String },
-    CreateViewingKey { entropy: String }
+    SetViewingKey {
+        key: String,
+    },
+    CreateViewingKey {
+        entropy: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -66,9 +69,9 @@ pub enum QueryMsg {
 impl QueryMsg {
     pub fn get_validation_params(&self) -> (&HumanAddr, ViewingKey) {
         match self {
-            Self::Balance { address, key} => (address, ViewingKey(key.clone())),
-            Self::Transfers { address, key} => (address, ViewingKey(key.clone())),
-            _ => (panic!("lol"))
+            Self::Balance { address, key } => (address, ViewingKey(key.clone())),
+            Self::Transfers { address, key } => (address, ViewingKey(key.clone())),
+            _ => (panic!("lol")),
         }
     }
 }
@@ -85,7 +88,6 @@ pub struct BalanceResponse {
 //         unimplemented!()
 //     }
 // }
-
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct AllowanceResponse {
