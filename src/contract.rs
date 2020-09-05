@@ -1,7 +1,9 @@
 use std::convert::TryFrom;
 
 use crate::msg::{HandleMsg, InitMsg, QueryMsg};
-use crate::state::{get_transfers, store_transfer, Config, Constants, ReadonlyConfig};
+use crate::state::{
+    get_transfers, store_transfer, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
+};
 use crate::utils::ConstLenStr;
 use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
 use cosmwasm_std::{
@@ -24,13 +26,12 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<InitResponse> {
     let mut total_supply: u128 = 0;
     {
-        // Initial balances
-        let mut balances_store = PrefixedStorage::new(PREFIX_BALANCES, &mut deps.storage);
+        let mut balances = Balances::from_storage(&mut deps.storage);
         for balance in msg.initial_balances {
-            let raw_address = deps.api.canonical_address(&balance.address)?;
-            let amount_raw = balance.amount.u128();
-            balances_store.set(raw_address.as_slice(), &amount_raw.to_be_bytes());
-            total_supply += amount_raw;
+            let balance_address = deps.api.canonical_address(&balance.address)?;
+            let amount = balance.amount.u128();
+            balances.set_account_balance(&balance_address, amount);
+            total_supply += amount;
         }
     }
 
@@ -255,12 +256,12 @@ fn get_balance<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     account: &CanonicalAddr,
 ) -> StdResult<String> {
-    let account_balance = read_balance(&deps.storage, account);
+    let account_balance = ReadonlyBalances::from_storage(&deps.storage).account_amount(account);
 
     let consts = ReadonlyConfig::from_storage(&deps.storage).constants()?;
 
     Ok(to_display_token(
-        account_balance?,
+        account_balance,
         &consts.symbol,
         consts.decimals,
     ))
@@ -284,13 +285,12 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let amount = amount_raw.u128();
 
-    let sender_address_raw = deps.api.canonical_address(&env.message.sender)?;
+    let sender_address = deps.api.canonical_address(&env.message.sender)?;
 
-    let mut account_balance = read_balance(&deps.storage, &sender_address_raw)?;
-
+    let mut balances = Balances::from_storage(&mut deps.storage);
+    let mut account_balance = balances.account_amount(&sender_address);
     account_balance += amount;
-
-    write_balance(&mut deps.storage, &sender_address_raw, account_balance);
+    balances.set_account_balance(&sender_address, account_balance);
 
     let mut config = Config::from_storage(&mut deps.storage);
     let mut total_supply = config.total_supply();
@@ -315,10 +315,11 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let owner_address_raw = deps.api.canonical_address(&env.message.sender)?;
+    let sender_address = deps.api.canonical_address(&env.message.sender)?;
     let amount_raw = amount.u128();
 
-    let mut account_balance = read_balance(&deps.storage, &owner_address_raw)?;
+    let mut balances = Balances::from_storage(&mut deps.storage);
+    let mut account_balance = balances.account_amount(&sender_address);
 
     if account_balance < amount_raw {
         return Err(StdError::generic_err(format!(
@@ -328,7 +329,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     }
     account_balance -= amount_raw;
 
-    write_balance(&mut deps.storage, &owner_address_raw, account_balance);
+    balances.set_account_balance(&sender_address, account_balance);
 
     let mut config = Config::from_storage(&mut deps.storage);
     let mut total_supply = config.total_supply();
@@ -490,24 +491,25 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let owner_address_raw = deps.api.canonical_address(&env.message.sender)?;
-    let amount_raw = amount.u128();
+    let sender_address = deps.api.canonical_address(&env.message.sender)?;
+    let amount = amount.u128();
 
-    let mut account_balance = read_balance(&deps.storage, &owner_address_raw)?;
+    let mut balances = Balances::from_storage(&mut deps.storage);
+    let mut account_balance = balances.account_amount(&sender_address);
 
-    if account_balance < amount_raw {
+    if account_balance < amount {
         return Err(StdError::generic_err(format!(
             "insufficient funds to burn: balance={}, required={}",
-            account_balance, amount_raw
+            account_balance, amount
         )));
     }
-    account_balance -= amount_raw;
+    account_balance -= amount;
 
-    write_balance(&mut deps.storage, &owner_address_raw, account_balance);
+    balances.set_account_balance(&sender_address, account_balance);
 
     let mut config = Config::from_storage(&mut deps.storage);
     let mut total_supply = config.total_supply();
-    total_supply -= amount_raw;
+    total_supply -= amount;
     config.set_total_supply(total_supply);
 
     let res = HandleResponse {
@@ -529,9 +531,9 @@ fn perform_transfer<T: Storage>(
     to: &CanonicalAddr,
     amount: u128,
 ) -> StdResult<()> {
-    let mut balances_store = PrefixedStorage::new(PREFIX_BALANCES, store);
+    let mut balances = Balances::from_storage(store);
 
-    let mut from_balance = read_u128(&balances_store, from.as_slice())?;
+    let mut from_balance = balances.account_amount(from);
     if from_balance < amount {
         return Err(StdError::generic_err(format!(
             "Insufficient funds: balance={}, required={}",
@@ -539,11 +541,11 @@ fn perform_transfer<T: Storage>(
         )));
     }
     from_balance -= amount;
-    balances_store.set(from.as_slice(), &from_balance.to_be_bytes());
+    balances.set_account_balance(from, from_balance);
 
-    let mut to_balance = read_u128(&balances_store, to.as_slice())?;
+    let mut to_balance = balances.account_amount(to);
     to_balance += amount;
-    balances_store.set(to.as_slice(), &to_balance.to_be_bytes());
+    balances.set_account_balance(to, to_balance);
 
     Ok(())
 }
@@ -582,16 +584,6 @@ fn write_viewing_key<S: Storage>(
 fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<Vec<u8>> {
     let balance_store = ReadonlyPrefixedStorage::new(PREFIX_VIEW_KEY, store);
     balance_store.get(owner.as_slice())
-}
-
-fn read_balance<S: Storage>(store: &S, owner: &CanonicalAddr) -> StdResult<u128> {
-    let balance_store = ReadonlyPrefixedStorage::new(PREFIX_BALANCES, store);
-    read_u128(&balance_store, owner.as_slice())
-}
-
-fn write_balance<S: Storage>(store: &mut S, owner: &CanonicalAddr, amount: u128) {
-    let mut balances_store = PrefixedStorage::new(PREFIX_BALANCES, store);
-    balances_store.set(owner.as_slice(), &amount.to_be_bytes());
 }
 
 fn read_allowance<S: Storage>(

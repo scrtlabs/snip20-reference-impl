@@ -96,6 +96,8 @@ pub fn get_transfers<S: Storage>(storage: &S, for_address: &CanonicalAddr) -> St
     }
 }
 
+// Config
+
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Constants {
     pub name: String,
@@ -189,6 +191,73 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfigImpl<'a, S> {
         slice_to_u128(&supply_bytes).unwrap()
     }
 }
+
+// Balances
+
+pub struct ReadonlyBalances<'a, S: ReadonlyStorage> {
+    storage: ReadonlyPrefixedStorage<'a, S>,
+}
+
+impl<'a, S: ReadonlyStorage> ReadonlyBalances<'a, S> {
+    pub fn from_storage(storage: &'a S) -> Self {
+        Self {
+            storage: ReadonlyPrefixedStorage::new(PREFIX_BALANCES, storage),
+        }
+    }
+
+    fn as_readonly(&self) -> ReadonlyBalancesImpl<ReadonlyPrefixedStorage<S>> {
+        ReadonlyBalancesImpl(&self.storage)
+    }
+
+    pub fn account_amount(&self, account: &CanonicalAddr) -> u128 {
+        self.as_readonly().account_amount(account)
+    }
+}
+
+pub struct Balances<'a, S: Storage> {
+    storage: PrefixedStorage<'a, S>,
+}
+
+impl<'a, S: Storage> Balances<'a, S> {
+    pub fn from_storage(storage: &'a mut S) -> Self {
+        Self {
+            storage: PrefixedStorage::new(PREFIX_BALANCES, storage),
+        }
+    }
+
+    fn as_readonly(&self) -> ReadonlyBalancesImpl<PrefixedStorage<S>> {
+        ReadonlyBalancesImpl(&self.storage)
+    }
+
+    pub fn account_amount(&self, account: &CanonicalAddr) -> u128 {
+        self.as_readonly().account_amount(account)
+    }
+
+    pub fn set_account_balance(&mut self, account: &CanonicalAddr, amount: u128) {
+        self.storage.set(account.as_slice(), &amount.to_be_bytes())
+    }
+}
+
+/// This struct refactors out the readonly methods that we need for `Balances` and `ReadonlyBalances`
+/// in a way that is generic over their mutability.
+///
+/// This was the only way to prevent code duplication of these methods because of the way
+/// that `ReadonlyPrefixedStorage` and `PrefixedStorage` are implemented in `cosmwasm-std`
+struct ReadonlyBalancesImpl<'a, S: ReadonlyStorage>(&'a S);
+
+impl<'a, S: ReadonlyStorage> ReadonlyBalancesImpl<'a, S> {
+    pub fn account_amount(&self, account: &CanonicalAddr) -> u128 {
+        let account_bytes = account.as_slice();
+        let result = self.0.get(account_bytes);
+        match result {
+            // This unwrap is ok because we know we stored things correctly
+            Some(balance_bytes) => slice_to_u128(&balance_bytes).unwrap(),
+            None => 0,
+        }
+    }
+}
+
+// Helpers
 
 // Converts 16 bytes value into u128
 // Errors if data found that is not 16 bytes
