@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use crate::msg::{HandleMsg, InitMsg, QueryMsg};
 use crate::state::{
     get_transfers, read_allowance, store_transfer, write_allowance, Balances, Config, Constants,
@@ -548,17 +546,6 @@ fn perform_transfer<T: Storage>(
     balances.set_account_balance(to, to_balance);
 
     Ok(())
-}
-
-// Converts 16 bytes value into u128
-// Errors if data found that is not 16 bytes
-pub fn bytes_to_u128(data: &[u8]) -> StdResult<u128> {
-    match <[u8; 16]>::try_from(data) {
-        Ok(bytes) => Ok(u128::from_be_bytes(bytes)),
-        Err(_) => Err(StdError::generic_err(
-            "Corrupted data found. 16 byte expected.",
-        )),
-    }
 }
 
 fn write_viewing_key<S: Storage>(
