@@ -2,7 +2,8 @@ use std::convert::TryFrom;
 
 use crate::msg::{HandleMsg, InitMsg, QueryMsg};
 use crate::state::{
-    get_transfers, store_transfer, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
+    get_transfers, read_allowance, store_transfer, write_allowance, Balances, Config, Constants,
+    ReadonlyBalances, ReadonlyConfig,
 };
 use crate::utils::ConstLenStr;
 use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
@@ -13,7 +14,6 @@ use cosmwasm_std::{
 };
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
-pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const KEY_CONSTANTS: &[u8] = b"constants";
@@ -561,16 +561,6 @@ pub fn bytes_to_u128(data: &[u8]) -> StdResult<u128> {
     }
 }
 
-// Reads 16 byte storage value into u128
-// Returns zero if key does not exist. Errors if data found that is not 16 bytes
-pub fn read_u128<S: ReadonlyStorage>(store: &S, key: &[u8]) -> StdResult<u128> {
-    let result = store.get(key);
-    match result {
-        Some(data) => bytes_to_u128(&data),
-        None => Ok(0u128),
-    }
-}
-
 fn write_viewing_key<S: Storage>(
     store: &mut S,
     owner: &CanonicalAddr,
@@ -584,28 +574,6 @@ fn write_viewing_key<S: Storage>(
 fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<Vec<u8>> {
     let balance_store = ReadonlyPrefixedStorage::new(PREFIX_VIEW_KEY, store);
     balance_store.get(owner.as_slice())
-}
-
-fn read_allowance<S: Storage>(
-    store: &S,
-    owner: &CanonicalAddr,
-    spender: &CanonicalAddr,
-) -> StdResult<u128> {
-    let allowances_store = ReadonlyPrefixedStorage::new(PREFIX_ALLOWANCES, store);
-    let owner_store = ReadonlyPrefixedStorage::new(owner.as_slice(), &allowances_store);
-    read_u128(&owner_store, spender.as_slice())
-}
-
-fn write_allowance<S: Storage>(
-    store: &mut S,
-    owner: &CanonicalAddr,
-    spender: &CanonicalAddr,
-    amount: u128,
-) -> StdResult<()> {
-    let mut allowances_store = PrefixedStorage::new(PREFIX_ALLOWANCES, store);
-    let mut owner_store = PrefixedStorage::new(owner.as_slice(), &mut allowances_store);
-    owner_store.set(spender.as_slice(), &amount.to_be_bytes());
-    Ok(())
 }
 
 fn is_valid_name(name: &str) -> bool {
