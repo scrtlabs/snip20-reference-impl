@@ -152,8 +152,8 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
         });
     }
 
-    let canonical_message_sender = deps.api.canonical_address(&env.message.sender)?;
-    write_viewing_key(&mut deps.storage, &canonical_message_sender, &vk)?;
+    let message_sender = deps.api.canonical_address(&env.message.sender)?;
+    write_viewing_key(&mut deps.storage, &message_sender, &vk)?;
 
     Ok(HandleResponse {
         messages: vec![],
@@ -172,8 +172,8 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let vk = ViewingKey::new(&env, b"yo", (&entropy).as_ref());
 
-    let canonical_message_sender = deps.api.canonical_address(&env.message.sender)?;
-    write_viewing_key(&mut deps.storage, &canonical_message_sender, &vk)?;
+    let message_sender = deps.api.canonical_address(&env.message.sender)?;
+    write_viewing_key(&mut deps.storage, &message_sender, &vk)?;
 
     Ok(HandleResponse {
         messages: vec![],
@@ -187,10 +187,10 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
     env: Env,
     spender: HumanAddr,
 ) -> StdResult<HandleResponse> {
-    let sender_address_raw = deps.api.canonical_address(&env.message.sender)?;
+    let sender_address = deps.api.canonical_address(&env.message.sender)?;
     let allowance = read_allowance(
         &deps.storage,
-        &sender_address_raw,
+        &sender_address,
         &deps.api.canonical_address(&spender)?,
     );
 
@@ -223,8 +223,8 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
 ) -> StdResult<HandleResponse> {
-    let sender_address_raw = deps.api.canonical_address(&env.message.sender)?;
-    let account_balance = get_balance(deps, &sender_address_raw);
+    let sender_address = deps.api.canonical_address(&env.message.sender)?;
+    let account_balance = get_balance(deps, &sender_address);
 
     if let Err(_e) = account_balance {
         Ok(HandleResponse {
@@ -268,19 +268,19 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
 ) -> StdResult<HandleResponse> {
-    let mut amount_raw = Uint128::zero();
+    let mut amount = Uint128::zero();
 
     for coin in &env.message.sent_funds {
         if coin.denom == "uscrt" {
-            amount_raw = coin.amount
+            amount = coin.amount
         }
     }
 
-    if amount_raw.is_zero() {
+    if amount.is_zero() {
         return Err(StdError::generic_err("Lol send some funds dude"));
     }
 
-    let amount = amount_raw.u128();
+    let amount = amount.u128();
 
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
 
@@ -361,15 +361,14 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     recipient: &HumanAddr,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let sender_address_raw = deps.api.canonical_address(&env.message.sender)?;
-    let recipient_address_raw = deps.api.canonical_address(recipient)?;
-    let amount_raw = amount.u128();
+    let sender_address = deps.api.canonical_address(&env.message.sender)?;
+    let recipient_address = deps.api.canonical_address(recipient)?;
 
     perform_transfer(
         &mut deps.storage,
-        &sender_address_raw,
-        &recipient_address_raw,
-        amount_raw,
+        &sender_address,
+        &recipient_address,
+        amount.u128(),
     )?;
 
     let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
@@ -377,8 +376,8 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     store_transfer(
         &deps.api,
         &mut deps.storage,
-        &sender_address_raw,
-        &recipient_address_raw,
+        &sender_address,
+        &recipient_address,
         amount,
         symbol,
     );
@@ -402,12 +401,12 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     recipient: &HumanAddr,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let spender_address_raw = deps.api.canonical_address(&env.message.sender)?;
-    let owner_address_raw = deps.api.canonical_address(owner)?;
-    let recipient_address_raw = deps.api.canonical_address(recipient)?;
+    let spender_address = deps.api.canonical_address(&env.message.sender)?;
+    let owner_address = deps.api.canonical_address(owner)?;
+    let recipient_address = deps.api.canonical_address(recipient)?;
     let amount_raw = amount.u128();
 
-    let mut allowance = read_allowance(&deps.storage, &owner_address_raw, &spender_address_raw)?;
+    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
     if allowance < amount_raw {
         return Err(StdError::generic_err(format!(
             "Insufficient allowance: allowance={}, required={}",
@@ -417,14 +416,14 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     allowance -= amount_raw;
     write_allowance(
         &mut deps.storage,
-        &owner_address_raw,
-        &spender_address_raw,
+        &owner_address,
+        &spender_address,
         allowance,
     )?;
     perform_transfer(
         &mut deps.storage,
-        &owner_address_raw,
-        &recipient_address_raw,
+        &owner_address,
+        &recipient_address,
         amount_raw,
     )?;
 
@@ -433,8 +432,8 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     store_transfer(
         &deps.api,
         &mut deps.storage,
-        &owner_address_raw,
-        &recipient_address_raw,
+        &owner_address,
+        &recipient_address,
         amount,
         symbol,
     );
@@ -458,12 +457,12 @@ fn try_approve<S: Storage, A: Api, Q: Querier>(
     spender: &HumanAddr,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let owner_address_raw = deps.api.canonical_address(&env.message.sender)?;
-    let spender_address_raw = deps.api.canonical_address(spender)?;
+    let owner_address = deps.api.canonical_address(&env.message.sender)?;
+    let spender_address = deps.api.canonical_address(spender)?;
     write_allowance(
         &mut deps.storage,
-        &owner_address_raw,
-        &spender_address_raw,
+        &owner_address,
+        &spender_address,
         amount.u128(),
     )?;
     let res = HandleResponse {
