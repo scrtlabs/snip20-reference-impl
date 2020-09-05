@@ -1,16 +1,15 @@
 use crate::msg::{HandleMsg, InitMsg, QueryMsg};
 use crate::state::{
-    get_transfers, read_allowance, store_transfer, write_allowance, Balances, Config, Constants,
-    ReadonlyBalances, ReadonlyConfig,
+    get_transfers, read_allowance, read_viewing_key, store_transfer, write_allowance,
+    write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
 };
 use crate::utils::ConstLenStr;
 use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
 use cosmwasm_std::{
     log, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
-    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
-    StdResult, Storage, Uint128,
+    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, StdError, StdResult, Storage,
+    Uint128,
 };
-use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
@@ -546,21 +545,6 @@ fn perform_transfer<T: Storage>(
     balances.set_account_balance(to, to_balance);
 
     Ok(())
-}
-
-fn write_viewing_key<S: Storage>(
-    store: &mut S,
-    owner: &CanonicalAddr,
-    key: &ViewingKey,
-) -> StdResult<()> {
-    let mut balance_store = PrefixedStorage::new(PREFIX_VIEW_KEY, store);
-    balance_store.set(owner.as_slice(), key.to_hashed().as_ref());
-    Ok(())
-}
-
-fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<Vec<u8>> {
-    let balance_store = ReadonlyPrefixedStorage::new(PREFIX_VIEW_KEY, store);
-    balance_store.get(owner.as_slice())
 }
 
 fn is_valid_name(name: &str) -> bool {

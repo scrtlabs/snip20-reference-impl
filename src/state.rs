@@ -8,6 +8,8 @@ use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::viewing_key::ViewingKey;
+
 pub static CONFIG_KEY: &[u8] = b"config";
 pub const PREFIX_TXS: &[u8] = b"transfers";
 
@@ -283,6 +285,23 @@ pub fn write_allowance<S: Storage>(
     let mut owner_store = PrefixedStorage::new(owner.as_slice(), &mut allowances_store);
     owner_store.set(spender.as_slice(), &amount.to_be_bytes());
     Ok(())
+}
+
+// Viewing Keys
+
+pub fn write_viewing_key<S: Storage>(
+    store: &mut S,
+    owner: &CanonicalAddr,
+    key: &ViewingKey,
+) -> StdResult<()> {
+    let mut balance_store = PrefixedStorage::new(PREFIX_VIEW_KEY, store);
+    balance_store.set(owner.as_slice(), key.to_hashed().as_ref());
+    Ok(())
+}
+
+pub fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<Vec<u8>> {
+    let balance_store = ReadonlyPrefixedStorage::new(PREFIX_VIEW_KEY, store);
+    balance_store.get(owner.as_slice())
 }
 
 // Helpers
