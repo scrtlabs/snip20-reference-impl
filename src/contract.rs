@@ -1,10 +1,7 @@
 use std::convert::TryFrom;
 
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
 use crate::msg::{HandleMsg, InitMsg, QueryMsg};
-use crate::state::{get_transfers, store_transfer};
+use crate::state::{get_transfers, store_transfer, Config, Constants, ReadonlyConfig};
 use crate::utils::ConstLenStr;
 use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
 use cosmwasm_std::{
@@ -14,14 +11,6 @@ use cosmwasm_std::{
 };
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
-pub struct Constants {
-    pub name: String,
-    pub symbol: String,
-    pub decimals: u8,
-}
-
-pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
@@ -60,15 +49,13 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Decimals must not exceed 18"));
     }
 
-    let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
-    let constants = bincode2::serialize(&Constants {
+    let mut config = Config::from_storage(&mut deps.storage);
+    config.set_constants(&Constants {
         name: msg.name,
         symbol: msg.symbol,
         decimals: msg.decimals,
-    })
-    .unwrap();
-    config_store.set(KEY_CONSTANTS, &constants);
-    config_store.set(KEY_TOTAL_SUPPLY, &total_supply.to_be_bytes());
+    })?;
+    config.set_total_supply(total_supply);
 
     Ok(InitResponse::default())
 }
@@ -270,7 +257,7 @@ fn get_balance<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<String> {
     let account_balance = read_balance(&deps.storage, account);
 
-    let consts = read_constants(&deps.storage)?;
+    let consts = ReadonlyConfig::from_storage(&deps.storage).constants()?;
 
     Ok(to_display_token(
         account_balance?,
@@ -305,15 +292,10 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     write_balance(&mut deps.storage, &sender_address_raw, account_balance);
 
-    let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
-    let data = config_store
-        .get(KEY_TOTAL_SUPPLY)
-        .expect("no total supply data stored");
-    let mut total_supply = bytes_to_u128(&data).unwrap();
-
+    let mut config = Config::from_storage(&mut deps.storage);
+    let mut total_supply = config.total_supply();
     total_supply += amount;
-
-    config_store.set(KEY_TOTAL_SUPPLY, &total_supply.to_be_bytes());
+    config.set_total_supply(total_supply);
 
     let res = HandleResponse {
         messages: vec![],
@@ -348,15 +330,10 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
 
     write_balance(&mut deps.storage, &owner_address_raw, account_balance);
 
-    let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
-    let data = config_store
-        .get(KEY_TOTAL_SUPPLY)
-        .expect("no total supply data stored");
-    let mut total_supply = bytes_to_u128(&data).unwrap();
-
+    let mut config = Config::from_storage(&mut deps.storage);
+    let mut total_supply = config.total_supply();
     total_supply -= amount_raw;
-
-    config_store.set(KEY_TOTAL_SUPPLY, &total_supply.to_be_bytes());
+    config.set_total_supply(total_supply);
 
     let withdrawl_coins: Vec<Coin> = vec![Coin {
         denom: "uscrt".to_string(),
@@ -397,7 +374,7 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
         amount_raw,
     )?;
 
-    let symbol = read_constants(&deps.storage)?.symbol;
+    let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
 
     store_transfer(
         &deps.api,
@@ -453,7 +430,7 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
         amount_raw,
     )?;
 
-    let symbol = read_constants(&deps.storage)?.symbol;
+    let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
 
     store_transfer(
         &deps.api,
@@ -528,15 +505,10 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
 
     write_balance(&mut deps.storage, &owner_address_raw, account_balance);
 
-    let mut config_store = PrefixedStorage::new(PREFIX_CONFIG, &mut deps.storage);
-    let data = config_store
-        .get(KEY_TOTAL_SUPPLY)
-        .expect("no total supply data stored");
-    let mut total_supply = bytes_to_u128(&data).unwrap();
-
+    let mut config = Config::from_storage(&mut deps.storage);
+    let mut total_supply = config.total_supply();
     total_supply -= amount_raw;
-
-    config_store.set(KEY_TOTAL_SUPPLY, &total_supply.to_be_bytes());
+    config.set_total_supply(total_supply);
 
     let res = HandleResponse {
         messages: vec![],
@@ -654,15 +626,6 @@ fn is_valid_symbol(symbol: &str) -> bool {
     let len_is_valid = 3 <= len && len <= 6;
 
     len_is_valid && symbol.bytes().all(|byte| b'A' <= byte && byte <= b'Z')
-}
-
-fn read_constants<S: Storage>(store: &S) -> StdResult<Constants> {
-    let config_store = ReadonlyPrefixedStorage::new(PREFIX_CONFIG, store);
-    let consts_bytes = config_store.get(KEY_CONSTANTS).unwrap();
-
-    let consts: Constants = bincode2::deserialize(&consts_bytes).unwrap();
-
-    Ok(consts)
 }
 
 fn to_display_token(amount: u128, symbol: &str, decimals: u8) -> String {
