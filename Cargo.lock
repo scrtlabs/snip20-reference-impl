@@ -82,17 +82,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "block-buffer"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "block-padding 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "byte-tools 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "generic-array 0.12.3 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "block-buffer"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
@@ -108,14 +97,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "block-padding"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "byte-tools 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "blowfish"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -124,11 +105,6 @@ dependencies = [
  "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "opaque-debug 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
-
-[[package]]
-name = "byte-tools"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "byteorder"
@@ -181,12 +157,12 @@ dependencies = [
 
 [[package]]
 name = "cosmwasm-sgx-vm"
-version = "0.9.0-alpha1"
-source = "git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2#b1710787013509524bcad0cbe8f19ef2e2e7c3c4"
+version = "0.10.0"
+source = "git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1#0c6aae9fdc83ab2156353640c286539948f98818"
 dependencies = [
  "base64 0.12.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "cosmwasm-std 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)",
- "enclave-ffi-types 0.1.0 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)",
+ "cosmwasm-std 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1)",
+ "enclave-ffi-types 0.1.0 (git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1)",
  "hex 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -197,14 +173,14 @@ dependencies = [
  "serde_json 1.0.56 (registry+https://github.com/rust-lang/crates.io-index)",
  "sgx_types 1.1.2 (git+https://github.com/apache/teaclave-sgx-sdk.git?rev=v1.1.2)",
  "sgx_urts 1.1.2 (git+https://github.com/apache/teaclave-sgx-sdk.git?rev=v1.1.2)",
- "sha2 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sha2 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "snafu 0.6.8 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "cosmwasm-std"
-version = "0.9.0-alpha1"
-source = "git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2#b1710787013509524bcad0cbe8f19ef2e2e7c3c4"
+version = "0.10.0"
+source = "git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1#0c6aae9fdc83ab2156353640c286539948f98818"
 dependencies = [
  "base64 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "schemars 0.7.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -215,10 +191,10 @@ dependencies = [
 
 [[package]]
 name = "cosmwasm-storage"
-version = "0.9.0-alpha1"
-source = "git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2#b1710787013509524bcad0cbe8f19ef2e2e7c3c4"
+version = "0.10.0"
+source = "git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1#0c6aae9fdc83ab2156353640c286539948f98818"
 dependencies = [
- "cosmwasm-std 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)",
+ "cosmwasm-std 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1)",
  "serde 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -248,14 +224,6 @@ dependencies = [
 
 [[package]]
 name = "digest"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "generic-array 0.12.3 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "digest"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
@@ -270,24 +238,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "enclave-ffi-types"
 version = "0.1.0"
-source = "git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2#b1710787013509524bcad0cbe8f19ef2e2e7c3c4"
+source = "git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1#0c6aae9fdc83ab2156353640c286539948f98818"
 dependencies = [
  "cbindgen 0.13.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "derive_more 0.99.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 1.0.20 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "fake-simd"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "generic-array"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "typenum 1.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -505,9 +460,9 @@ dependencies = [
  "bcrypt-pbkdf 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bincode2 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "cosmwasm-schema 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "cosmwasm-sgx-vm 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)",
- "cosmwasm-std 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)",
- "cosmwasm-storage 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)",
+ "cosmwasm-sgx-vm 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1)",
+ "cosmwasm-std 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1)",
+ "cosmwasm-storage 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1)",
  "rand_chacha 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_core 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "schemars 0.7.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -575,17 +530,6 @@ source = "git+https://github.com/apache/teaclave-sgx-sdk.git?rev=v1.1.2#8f065be7
 dependencies = [
  "libc 0.2.72 (registry+https://github.com/rust-lang/crates.io-index)",
  "sgx_types 1.1.2 (git+https://github.com/apache/teaclave-sgx-sdk.git?rev=v1.1.2)",
-]
-
-[[package]]
-name = "sha2"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "block-buffer 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "digest 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "fake-simd 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "opaque-debug 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -752,29 +696,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum bcrypt-pbkdf 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "61efa3a7c675c7fe8ac7dfc9e0c6591afb6e8ddbbb0621fde41e1e2fc2fe30d9"
 "checksum bincode2 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f49f6183038e081170ebbbadee6678966c7d54728938a3e7de7f4e780770318f"
 "checksum bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
-"checksum block-buffer 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)" = "c0940dc441f31689269e10ac70eb1002a3a1d3ad1390e030043662eb7fe4688b"
 "checksum block-buffer 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4152116fd6e9dadb291ae18fc1ec3575ed6d84c29642d97890f4b4a3417297e4"
 "checksum block-cipher 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)" = "fa136449e765dc7faa244561ccae839c394048667929af599b5d931ebe7b7f10"
-"checksum block-padding 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "fa79dedbb091f449f1f39e53edf88d5dbe95f895dae6135a8d7b881fb5af73f5"
 "checksum blowfish 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "91d01392750dd899a2528948d6b856afe2df508d627fc7c339868c0bd0141b4b"
-"checksum byte-tools 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "e3b5ca7a04898ad4bcd41c90c5285445ff5b791899bb1b0abdd2a2aa791211d7"
 "checksum byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "08c48aae112d48ed9f069b33538ea9e3e90aa263cfa3d1c24309612b1f7472de"
 "checksum cbindgen 0.13.2 (registry+https://github.com/rust-lang/crates.io-index)" = "2db2df1ebc842c41fd2c4ae5b5a577faf63bd5151b953db752fc686812bee318"
 "checksum cfg-if 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)" = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
 "checksum clap 2.33.1 (registry+https://github.com/rust-lang/crates.io-index)" = "bdfa80d47f954d53a35a64987ca1422f495b8d6483c0fe9f7117b36c2a792129"
 "checksum cosmwasm-schema 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)" = "7db3d55bfec47df9a54b16dfa87153685e4341459c0b60490a159cfa172f88d3"
-"checksum cosmwasm-sgx-vm 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)" = "<none>"
-"checksum cosmwasm-std 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)" = "<none>"
-"checksum cosmwasm-storage 0.9.0-alpha1 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)" = "<none>"
+"checksum cosmwasm-sgx-vm 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1)" = "<none>"
+"checksum cosmwasm-std 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1)" = "<none>"
+"checksum cosmwasm-storage 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1)" = "<none>"
 "checksum cpuid-bool 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "8aebca1129a03dc6dc2b127edd729435bbc4a37e1d5f4d7513165089ceb02634"
 "checksum crypto-mac 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b584a330336237c1eecd3e94266efb216c56ed91225d634cb2991c5f3fd1aeab"
 "checksum derive_more 0.99.9 (registry+https://github.com/rust-lang/crates.io-index)" = "298998b1cf6b5b2c8a7b023dfd45821825ce3ba8a8af55c921a0e734e4653f76"
-"checksum digest 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f3d0c8c8752312f9713efd397ff63acb9f85585afbf179282e720e7704954dd5"
 "checksum digest 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d3dd60d1080a57a05ab032377049e0591415d2b31afd7028356dbf3cc6dcb066"
 "checksum doc-comment 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
-"checksum enclave-ffi-types 0.1.0 (git+https://github.com/enigmampc/SecretNetwork?tag=v0.5.0-alpha2)" = "<none>"
-"checksum fake-simd 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
-"checksum generic-array 0.12.3 (registry+https://github.com/rust-lang/crates.io-index)" = "c68f0274ae0e023facc3c97b2e00f076be70e254bc851d972503b328db79b2ec"
+"checksum enclave-ffi-types 0.1.0 (git+https://github.com/enigmampc/SecretNetwork?tag=1.0-rc1)" = "<none>"
 "checksum generic-array 0.14.3 (registry+https://github.com/rust-lang/crates.io-index)" = "60fb4bb6bba52f78a471264d9a3b7d026cc0af47b22cd2cffbc0b787ca003e63"
 "checksum getrandom 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)" = "7abc8dd8451921606d809ba32e95b6111925cd2906060d2dcc29c070220503eb"
 "checksum gimli 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)" = "aaf91faf136cb47367fa430cd46e37a788775e7fa104f8b4bcb3861dc389b724"
@@ -811,7 +749,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum serde_json 1.0.56 (registry+https://github.com/rust-lang/crates.io-index)" = "3433e879a558dde8b5e8feb2a04899cf34fdde1fafb894687e52105fc1162ac3"
 "checksum sgx_types 1.1.2 (git+https://github.com/apache/teaclave-sgx-sdk.git?rev=v1.1.2)" = "<none>"
 "checksum sgx_urts 1.1.2 (git+https://github.com/apache/teaclave-sgx-sdk.git?rev=v1.1.2)" = "<none>"
-"checksum sha2 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)" = "a256f46ea78a0c0d9ff00077504903ac881a1dafdc20da66545699e7776b3e69"
 "checksum sha2 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)" = "2933378ddfeda7ea26f48c555bdad8bb446bf8a3d17832dc83e380d444cfb8c1"
 "checksum snafu 0.6.8 (registry+https://github.com/rust-lang/crates.io-index)" = "c7f5aed652511f5c9123cf2afbe9c244c29db6effa2abb05c866e965c82405ce"
 "checksum snafu-derive 0.6.8 (registry+https://github.com/rust-lang/crates.io-index)" = "ebf8f7d5720104a9df0f7076a8682024e958bba0fe9848767bb44f251f3648e9"

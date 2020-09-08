@@ -1,8 +1,8 @@
-use core::{mem, fmt};
+use std::fmt;
 
-use cosmwasm_std::{Env};
+use cosmwasm_std::Env;
 
-use crate::rand::{Prng, sha_256};
+use crate::rand::{sha_256, Prng};
 use crate::utils::{create_hashed_password, ct_slice_compare};
 
 pub const API_KEY_LENGTH: usize = 44 + 8;
@@ -12,23 +12,29 @@ pub struct ViewingKey(pub String);
 
 impl ViewingKey {
     pub fn check_viewing_key(&self, hashed_pw: &[u8]) -> bool {
-
         let mine_hashed = create_hashed_password(&self.0);
 
         ct_slice_compare(mine_hashed.to_vec().as_slice(), hashed_pw)
     }
 
     pub fn new(env: &Env, seed: &[u8], entropy: &[u8]) -> Self {
-
         let mut rng_entropy: Vec<u8> = vec![];
         rng_entropy.extend_from_slice(&env.block.height.to_be_bytes());
         rng_entropy.extend_from_slice(&env.block.time.to_be_bytes());
-        rng_entropy.extend_from_slice(&env.message.sender.as_slice());
+        rng_entropy.extend_from_slice(&env.message.sender.0.as_bytes());
         rng_entropy.extend_from_slice(entropy);
 
         let mut rng = Prng::new(seed, &*rng_entropy);
 
-        let key = sha_256(unsafe { mem::transmute::<[u32; 8], [u8; 32]>(rng.rand_slice()) }.as_ref() );
+        let rand_slice = rng.rand_slice();
+        let mut rand_vec = Vec::with_capacity(32);
+        for n in &rand_slice {
+            for n in &n.to_le_bytes() {
+                rand_vec.push(*n);
+            }
+        }
+
+        let key = sha_256(rand_vec.as_slice());
 
         Self("api_key_".to_string() + &base64::encode(key))
     }
@@ -42,10 +48,7 @@ impl ViewingKey {
     }
 
     pub fn is_valid(&self) -> bool {
-        if self.0.len() != API_KEY_LENGTH {
-            return false;
-        }
-        return true;
+        self.0.len() == API_KEY_LENGTH
     }
 }
 

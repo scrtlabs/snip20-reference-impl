@@ -1,4 +1,3 @@
-
 use rand_chacha::ChaChaRng;
 use rand_core::{RngCore, SeedableRng};
 
@@ -14,20 +13,18 @@ pub fn sha_256(data: &[u8]) -> [u8; 32] {
     result
 }
 
-
 pub struct Prng {
     seed: Vec<u8>,
     entropy: Vec<u8>,
-    pos: u128
+    pos: u128,
 }
 
 impl Prng {
-
     pub fn new(seed: &[u8], entropy: &[u8]) -> Self {
-        return Self {
+        Self {
             seed: seed.to_vec(),
             entropy: entropy.to_vec(),
-            pos: 0
+            pos: 0,
         }
     }
 
@@ -44,7 +41,7 @@ impl Prng {
 
         let mut rng: ChaChaRng = ChaChaRng::from_seed(result);
 
-        rng.set_word_pos(self.pos.into());
+        rng.set_word_pos(self.pos);
         self.pos += 8;
 
         let mut output = [0u32; 8];

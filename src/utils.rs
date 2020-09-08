@@ -1,8 +1,7 @@
-use subtle::ConstantTimeEq;
-use core::fmt;
-use serde::export::Formatter;
 use bcrypt_pbkdf::bcrypt_pbkdf;
-
+use serde::export::Formatter;
+use std::fmt;
+use subtle::ConstantTimeEq;
 
 // 5 rounds == ~300M gas (doesn't work with query) - creation/validation takes ~1.5s
 // 2 rounds == ~120M gas (works with query) - creation/validation takes ~1s
@@ -23,9 +22,8 @@ impl fmt::Display for ConstLenStr {
     }
 }
 
-pub fn create_hashed_password(s1: &String) -> [u8; OUTPUT_SIZE] {
+pub fn create_hashed_password(s1: &str) -> [u8; OUTPUT_SIZE] {
     let mut output = [0u8; OUTPUT_SIZE];
     let _ = bcrypt_pbkdf(s1, b"bestspiceintheEU", DEFAULT_COST, &mut output);
     output
 }
-
