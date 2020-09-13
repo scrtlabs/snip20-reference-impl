@@ -59,20 +59,29 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
     match msg {
-        HandleMsg::Withdraw { amount } => try_withdraw(deps, env, amount),
+        // Native
         HandleMsg::Deposit {} => try_deposit(deps, env),
-        HandleMsg::Balance {} => try_balance(deps, env),
-        HandleMsg::Allowance { spender } => try_check_allowance(deps, env, spender),
-        HandleMsg::Approve { spender, amount } => try_approve(deps, env, &spender, amount),
+        HandleMsg::Withdraw /* todo rename Redeem */ { amount } => try_withdraw(deps, env, amount),
+        HandleMsg::Balance /* todo move to query? */ {} => try_balance(deps, env),
+        // Base
         HandleMsg::Transfer { recipient, amount } => try_transfer(deps, env, &recipient, amount),
+        // todo Send
+        HandleMsg::Burn { amount } => try_burn(deps, env, amount),
+        // todo RegisterReceive
+        HandleMsg::CreateViewingKey { entropy } => try_create_key(deps, env, entropy),
+        HandleMsg::SetViewingKey { key } => try_set_key(deps, env, key),
+        // Allowance
+        // todo IncreaseAllowance
+        // todo DecreaseAllowance
         HandleMsg::TransferFrom {
             owner,
             recipient,
             amount,
         } => try_transfer_from(deps, env, &owner, &recipient, amount),
-        HandleMsg::Burn { amount } => try_burn(deps, env, amount),
-        HandleMsg::CreateViewingKey { entropy } => try_create_key(deps, env, entropy),
-        HandleMsg::SetViewingKey { key } => try_set_key(deps, env, key),
+        // todo SendFrom
+        // todo BurnFrom
+        HandleMsg::Allowance /* todo make query? */ { spender } => try_check_allowance(deps, env, spender),
+        HandleMsg::Approve /* todo unspecified??? */ { spender, amount } => try_approve(deps, env, &spender, amount),
     }
 }
 
@@ -98,8 +107,13 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
     }
 
     match msg {
+        // Base
         QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
-        QueryMsg::Transfers { address, n, .. } => query_transactions(&deps, &address, n),
+        // todo TokenInfo
+        QueryMsg::Transfers /* todo rename TransferHistory */ { address, n, .. } => query_transactions(&deps, &address, n),
+        // Native
+        // todo ExchangeRate
+        // Other - Test
         _ => unimplemented!(),
     }
 }
