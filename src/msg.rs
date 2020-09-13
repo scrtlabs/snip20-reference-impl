@@ -61,8 +61,15 @@ pub enum HandleMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    Balance { address: HumanAddr, key: String },
-    Transfers { address: HumanAddr, key: String },
+    Balance {
+        address: HumanAddr,
+        key: String,
+    },
+    Transfers {
+        address: HumanAddr,
+        key: String,
+        n: u32,
+    },
     Test {},
 }
 
@@ -70,7 +77,7 @@ impl QueryMsg {
     pub fn get_validation_params(&self) -> (&HumanAddr, ViewingKey) {
         match self {
             Self::Balance { address, key } => (address, ViewingKey(key.clone())),
-            Self::Transfers { address, key } => (address, ViewingKey(key.clone())),
+            Self::Transfers { address, key, .. } => (address, ViewingKey(key.clone())),
             _ => (panic!("lol")),
         }
     }

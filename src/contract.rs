@@ -11,11 +11,6 @@ use cosmwasm_std::{
     Uint128,
 };
 
-pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
-pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
-pub const KEY_CONSTANTS: &[u8] = b"constants";
-pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
-
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     _env: Env,
@@ -104,7 +99,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
 
     match msg {
         QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
-        QueryMsg::Transfers { address, .. } => query_transactions(&deps, &address),
+        QueryMsg::Transfers { address, n, .. } => query_transactions(&deps, &address, n),
         _ => unimplemented!(),
     }
 }
@@ -112,9 +107,10 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
 pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     account: &HumanAddr,
+    count: u32,
 ) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account).unwrap();
-    let address = get_transfers(&deps.storage, &address)?;
+    let address = get_transfers(&deps.api, &deps.storage, &address, count)?;
 
     Ok(Binary(format!("{:?}", address).into_bytes().to_vec()))
 }
@@ -374,13 +370,12 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
 
     store_transfer(
-        &deps.api,
         &mut deps.storage,
         &sender_address,
         &recipient_address,
         amount,
         symbol,
-    );
+    )?;
 
     let res = HandleResponse {
         messages: vec![],
@@ -430,13 +425,12 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
 
     store_transfer(
-        &deps.api,
         &mut deps.storage,
         &owner_address,
         &recipient_address,
         amount,
         symbol,
-    );
+    )?;
 
     let res = HandleResponse {
         messages: vec![],

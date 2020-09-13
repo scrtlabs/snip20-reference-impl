@@ -5,6 +5,9 @@ use cosmwasm_std::{
     Api, CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
 };
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
+
+use secret_toolkit::storage::{AppendStore, AppendStoreMut};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +30,36 @@ pub struct Tx {
     pub coins: Coin,
 }
 
-/// This is here so we can create constant length transactions if we want to return this on-chain instead of a query
+impl Tx {
+    pub fn into_stored<A: Api>(self, api: &A) -> StdResult<StoredTx> {
+        let tx = StoredTx {
+            sender: api.canonical_address(&self.sender)?,
+            receiver: api.canonical_address(&self.receiver)?,
+            coins: self.coins,
+        };
+        Ok(tx)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct StoredTx {
+    pub sender: CanonicalAddr,
+    pub receiver: CanonicalAddr,
+    pub coins: Coin,
+}
+
+impl StoredTx {
+    pub fn into_humanized<A: Api>(self, api: &A) -> StdResult<Tx> {
+        let tx = Tx {
+            sender: api.human_address(&self.sender)?,
+            receiver: api.human_address(&self.receiver)?,
+            coins: self.coins,
+        };
+        Ok(tx)
+    }
+}
+
+// This is here so we can create constant length transactions if we want to return this on-chain instead of a query
 impl Default for Tx {
     fn default() -> Self {
         Self {
@@ -47,55 +79,59 @@ impl Default for Tx {
 //     }
 // }
 
-pub fn store_transfer<A: Api, S: Storage>(
-    api: &A,
-    storage: &mut S,
-    from_address: &CanonicalAddr,
-    to_address: &CanonicalAddr,
+pub fn store_transfer<S: Storage>(
+    store: &mut S,
+    sender: &CanonicalAddr,
+    receiver: &CanonicalAddr,
     amount: Uint128,
     denom: String,
-) {
-    let sender = api.human_address(from_address).unwrap();
-    let receiver = api.human_address(to_address).unwrap();
+) -> StdResult<()> {
     let coins = Coin { denom, amount };
-
-    let tx = Tx {
-        sender,
-        receiver,
+    let tx = StoredTx {
+        sender: sender.clone(),
+        receiver: receiver.clone(),
         coins,
     };
 
-    let mut store = PrefixedStorage::new(PREFIX_TXS, storage);
+    append_tx(store, tx.clone(), &sender)?;
+    append_tx(store, tx, &receiver)?;
 
-    append_tx(&mut store, &tx, from_address);
-    append_tx(&mut store, &tx, to_address);
+    Ok(())
 }
 
-fn append_tx<S: Storage>(store: &mut PrefixedStorage<S>, tx: &Tx, for_address: &CanonicalAddr) {
-    let mut new_txs: Vec<Tx> = vec![];
-
-    let txs = store.get(for_address.as_slice());
-
-    if let Some(txs_bytes) = txs {
-        new_txs = bincode2::deserialize(txs_bytes.as_slice()).unwrap();
-    }
-
-    new_txs.push(tx.clone());
-
-    let tx_bytes: Vec<u8> = bincode2::serialize(&new_txs).unwrap();
-
-    store.set(for_address.as_slice(), &tx_bytes);
+fn append_tx<S: Storage>(
+    store: &mut S,
+    tx: StoredTx,
+    for_address: &CanonicalAddr,
+) -> StdResult<()> {
+    let mut store = PrefixedStorage::multilevel(&[PREFIX_TXS, for_address.as_slice()], store);
+    let mut store = AppendStoreMut::attach_or_create(&mut store)?;
+    store.push(&tx)
 }
 
-pub fn get_transfers<S: Storage>(storage: &S, for_address: &CanonicalAddr) -> StdResult<Vec<Tx>> {
-    let store = ReadonlyPrefixedStorage::new(PREFIX_TXS, storage);
+pub fn get_transfers<A: Api, S: ReadonlyStorage>(
+    api: &A,
+    storage: &S,
+    for_address: &CanonicalAddr,
+    count: u32,
+) -> StdResult<Vec<Tx>> {
+    let store = ReadonlyPrefixedStorage::multilevel(&[PREFIX_TXS, for_address.as_slice()], storage);
 
-    if let Some(tx_bytes) = store.get(for_address.as_slice()) {
-        let txs: Vec<Tx> = bincode2::deserialize(&tx_bytes).unwrap();
-        Ok(txs)
+    // Try to access the storage of txs for the account.
+    // If it doesn't exist yet, return an empty list of transfers.
+    let store = if let Some(result) = AppendStore::<StoredTx, _>::attach(&store) {
+        result?
     } else {
-        Ok(vec![])
-    }
+        return Ok(vec![]);
+    };
+
+    // Take `count` txs starting from the latest tx.
+    let tx_iter = store.iter().rev().take(count as _);
+    // The `and_then` here flattens the `StdResult<StdResult<Tx>>` to an `StdResult<Tx>`
+    let txs: StdResult<Vec<Tx>> = tx_iter
+        .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
+        .collect();
+    txs
 }
 
 // Config
