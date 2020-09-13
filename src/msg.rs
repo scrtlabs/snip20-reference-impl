@@ -72,7 +72,9 @@ pub enum HandleMsg {
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-struct HandleResponse {}
+pub enum HandleAnswer {
+    Transfer { status: ResponseStatus },
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -106,6 +108,12 @@ struct QueryResponse {}
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct CreateViewingKeyResponse {
     pub key: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+pub enum ResponseStatus {
+    Success,
+    Failure,
 }
 
 #[cfg(test)]

@@ -1,15 +1,19 @@
-use crate::msg::{HandleMsg, InitMsg, QueryMsg};
+use cosmwasm_std::{
+    log, to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
+    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, StdError, StdResult, Storage,
+    Uint128,
+};
+
+use crate::msg::{
+    HandleAnswer, HandleMsg, InitMsg, QueryMsg,
+    ResponseStatus::{Failure, Success},
+};
 use crate::state::{
     get_transfers, read_allowance, read_viewing_key, store_transfer, write_allowance,
     write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
 };
 use crate::utils::ConstLenStr;
 use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
-use cosmwasm_std::{
-    log, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
-    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, StdError, StdResult, Storage,
-    Uint128,
-};
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -398,7 +402,7 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
             log("sender", env.message.sender.0),
             log("recipient", recipient.as_str()),
         ],
-        data: None,
+        data: Some(to_binary(&HandleAnswer::Transfer { status: Success })?),
     };
     Ok(res)
 }
@@ -548,7 +552,9 @@ fn perform_transfer<T: Storage>(
     balances.set_account_balance(from, from_balance);
 
     let mut to_balance = balances.account_amount(to);
-    to_balance += amount;
+    to_balance = to_balance.checked_add(amount).ok_or_else(|| {
+        StdError::generic_err("This tx will literally make them too rich. Try transferring less")
+    })?;
     balances.set_account_balance(to, to_balance);
 
     Ok(())
