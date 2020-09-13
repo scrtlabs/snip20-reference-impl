@@ -24,37 +24,49 @@ pub enum HandleMsg {
     // Native coin interactions
     Withdraw {
         amount: Uint128,
+        padding: Option<String>,
     },
-    Deposit {},
+    Deposit {
+        padding: Option<String>,
+    },
 
     // ERC-20 stuff
     Approve {
         spender: HumanAddr,
         amount: Uint128,
+        padding: Option<String>,
     },
     Transfer {
         recipient: HumanAddr,
         amount: Uint128,
+        padding: Option<String>,
     },
     TransferFrom {
         owner: HumanAddr,
         recipient: HumanAddr,
         amount: Uint128,
+        padding: Option<String>,
     },
     Burn {
         amount: Uint128,
+        padding: Option<String>,
     },
-    Balance {},
+    Balance {
+        padding: Option<String>,
+    },
     Allowance {
         spender: HumanAddr,
+        padding: Option<String>,
     },
 
     // Privacy stuff
     SetViewingKey {
         key: String,
+        padding: Option<String>,
     },
     CreateViewingKey {
         entropy: String,
+        padding: Option<String>,
     },
 }
 
@@ -94,4 +106,29 @@ struct QueryResponse {}
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct CreateViewingKeyResponse {
     pub key: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cosmwasm_std::{from_slice, StdResult};
+
+    #[derive(Serialize, Deserialize, JsonSchema, Debug, PartialEq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Something {
+        Var { padding: Option<String> },
+    }
+
+    #[test]
+    fn test_deserialization_of_missing_option_fields() -> StdResult<()> {
+        let input = b"{ \"var\": {} }";
+        let obj: Something = from_slice(input)?;
+        assert_eq!(
+            obj,
+            Something::Var { padding: None },
+            "unexpected value: {:?}",
+            obj
+        );
+        Ok(())
+    }
 }
