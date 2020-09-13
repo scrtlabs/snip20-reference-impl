@@ -58,6 +58,10 @@ pub enum HandleMsg {
     },
 }
 
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+struct HandleResponse {}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
@@ -83,25 +87,9 @@ impl QueryMsg {
     }
 }
 
-/*
-#[derive(Clone, PartialEq)]
-pub struct BalanceResponse {
-    pub balance: Uint128,
-    pub token: String,
-}
-
-// impl Serialize for BalanceResponse {
-//     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
-//         S: Serializer {
-//         unimplemented!()
-//     }
-// }
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
-pub struct AllowanceResponse {
-    pub allowance: Uint128,
-}
-*/
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+struct QueryResponse {}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct CreateViewingKeyResponse {
