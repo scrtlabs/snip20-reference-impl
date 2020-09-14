@@ -5,7 +5,7 @@ use cosmwasm_std::{
 };
 
 use crate::msg::{
-    HandleAnswer, HandleMsg, InitMsg, QueryMsg,
+    space_pad, HandleAnswer, HandleMsg, InitMsg, QueryMsg,
     ResponseStatus::{Failure, Success},
 };
 use crate::state::{
@@ -14,6 +14,9 @@ use crate::state::{
 };
 use crate::utils::ConstLenStr;
 use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
+
+/// We make sure that responses from `handle` are padded to a multiple of this size.
+const RESPONSE_BLOCK_SIZE: usize = 256;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -62,7 +65,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
-    match msg {
+    let response = match msg {
         // Native
         HandleMsg::Deposit {..} => try_deposit(deps, env),
         HandleMsg::Withdraw /* todo rename Redeem */ { amount, .. } => try_withdraw(deps, env, amount),
@@ -86,7 +89,15 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // todo BurnFrom
         HandleMsg::Allowance /* todo make query? */ { spender, .. } => try_check_allowance(deps, env, spender),
         HandleMsg::Approve /* todo unspecified??? */ { spender, amount, .. } => try_approve(deps, env, &spender, amount),
-    }
+    };
+
+    response.map(|mut response| {
+        response.data = response.data.map(|mut data| {
+            space_pad(RESPONSE_BLOCK_SIZE, &mut data.0);
+            data
+        });
+        response
+    })
 }
 
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
