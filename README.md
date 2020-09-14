@@ -44,9 +44,9 @@ The key will start with the prefix `api_key_....`
 
 To use your viewing key, you can query your balance or the transaction history:
 
-```./secretcli tx compute query <contract-address> '{"balance": {"address": "<your_address>", "viewing_key": "<your_viewing_key>"}}'```
+```./secretcli q compute query <contract-address> '{"balance": {"address": "<your_address>", "viewing_key": "<your_viewing_key>"}}'```
 
-```./secretcli tx compute query <contract-address> '{"transfers": {"address": "<your_address>", "viewing_key": "<your_viewing_key>"}}'```
+```./secretcli q compute query <contract-address> '{"transfers": {"address": "<your_address>", "viewing_key": "<your_viewing_key>"}}'```
 
 ## Play with it on testnet
 
