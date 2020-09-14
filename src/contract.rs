@@ -482,7 +482,7 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     let res = HandleResponse {
         messages: vec![],
         log: vec![],
-        data: None,
+        data: Some(to_binary(&HandleAnswer::Burn { status: Success })?),
     };
 
     Ok(res)

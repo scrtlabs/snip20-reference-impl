@@ -74,6 +74,7 @@ pub enum HandleMsg {
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
     Transfer { status: ResponseStatus },
+    Burn { status: ResponseStatus },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
