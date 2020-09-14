@@ -1,7 +1,7 @@
 use cosmwasm_std::{
     to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
     HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, StdError, StdResult, Storage,
-    Uint128,
+    Uint128, WasmMsg,
 };
 
 use crate::msg::{
@@ -9,8 +9,9 @@ use crate::msg::{
     ResponseStatus::{Failure, Success},
 };
 use crate::state::{
-    get_transfers, read_allowance, read_viewing_key, store_transfer, write_allowance,
-    write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
+    get_receiver_hash, get_transfers, read_allowance, read_viewing_key, set_receiver_hash,
+    store_transfer, write_allowance, write_viewing_key, Balances, Config, Constants,
+    ReadonlyBalances, ReadonlyConfig,
 };
 use crate::viewing_key::ViewingKey;
 
@@ -71,9 +72,9 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::Balance /* todo move to query? */ {..} => try_balance(deps, env),
         // Base
         HandleMsg::Transfer { recipient, amount, .. } => try_transfer(deps, env, &recipient, amount),
-        // todo Send
+        HandleMsg::Send {recipient, amount, msg, ..} => try_send(deps, env, &recipient, amount, msg),
         HandleMsg::Burn { amount, .. } => try_burn(deps, env, amount),
-        // todo RegisterReceive
+        HandleMsg::RegisterReceive { code_hash, .. } => try_register_receive(deps, env, code_hash),
         HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
         HandleMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
         // Allowance
@@ -343,12 +344,12 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_transfer<S: Storage, A: Api, Q: Querier>(
+fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     recipient: &HumanAddr,
     amount: Uint128,
-) -> StdResult<HandleResponse> {
+) -> StdResult<()> {
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
     let recipient_address = deps.api.canonical_address(recipient)?;
 
@@ -369,10 +370,65 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
         symbol,
     )?;
 
+    Ok(())
+}
+
+fn try_transfer<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    recipient: &HumanAddr,
+    amount: Uint128,
+) -> StdResult<HandleResponse> {
+    try_transfer_impl(deps, env, recipient, amount)?;
     let res = HandleResponse {
         messages: vec![],
         log: vec![],
         data: Some(to_binary(&HandleAnswer::Transfer { status: Success })?),
+    };
+    Ok(res)
+}
+
+fn try_send<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    recipient: &HumanAddr,
+    amount: Uint128,
+    msg: Binary,
+) -> StdResult<HandleResponse> {
+    try_transfer_impl(deps, env, recipient, amount)?;
+
+    let receiver_hash = get_receiver_hash(&deps.storage, recipient);
+    let mut messages = vec![];
+    if let Some(receiver_hash) = receiver_hash {
+        let receiver_hash = receiver_hash?;
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            msg,
+            callback_code_hash: receiver_hash,
+            contract_addr: recipient.clone(),
+            send: vec![],
+        }))
+    }
+
+    let res = HandleResponse {
+        messages,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::Send { status: Success })?),
+    };
+    Ok(res)
+}
+
+fn try_register_receive<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    code_hash: String,
+) -> StdResult<HandleResponse> {
+    set_receiver_hash(&mut deps.storage, &env.message.sender, code_hash);
+    let res = HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::RegisterReceive {
+            status: Success,
+        })?),
     };
     Ok(res)
 }

@@ -1,8 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use cosmwasm_std::{Binary, HumanAddr, Uint128};
+
 use crate::viewing_key::ViewingKey;
-use cosmwasm_std::{HumanAddr, Uint128};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct InitialBalance {
@@ -41,6 +42,12 @@ pub enum HandleMsg {
         amount: Uint128,
         padding: Option<String>,
     },
+    Send {
+        recipient: HumanAddr,
+        amount: Uint128,
+        msg: Binary,
+        padding: Option<String>,
+    },
     TransferFrom {
         owner: HumanAddr,
         recipient: HumanAddr,
@@ -49,6 +56,10 @@ pub enum HandleMsg {
     },
     Burn {
         amount: Uint128,
+        padding: Option<String>,
+    },
+    RegisterReceive {
+        code_hash: String,
         padding: Option<String>,
     },
     Balance {
@@ -74,7 +85,9 @@ pub enum HandleMsg {
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
     Transfer { status: ResponseStatus },
+    Send { status: ResponseStatus },
     Burn { status: ResponseStatus },
+    RegisterReceive { status: ResponseStatus },
     CreateViewingKey { status: ResponseStatus },
     SetViewingKey { status: ResponseStatus },
 }

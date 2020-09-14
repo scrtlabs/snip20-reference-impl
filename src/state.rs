@@ -22,6 +22,7 @@ pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const KEY_CONSTANTS: &[u8] = b"constants";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
+pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Tx {
@@ -333,6 +334,24 @@ pub fn write_viewing_key<S: Storage>(store: &mut S, owner: &CanonicalAddr, key: 
 pub fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<Vec<u8>> {
     let balance_store = ReadonlyPrefixedStorage::new(PREFIX_VIEW_KEY, store);
     balance_store.get(owner.as_slice())
+}
+
+// Receiver Interface
+
+pub fn get_receiver_hash<S: ReadonlyStorage>(
+    store: &S,
+    account: &HumanAddr,
+) -> Option<StdResult<String>> {
+    let store = ReadonlyPrefixedStorage::new(PREFIX_RECEIVERS, store);
+    store.get(account.as_str().as_bytes()).map(|data| {
+        String::from_utf8(data)
+            .map_err(|_err| StdError::invalid_utf8("stored code hash was not a valid String"))
+    })
+}
+
+pub fn set_receiver_hash<S: Storage>(store: &mut S, account: &HumanAddr, code_hash: String) {
+    let mut store = PrefixedStorage::new(PREFIX_RECEIVERS, store);
+    store.set(account.as_str().as_bytes(), code_hash.as_bytes());
 }
 
 // Helpers
