@@ -56,30 +56,6 @@ pub struct Swap {
     pub nonce: u32,
 }
 
-pub struct ReadonlySwap<'a, S: ReadonlyStorage> {
-    storage: ReadonlyPrefixedStorage<'a, S>,
-}
-
-impl<'a, S: ReadonlyStorage> ReadonlySwap<'a, S> {
-    pub fn from_storage(storage: &'a S) -> Self {
-        Self {
-            storage: ReadonlyPrefixedStorage::new(PREFIX_CONFIG, storage),
-        }
-    }
-
-    fn as_readonly(&self) -> ReadonlyConfigImpl<ReadonlyPrefixedStorage<S>> {
-        ReadonlyConfigImpl(&self.storage)
-    }
-
-    pub fn constants(&self) -> StdResult<Constants> {
-        self.as_readonly().constants()
-    }
-
-    pub fn total_supply(&self) -> u128 {
-        self.as_readonly().total_supply()
-    }
-}
-
 impl StoredTx {
     pub fn into_humanized<A: Api>(self, api: &A) -> StdResult<Tx> {
         let tx = Tx {
@@ -108,25 +84,21 @@ impl Default for Tx {
 pub fn store_swap<S: Storage>(
     store: &mut S,
     destination: String,
-    amount: Uint128
+    amount: Uint128,
 ) -> StdResult<()> {
     let mut store = PrefixedStorage::new(PREFIX_SWAP, store);
     let mut store = AppendStoreMut::attach_or_create(&mut store)?;
 
     let nonce = store.len();
-    let swap = Swap{
+    let swap = Swap {
         destination,
         amount,
-        nonce
+        nonce,
     };
     store.push(&swap)
 }
 
-pub fn get_swap<A: Api, S: ReadonlyStorage>(
-    api: &A,
-    storage: &S,
-    nonce: u32,
-) -> StdResult<Swap> {
+pub fn get_swap<A: Api, S: ReadonlyStorage>(api: &A, storage: &S, nonce: u32) -> StdResult<Swap> {
     let mut store = ReadonlyPrefixedStorage::new(PREFIX_SWAP, storage);
 
     // Try to access the storage of txs for the account.
@@ -138,11 +110,11 @@ pub fn get_swap<A: Api, S: ReadonlyStorage>(
     };
 
     for x in store {
-      if let Ok(tx) = x {
-          if tx.nonce == nonce {
-              return Ok(tx);
-          }
-      }
+        if let Ok(tx) = x {
+            if tx.nonce == nonce {
+                return Ok(tx);
+            }
+        }
     }
 
     return Err(StdError::generic_err("Tx does not exist"));

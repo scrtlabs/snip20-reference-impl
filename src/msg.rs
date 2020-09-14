@@ -1,9 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::state::Swap;
 use crate::viewing_key::ViewingKey;
 use cosmwasm_std::{HumanAddr, Uint128};
-use crate::state::Swap;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct InitialBalance {
@@ -89,6 +89,7 @@ pub enum HandleMsg {
 pub enum HandleAnswer {
     Transfer { status: ResponseStatus },
     Mint { status: ResponseStatus },
+    Swap { status: ResponseStatus },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -114,7 +115,7 @@ pub enum QueryMsg {
         // address: HumanAddr,
         // key: String,
         nonce: u32,
-    }
+    },
 }
 
 impl QueryMsg {

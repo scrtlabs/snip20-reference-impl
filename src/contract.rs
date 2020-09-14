@@ -4,11 +4,14 @@ use cosmwasm_std::{
     Uint128,
 };
 
-use crate::msg::{HandleAnswer, HandleMsg, InitMsg, QueryMsg, ResponseStatus::{Failure, Success}, QueryAnswer};
+use crate::msg::{
+    HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
+    ResponseStatus::{Failure, Success},
+};
 use crate::state::{
-    get_transfers, read_allowance, read_viewing_key, store_transfer, write_allowance,
-    write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
-    store_swap, get_swap, Swap
+    get_swap, get_transfers, read_allowance, read_viewing_key, store_swap, store_transfer,
+    write_allowance, write_viewing_key, Balances, Config, Constants, ReadonlyBalances,
+    ReadonlyConfig, Swap,
 };
 use crate::utils::ConstLenStr;
 use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
@@ -51,7 +54,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         name: msg.name,
         symbol: msg.symbol,
         decimals: msg.decimals,
-        admin
+        admin,
     })?;
     config.set_total_supply(total_supply);
 
@@ -93,7 +96,10 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::Swap { amount, network, destination, .. } => try_swap(deps, env, amount, network, destination),
     }
 }
-pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: &QueryMsg) -> QueryResult {
+pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    msg: QueryMsg,
+) -> QueryResult {
     let (address, key) = msg.get_validation_params();
 
     let canonical_addr = deps.api.canonical_address(address)?;
@@ -118,7 +124,7 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A,
         // Base
         QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
         // todo TokenInfo
-        QueryMsg::Transfers /* todo rename TransferHistory */ { address, n, .. } => query_transactions(&deps, address, n.clone()),
+        QueryMsg::Transfers /* todo rename TransferHistory */ { address, n, .. } => query_transactions(&deps, &address, n),
         // Native
         // todo ExchangeRate
         // Other - Test
@@ -126,19 +132,11 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A,
     }
 }
 
-
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
-
     match msg {
         // Base
-        QueryMsg::Balance {..} => authenticated_queries(&deps, &msg),
-        // todo TokenInfo
-        QueryMsg::Transfers {..}/* todo rename TransferHistory */ => authenticated_queries(&deps, &msg),
-        // Native
-        // todo ExchangeRate
-        // Other - Test
-        QueryMsg::Swap {nonce, ..} => query_swap(&deps, nonce),
-        _ => unimplemented!(),
+        QueryMsg::Swap { nonce, .. } => query_swap(&deps, nonce),
+        _ => authenticated_queries(deps, msg),
     }
 }
 
@@ -175,8 +173,8 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     address: HumanAddr,
-    amount: Uint128) -> StdResult<HandleResponse> {
-
+    amount: Uint128,
+) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
     let msg_sender = &env.message.sender;
@@ -204,13 +202,12 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
 
     let res = HandleResponse {
         messages: vec![],
-        log: vec![ ],
+        log: vec![],
         data: Some(to_binary(&HandleAnswer::Mint { status: Success })?),
     };
 
     Ok(res)
 }
-
 
 pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -571,16 +568,14 @@ fn try_swap<S: Storage, A: Api, Q: Querier>(
     network: String,
     destination: String,
 ) -> StdResult<HandleResponse> {
-    let resp = try_burn(deps, env, amount);
+    try_burn(deps, env, amount)?;
+    store_swap(&mut deps.storage, destination, amount)?;
 
-    if let Ok(_) = resp {
-        store_swap(&mut deps.storage, destination, amount);
-    } else {
-        return resp;
-    }
-
-    Ok(HandleResponse::default())
-
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::Swap { status: Success })?),
+    })
 }
 
 /// Burn tokens
