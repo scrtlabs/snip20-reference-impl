@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    log, to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
+    to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
     HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, StdError, StdResult, Storage,
     Uint128,
 };
@@ -12,8 +12,7 @@ use crate::state::{
     get_transfers, read_allowance, read_viewing_key, store_transfer, write_allowance,
     write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
 };
-use crate::utils::ConstLenStr;
-use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
+use crate::viewing_key::ViewingKey;
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -163,16 +162,7 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
     if !vk.is_valid() {
         return Ok(HandleResponse {
             messages: vec![],
-            log: vec![
-                log("result", "failed!"),
-                log(
-                    "viewing key",
-                    format!(
-                        "viewing key must be a string exactly {} characters!",
-                        API_KEY_LENGTH
-                    ),
-                ),
-            ],
+            log: vec![],
             data: None,
         });
     }
@@ -182,10 +172,7 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
 
     Ok(HandleResponse {
         messages: vec![],
-        log: vec![
-            log("result", "success"),
-            log("viewing key", format!("{}", vk)),
-        ],
+        log: vec![],
         data: None,
     })
 }
@@ -202,7 +189,7 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
 
     Ok(HandleResponse {
         messages: vec![],
-        log: vec![log("viewing key", format!("{}", vk))],
+        log: vec![],
         data: None,
     })
 }
@@ -222,23 +209,13 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
     if let Err(_e) = allowance {
         Ok(HandleResponse {
             messages: vec![],
-            log: vec![
-                log("action", "check_allowance"),
-                log("account", env.message.sender.0),
-                log("spender", &spender.as_str()),
-                log("amount", ConstLenStr("0".to_string())),
-            ],
+            log: vec![],
             data: None,
         })
     } else {
         Ok(HandleResponse {
             messages: vec![],
-            log: vec![
-                log("action", "check_allowance"),
-                log("account", env.message.sender.0),
-                log("spender", &spender.as_str()),
-                log("amount", ConstLenStr(allowance.unwrap().to_string())),
-            ],
+            log: vec![],
             data: None,
         })
     }
@@ -254,21 +231,13 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
     if let Err(_e) = account_balance {
         Ok(HandleResponse {
             messages: vec![],
-            log: vec![
-                log("action", "balance"),
-                log("account", env.message.sender.0),
-                log("amount", ConstLenStr("0".to_string())),
-            ],
+            log: vec![],
             data: None,
         })
     } else {
         Ok(HandleResponse {
             messages: vec![],
-            log: vec![
-                log("action", "balance"),
-                log("account", env.message.sender.0),
-                log("amount", ConstLenStr(account_balance.unwrap())),
-            ],
+            log: vec![],
             data: None,
         })
     }
@@ -321,11 +290,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let res = HandleResponse {
         messages: vec![],
-        log: vec![
-            log("action", "deposit"),
-            log("account", env.message.sender.0),
-            log("amount", &amount.to_string()),
-        ],
+        log: vec![],
         data: None,
     };
 
@@ -366,14 +331,10 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let res = HandleResponse {
         messages: vec![CosmosMsg::Bank(BankMsg::Send {
             from_address: env.contract.address,
-            to_address: env.message.sender.clone(),
+            to_address: env.message.sender,
             amount: withdrawl_coins,
         })],
-        log: vec![
-            log("action", "withdraw"),
-            log("account", env.message.sender.0),
-            log("amount", &amount.to_string()),
-        ],
+        log: vec![],
         data: None,
     };
 
@@ -408,11 +369,7 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
 
     let res = HandleResponse {
         messages: vec![],
-        log: vec![
-            log("action", "transfer"),
-            log("sender", env.message.sender.0),
-            log("recipient", recipient.as_str()),
-        ],
+        log: vec![],
         data: Some(to_binary(&HandleAnswer::Transfer { status: Success })?),
     };
     Ok(res)
@@ -463,12 +420,7 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
 
     let res = HandleResponse {
         messages: vec![],
-        log: vec![
-            log("action", "transfer_from"),
-            log("spender", env.message.sender.0),
-            log("sender", owner.as_str()),
-            log("recipient", recipient.as_str()),
-        ],
+        log: vec![],
         data: None,
     };
     Ok(res)
@@ -490,11 +442,7 @@ fn try_approve<S: Storage, A: Api, Q: Querier>(
     )?;
     let res = HandleResponse {
         messages: vec![],
-        log: vec![
-            log("action", "approve"),
-            log("owner", env.message.sender.0),
-            log("spender", spender.as_str()),
-        ],
+        log: vec![],
         data: None,
     };
     Ok(res)
@@ -533,11 +481,7 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
 
     let res = HandleResponse {
         messages: vec![],
-        log: vec![
-            log("action", "burn"),
-            log("account", env.message.sender.0),
-            log("amount", amount.to_string()),
-        ],
+        log: vec![],
         data: None,
     };
 
