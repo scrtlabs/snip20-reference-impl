@@ -16,6 +16,7 @@ use crate::viewing_key::ViewingKey;
 pub static CONFIG_KEY: &[u8] = b"config";
 pub const PREFIX_TXS: &[u8] = b"transfers";
 
+pub const PREFIX_SWAP: &[u8] = b"swaps";
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
@@ -48,6 +49,37 @@ pub struct StoredTx {
     pub coins: Coin,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct Swap {
+    pub destination: String,
+    pub amount: Uint128,
+    pub nonce: u32,
+}
+
+pub struct ReadonlySwap<'a, S: ReadonlyStorage> {
+    storage: ReadonlyPrefixedStorage<'a, S>,
+}
+
+impl<'a, S: ReadonlyStorage> ReadonlySwap<'a, S> {
+    pub fn from_storage(storage: &'a S) -> Self {
+        Self {
+            storage: ReadonlyPrefixedStorage::new(PREFIX_CONFIG, storage),
+        }
+    }
+
+    fn as_readonly(&self) -> ReadonlyConfigImpl<ReadonlyPrefixedStorage<S>> {
+        ReadonlyConfigImpl(&self.storage)
+    }
+
+    pub fn constants(&self) -> StdResult<Constants> {
+        self.as_readonly().constants()
+    }
+
+    pub fn total_supply(&self) -> u128 {
+        self.as_readonly().total_supply()
+    }
+}
+
 impl StoredTx {
     pub fn into_humanized<A: Api>(self, api: &A) -> StdResult<Tx> {
         let tx = Tx {
@@ -73,11 +105,48 @@ impl Default for Tx {
     }
 }
 
-// impl fmt::Debug for Coin {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-//         format!("{} {}", ConstLenStr(self.denom.clone()), ConstLenStr(self.amount.to_string())).fmt(f)
-//     }
-// }
+pub fn store_swap<S: Storage>(
+    store: &mut S,
+    destination: String,
+    amount: Uint128
+) -> StdResult<()> {
+    let mut store = PrefixedStorage::new(PREFIX_SWAP, store);
+    let mut store = AppendStoreMut::attach_or_create(&mut store)?;
+
+    let nonce = store.len();
+    let swap = Swap{
+        destination,
+        amount,
+        nonce
+    };
+    store.push(&swap)
+}
+
+pub fn get_swap<A: Api, S: ReadonlyStorage>(
+    api: &A,
+    storage: &S,
+    nonce: u32,
+) -> StdResult<Swap> {
+    let mut store = ReadonlyPrefixedStorage::new(PREFIX_SWAP, storage);
+
+    // Try to access the storage of txs for the account.
+    // If it doesn't exist yet, return an empty list of transfers.
+    let store = if let Some(result) = AppendStore::<Swap, _>::attach(&store) {
+        result?
+    } else {
+        return Err(StdError::generic_err("Tx does not exist"));
+    };
+
+    for x in store {
+      if let Ok(tx) = x {
+          if tx.nonce == nonce {
+              return Ok(tx);
+          }
+      }
+    }
+
+    return Err(StdError::generic_err("Tx does not exist"));
+}
 
 pub fn store_transfer<S: Storage>(
     store: &mut S,
@@ -139,6 +208,7 @@ pub fn get_transfers<A: Api, S: ReadonlyStorage>(
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Constants {
     pub name: String,
+    pub admin: HumanAddr,
     pub symbol: String,
     pub decimals: u8,
 }
@@ -267,7 +337,7 @@ impl<'a, S: Storage> Balances<'a, S> {
         ReadonlyBalancesImpl(&self.storage)
     }
 
-    pub fn account_amount(&self, account: &CanonicalAddr) -> u128 {
+    pub fn balance(&self, account: &CanonicalAddr) -> u128 {
         self.as_readonly().account_amount(account)
     }
 

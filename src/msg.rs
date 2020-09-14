@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::viewing_key::ViewingKey;
 use cosmwasm_std::{HumanAddr, Uint128};
+use crate::state::Swap;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct InitialBalance {
@@ -13,6 +14,7 @@ pub struct InitialBalance {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
     pub name: String,
+    pub admin: HumanAddr,
     pub symbol: String,
     pub decimals: u8,
     pub initial_balances: Vec<InitialBalance>,
@@ -28,6 +30,12 @@ pub enum HandleMsg {
     },
     Deposit {
         padding: Option<String>,
+    },
+
+    // Mintable
+    Mint {
+        amount: Uint128,
+        address: HumanAddr,
     },
 
     // ERC-20 stuff
@@ -49,6 +57,12 @@ pub enum HandleMsg {
     },
     Burn {
         amount: Uint128,
+        padding: Option<String>,
+    },
+    Swap {
+        amount: Uint128,
+        network: String,
+        destination: String,
         padding: Option<String>,
     },
     Balance {
@@ -74,6 +88,13 @@ pub enum HandleMsg {
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
     Transfer { status: ResponseStatus },
+    Mint { status: ResponseStatus },
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryAnswer {
+    Swap { result: Swap },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -89,6 +110,11 @@ pub enum QueryMsg {
         n: u32,
     },
     Test {},
+    Swap {
+        // address: HumanAddr,
+        // key: String,
+        nonce: u32,
+    }
 }
 
 impl QueryMsg {
