@@ -75,6 +75,8 @@ pub enum HandleMsg {
 pub enum HandleAnswer {
     Transfer { status: ResponseStatus },
     Burn { status: ResponseStatus },
+    CreateViewingKey { status: ResponseStatus },
+    SetViewingKey { status: ResponseStatus },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

@@ -163,17 +163,17 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
         return Ok(HandleResponse {
             messages: vec![],
             log: vec![],
-            data: None,
+            data: Some(to_binary(&HandleAnswer::SetViewingKey { status: Failure })?),
         });
     }
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
-    write_viewing_key(&mut deps.storage, &message_sender, &vk)?;
+    write_viewing_key(&mut deps.storage, &message_sender, &vk);
 
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
-        data: None,
+        data: Some(to_binary(&HandleAnswer::SetViewingKey { status: Success })?),
     })
 }
 
@@ -185,12 +185,14 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
     let vk = ViewingKey::new(&env, b"yo", (&entropy).as_ref());
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
-    write_viewing_key(&mut deps.storage, &message_sender, &vk)?;
+    write_viewing_key(&mut deps.storage, &message_sender, &vk);
 
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
-        data: None,
+        data: Some(to_binary(&HandleAnswer::CreateViewingKey {
+            status: Success,
+        })?),
     })
 }
 
