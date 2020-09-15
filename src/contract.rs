@@ -67,12 +67,19 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let response = match msg {
         // Native
-        HandleMsg::Deposit {..} => try_deposit(deps, env),
+        HandleMsg::Deposit { .. } => try_deposit(deps, env),
         HandleMsg::Withdraw /* todo rename Redeem */ { amount, .. } => try_withdraw(deps, env, amount),
         HandleMsg::Balance /* todo move to query? */ {..} => try_balance(deps, env),
         // Base
-        HandleMsg::Transfer { recipient, amount, .. } => try_transfer(deps, env, &recipient, amount),
-        HandleMsg::Send {recipient, amount, msg, ..} => try_send(deps, env, &recipient, amount, msg),
+        HandleMsg::Transfer {
+            recipient, amount, ..
+        } => try_transfer(deps, env, &recipient, amount),
+        HandleMsg::Send {
+            recipient,
+            amount,
+            msg,
+            ..
+        } => try_send(deps, env, &recipient, amount, msg),
         HandleMsg::Burn { amount, .. } => try_burn(deps, env, amount),
         HandleMsg::RegisterReceive { code_hash, .. } => try_register_receive(deps, env, code_hash),
         HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
@@ -83,12 +90,15 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::TransferFrom {
             owner,
             recipient,
-            amount, ..
+            amount,
+            ..
         } => try_transfer_from(deps, env, &owner, &recipient, amount),
         // todo SendFrom
         // todo BurnFrom
         HandleMsg::Allowance /* todo make query? */ { spender, .. } => try_check_allowance(deps, env, spender),
-        HandleMsg::Approve /* todo unspecified??? */ { spender, amount, .. } => try_approve(deps, env, &spender, amount),
+        HandleMsg::Approve /* todo unspecified??? */ {
+            spender, amount, ..
+        } => try_approve(deps, env, &spender, amount),
     };
 
     response.map(|mut response| {
