@@ -99,8 +99,8 @@ pub fn store_swap<S: Storage>(
     store.push(&swap)
 }
 
-pub fn get_swap<A: Api, S: ReadonlyStorage>(api: &A, storage: &S, nonce: u32) -> StdResult<Swap> {
-    let mut store = ReadonlyPrefixedStorage::new(PREFIX_SWAP, storage);
+pub fn get_swap<S: ReadonlyStorage>(storage: &S, nonce: u32) -> StdResult<Swap> {
+    let store = ReadonlyPrefixedStorage::new(PREFIX_SWAP, storage);
 
     // Try to access the storage of txs for the account.
     // If it doesn't exist yet, return an empty list of transfers.

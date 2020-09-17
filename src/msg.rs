@@ -121,6 +121,9 @@ pub enum HandleAnswer {
     Send {
         status: ResponseStatus,
     },
+    Mint {
+        status: ResponseStatus,
+    },
     Burn {
         status: ResponseStatus,
     },
@@ -147,6 +150,9 @@ pub enum HandleAnswer {
         status: ResponseStatus,
     },
     SendFrom {
+        status: ResponseStatus,
+    },
+    Swap {
         status: ResponseStatus,
     },
 }
