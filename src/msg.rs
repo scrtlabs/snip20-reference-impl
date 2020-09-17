@@ -1,9 +1,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use cosmwasm_std::{Binary, HumanAddr, Uint128};
+
 use crate::state::Swap;
 use crate::viewing_key::ViewingKey;
-use cosmwasm_std::{HumanAddr, Uint128};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct InitialBalance {
@@ -39,9 +40,16 @@ pub enum HandleMsg {
     },
 
     // ERC-20 stuff
-    Approve {
+    IncreaseAllowance {
         spender: HumanAddr,
         amount: Uint128,
+        expiration: Option<u64>,
+        padding: Option<String>,
+    },
+    DecreaseAllowance {
+        spender: HumanAddr,
+        amount: Uint128,
+        expiration: Option<u64>,
         padding: Option<String>,
     },
     Transfer {
@@ -49,10 +57,23 @@ pub enum HandleMsg {
         amount: Uint128,
         padding: Option<String>,
     },
+    Send {
+        recipient: HumanAddr,
+        amount: Uint128,
+        msg: Option<Binary>,
+        padding: Option<String>,
+    },
     TransferFrom {
         owner: HumanAddr,
         recipient: HumanAddr,
         amount: Uint128,
+        padding: Option<String>,
+    },
+    SendFrom {
+        owner: HumanAddr,
+        recipient: HumanAddr,
+        amount: Uint128,
+        msg: Option<Binary>,
         padding: Option<String>,
     },
     Burn {
@@ -63,6 +84,10 @@ pub enum HandleMsg {
         amount: Uint128,
         network: String,
         destination: String,
+        padding: Option<String>,
+    },
+    RegisterReceive {
+        code_hash: String,
         padding: Option<String>,
     },
     Balance {
@@ -90,9 +115,40 @@ pub enum HandleMsg {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
-    Transfer { status: ResponseStatus },
-    Mint { status: ResponseStatus },
-    Swap { status: ResponseStatus },
+    Transfer {
+        status: ResponseStatus,
+    },
+    Send {
+        status: ResponseStatus,
+    },
+    Burn {
+        status: ResponseStatus,
+    },
+    RegisterReceive {
+        status: ResponseStatus,
+    },
+    CreateViewingKey {
+        status: ResponseStatus,
+    },
+    SetViewingKey {
+        status: ResponseStatus,
+    },
+    IncreaseAllowance {
+        spender: HumanAddr,
+        owner: HumanAddr,
+        allowance: Uint128,
+    },
+    DecreaseAllowance {
+        spender: HumanAddr,
+        owner: HumanAddr,
+        allowance: Uint128,
+    },
+    TransferFrom {
+        status: ResponseStatus,
+    },
+    SendFrom {
+        status: ResponseStatus,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -108,10 +164,11 @@ pub enum QueryMsg {
         address: HumanAddr,
         key: String,
     },
-    Transfers {
+    TransferHistory {
         address: HumanAddr,
         key: String,
         n: u32,
+        start: Option<u32>,
     },
     Test {},
     Swap {
@@ -125,7 +182,7 @@ impl QueryMsg {
     pub fn get_validation_params(&self) -> (&HumanAddr, ViewingKey) {
         match self {
             Self::Balance { address, key } => (address, ViewingKey(key.clone())),
-            Self::Transfers { address, key, .. } => (address, ViewingKey(key.clone())),
+            Self::TransferHistory { address, key, .. } => (address, ViewingKey(key.clone())),
             _ => (panic!("lol")),
         }
     }
@@ -141,9 +198,24 @@ pub struct CreateViewingKeyResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum ResponseStatus {
     Success,
     Failure,
+}
+
+// Take a Vec<u8> and pad it up to a multiple of `block_size`, using spaces at the end.
+pub fn space_pad(block_size: usize, message: &mut Vec<u8>) -> &mut Vec<u8> {
+    let len = message.len();
+    let surplus = len % block_size;
+    if surplus == 0 {
+        return message;
+    }
+
+    let missing = block_size - surplus;
+    message.reserve(missing);
+    message.extend(std::iter::repeat(b' ').take(missing));
+    message
 }
 
 #[cfg(test)]

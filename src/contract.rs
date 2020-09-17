@@ -1,20 +1,25 @@
 use cosmwasm_std::{
-    log, to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
-    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, StdError, StdResult, Storage,
-    Uint128,
+    to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
+    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
+    StdResult, Storage, Uint128, WasmMsg,
 };
 
 use crate::msg::{
-    HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
+    space_pad, HandleAnswer, HandleAnswer, HandleMsg, HandleMsg, InitMsg, InitMsg, QueryAnswer,
+    QueryMsg, QueryMsg,
     ResponseStatus::{Failure, Success},
 };
 use crate::state::{
-    get_swap, get_transfers, read_allowance, read_viewing_key, store_swap, store_transfer,
-    write_allowance, write_viewing_key, Balances, Config, Constants, ReadonlyBalances,
-    ReadonlyConfig, Swap,
+    get_receiver_hash, get_swap, get_transfers, get_transfers, read_allowance, read_allowance,
+    read_viewing_key, read_viewing_key, set_receiver_hash, store_swap, store_transfer,
+    store_transfer, write_allowance, write_allowance, write_viewing_key, write_viewing_key,
+    Balances, Balances, Config, Config, Constants, Constants, ReadonlyBalances, ReadonlyBalances,
+    ReadonlyConfig, ReadonlyConfig, Swap,
 };
-use crate::utils::ConstLenStr;
-use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
+use crate::viewing_key::ViewingKey;
+
+/// We make sure that responses from `handle` are padded to a multiple of this size.
+const RESPONSE_BLOCK_SIZE: usize = 256;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -66,36 +71,63 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
-    match msg {
+    let response = match msg {
         // Native
-        HandleMsg::Deposit {..} => try_deposit(deps, env),
+        HandleMsg::Deposit { .. } => try_deposit(deps, env),
         HandleMsg::Withdraw /* todo rename Redeem */ { amount, .. } => try_withdraw(deps, env, amount),
-        HandleMsg::Balance /* todo move to query? */ {..} => try_balance(deps, env),
+        HandleMsg::Balance /* todo move to query? */ { .. } => try_balance(deps, env),
         // Base
-        HandleMsg::Transfer { recipient, amount, .. } => try_transfer(deps, env, &recipient, amount),
-        // todo Send
+        HandleMsg::Transfer {
+            recipient, amount, ..
+        } => try_transfer(deps, env, &recipient, amount),
+        HandleMsg::Send {
+            recipient,
+            amount,
+            msg,
+            ..
+        } => try_send(deps, env, &recipient, amount, msg),
         HandleMsg::Burn { amount, .. } => try_burn(deps, env, amount),
+        HandleMsg::RegisterReceive { code_hash, .. } => try_register_receive(deps, env, code_hash),
         HandleMsg::Mint { amount, address } => try_mint(deps, env, address, amount),
-        HandleMsg::ChangeAdmin { address} => change_admin(deps, env, address),
+        HandleMsg::ChangeAdmin { address } => change_admin(deps, env, address),
         // todo RegisterReceive
         HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
         HandleMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
         // Allowance
-        // todo IncreaseAllowance
-        // todo DecreaseAllowance
+        HandleMsg::IncreaseAllowance {
+            spender, amount, expiration, ..
+        } => try_increase_allowance(deps, env, spender, amount, expiration),
+        HandleMsg::DecreaseAllowance {
+            spender, amount, expiration, ..
+        } => try_decrease_allowance(deps, env, spender, amount, expiration),
         HandleMsg::TransferFrom {
             owner,
             recipient,
-            amount, ..
+            amount,
+            ..
         } => try_transfer_from(deps, env, &owner, &recipient, amount),
-        // todo SendFrom
+        HandleMsg::SendFrom {
+            owner,
+            recipient,
+            amount,
+            msg,
+            ..
+        } => try_send_from(deps, env, &owner, &recipient, amount, msg),
         // todo BurnFrom
         HandleMsg::Allowance /* todo make query? */ { spender, .. } => try_check_allowance(deps, env, spender),
         HandleMsg::Approve /* todo unspecified??? */ { spender, amount, .. } => try_approve(deps, env, &spender, amount),
 
         // todo Send
         HandleMsg::Swap { amount, network, destination, .. } => try_swap(deps, env, amount, network, destination),
-    }
+    };
+
+    response.map(|mut response| {
+        response.data = response.data.map(|mut data| {
+            space_pad(RESPONSE_BLOCK_SIZE, &mut data.0);
+            data
+        });
+        response
+    })
 }
 pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
@@ -125,7 +157,9 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
         // Base
         QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
         // todo TokenInfo
-        QueryMsg::Transfers /* todo rename TransferHistory */ { address, n, .. } => query_transactions(&deps, &address, n),
+        QueryMsg::TransferHistory {
+            address, n, start, ..
+        } => query_transactions(&deps, &address, start.unwrap_or(0), n),
         // Native
         // todo ExchangeRate
         // Other - Test
@@ -153,10 +187,11 @@ pub fn query_swap<S: Storage, A: Api, Q: Querier>(
 pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     account: &HumanAddr,
+    start: u32,
     count: u32,
 ) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account).unwrap();
-    let address = get_transfers(&deps.api, &deps.storage, &address, count)?;
+    let address = get_transfers(&deps.api, &deps.storage, &address, start, count)?;
 
     Ok(Binary(format!("{:?}", address).into_bytes().to_vec()))
 }
@@ -242,30 +277,18 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
     if !vk.is_valid() {
         return Ok(HandleResponse {
             messages: vec![],
-            log: vec![
-                log("result", "failed!"),
-                log(
-                    "viewing key",
-                    format!(
-                        "viewing key must be a string exactly {} characters!",
-                        API_KEY_LENGTH
-                    ),
-                ),
-            ],
-            data: None,
+            log: vec![],
+            data: Some(to_binary(&HandleAnswer::SetViewingKey { status: Failure })?),
         });
     }
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
-    write_viewing_key(&mut deps.storage, &message_sender, &vk)?;
+    write_viewing_key(&mut deps.storage, &message_sender, &vk);
 
     Ok(HandleResponse {
         messages: vec![],
-        log: vec![
-            log("result", "success"),
-            log("viewing key", format!("{}", vk)),
-        ],
-        data: None,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::SetViewingKey { status: Success })?),
     })
 }
 
@@ -277,12 +300,14 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
     let vk = ViewingKey::new(&env, b"yo", (&entropy).as_ref());
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
-    write_viewing_key(&mut deps.storage, &message_sender, &vk)?;
+    write_viewing_key(&mut deps.storage, &message_sender, &vk);
 
     Ok(HandleResponse {
         messages: vec![],
-        log: vec![log("viewing key", format!("{}", vk))],
-        data: None,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::CreateViewingKey {
+            status: Success,
+        })?),
     })
 }
 
@@ -301,23 +326,13 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
     if let Err(_e) = allowance {
         Ok(HandleResponse {
             messages: vec![],
-            log: vec![
-                log("action", "check_allowance"),
-                log("account", env.message.sender.0),
-                log("spender", &spender.as_str()),
-                log("amount", ConstLenStr("0".to_string())),
-            ],
+            log: vec![],
             data: None,
         })
     } else {
         Ok(HandleResponse {
             messages: vec![],
-            log: vec![
-                log("action", "check_allowance"),
-                log("account", env.message.sender.0),
-                log("spender", &spender.as_str()),
-                log("amount", ConstLenStr(allowance.unwrap().to_string())),
-            ],
+            log: vec![],
             data: None,
         })
     }
@@ -333,21 +348,13 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
     if let Err(_e) = account_balance {
         Ok(HandleResponse {
             messages: vec![],
-            log: vec![
-                log("action", "balance"),
-                log("account", env.message.sender.0),
-                log("amount", ConstLenStr("0".to_string())),
-            ],
+            log: vec![],
             data: None,
         })
     } else {
         Ok(HandleResponse {
             messages: vec![],
-            log: vec![
-                log("action", "balance"),
-                log("account", env.message.sender.0),
-                log("amount", ConstLenStr(account_balance.unwrap())),
-            ],
+            log: vec![],
             data: None,
         })
     }
@@ -389,7 +396,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
 
     let mut balances = Balances::from_storage(&mut deps.storage);
-    let mut account_balance = balances.balance(&sender_address);
+    let mut account_balance = balances.account_amount(&sender_address);
     account_balance += amount;
     balances.set_account_balance(&sender_address, account_balance);
 
@@ -400,11 +407,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let res = HandleResponse {
         messages: vec![],
-        log: vec![
-            log("action", "deposit"),
-            log("account", env.message.sender.0),
-            log("amount", &amount.to_string()),
-        ],
+        log: vec![],
         data: None,
     };
 
@@ -420,7 +423,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let amount_raw = amount.u128();
 
     let mut balances = Balances::from_storage(&mut deps.storage);
-    let mut account_balance = balances.balance(&sender_address);
+    let mut account_balance = balances.account_amount(&sender_address);
 
     if account_balance < amount_raw {
         return Err(StdError::generic_err(format!(
@@ -445,26 +448,22 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let res = HandleResponse {
         messages: vec![CosmosMsg::Bank(BankMsg::Send {
             from_address: env.contract.address,
-            to_address: env.message.sender.clone(),
+            to_address: env.message.sender,
             amount: withdrawl_coins,
         })],
-        log: vec![
-            log("action", "withdraw"),
-            log("account", env.message.sender.0),
-            log("amount", &amount.to_string()),
-        ],
+        log: vec![],
         data: None,
     };
 
     Ok(res)
 }
 
-fn try_transfer<S: Storage, A: Api, Q: Querier>(
+fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     recipient: &HumanAddr,
     amount: Uint128,
-) -> StdResult<HandleResponse> {
+) -> StdResult<()> {
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
     let recipient_address = deps.api.canonical_address(recipient)?;
 
@@ -485,38 +484,116 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
         symbol,
     )?;
 
+    Ok(())
+}
+
+fn try_transfer<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    recipient: &HumanAddr,
+    amount: Uint128,
+) -> StdResult<HandleResponse> {
+    try_transfer_impl(deps, env, recipient, amount)?;
+
     let res = HandleResponse {
         messages: vec![],
-        log: vec![
-            log("action", "transfer"),
-            log("sender", env.message.sender.0),
-            log("recipient", recipient.as_str()),
-        ],
+        log: vec![],
         data: Some(to_binary(&HandleAnswer::Transfer { status: Success })?),
     };
     Ok(res)
 }
 
-fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
+fn try_add_receiver_api_callback<S: ReadonlyStorage>(
+    messages: &mut Vec<CosmosMsg>,
+    storage: &S,
+    recipient: &HumanAddr,
+    msg: Binary,
+) -> StdResult<()> {
+    let receiver_hash = get_receiver_hash(storage, recipient);
+    if let Some(receiver_hash) = receiver_hash {
+        let receiver_hash = receiver_hash?;
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            msg,
+            callback_code_hash: receiver_hash,
+            contract_addr: recipient.clone(),
+            send: vec![],
+        }));
+    }
+    Ok(())
+}
+
+fn try_send<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    recipient: &HumanAddr,
+    amount: Uint128,
+    msg: Option<Binary>,
+) -> StdResult<HandleResponse> {
+    try_transfer_impl(deps, env, recipient, amount)?;
+
+    let mut messages = vec![];
+    if let Some(msg) = msg {
+        try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg)?;
+    }
+
+    let res = HandleResponse {
+        messages,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::Send { status: Success })?),
+    };
+    Ok(res)
+}
+
+fn try_register_receive<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    code_hash: String,
+) -> StdResult<HandleResponse> {
+    set_receiver_hash(&mut deps.storage, &env.message.sender, code_hash);
+    let res = HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::RegisterReceive {
+            status: Success,
+        })?),
+    };
+    Ok(res)
+}
+
+fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
+    StdError::generic_err(format!(
+        "Insufficient allowance: allowance={}, required={}",
+        allowance, required
+    ))
+}
+
+fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     owner: &HumanAddr,
     recipient: &HumanAddr,
     amount: Uint128,
-) -> StdResult<HandleResponse> {
+) -> StdResult<()> {
     let spender_address = deps.api.canonical_address(&env.message.sender)?;
     let owner_address = deps.api.canonical_address(owner)?;
     let recipient_address = deps.api.canonical_address(recipient)?;
     let amount_raw = amount.u128();
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
-    if allowance < amount_raw {
-        return Err(StdError::generic_err(format!(
-            "Insufficient allowance: allowance={}, required={}",
-            allowance, amount_raw
-        )));
+    if allowance.amount < amount_raw {
+        return Err(insufficient_allowance(allowance.amount, amount_raw));
     }
-    allowance -= amount_raw;
+    if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) {
+        allowance.amount = 0;
+        write_allowance(
+            &mut deps.storage,
+            &owner_address,
+            &spender_address,
+            allowance,
+        )?;
+        return Err(insufficient_allowance(0, amount_raw));
+    }
+    allowance.amount -= amount_raw;
     write_allowance(
         &mut deps.storage,
         &owner_address,
@@ -540,65 +617,117 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
         symbol,
     )?;
 
+    Ok(())
+}
+
+fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    owner: &HumanAddr,
+    recipient: &HumanAddr,
+    amount: Uint128,
+) -> StdResult<HandleResponse> {
+    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
+
     let res = HandleResponse {
         messages: vec![],
-        log: vec![
-            log("action", "transfer_from"),
-            log("spender", env.message.sender.0),
-            log("sender", owner.as_str()),
-            log("recipient", recipient.as_str()),
-        ],
-        data: None,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::TransferFrom { status: Success })?),
     };
     Ok(res)
 }
 
-fn try_approve<S: Storage, A: Api, Q: Querier>(
+fn try_send_from<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    spender: &HumanAddr,
+    owner: &HumanAddr,
+    recipient: &HumanAddr,
     amount: Uint128,
+    msg: Option<Binary>,
+) -> StdResult<HandleResponse> {
+    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
+
+    let mut messages = vec![];
+    if let Some(msg) = msg {
+        try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg)?;
+    }
+
+    let res = HandleResponse {
+        messages,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::SendFrom { status: Success })?),
+    };
+    Ok(res)
+}
+
+fn try_increase_allowance<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    spender: HumanAddr,
+    amount: Uint128,
+    expiration: Option<u64>,
 ) -> StdResult<HandleResponse> {
     let owner_address = deps.api.canonical_address(&env.message.sender)?;
-    let spender_address = deps.api.canonical_address(spender)?;
+    let spender_address = deps.api.canonical_address(&spender)?;
+
+    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+    allowance.amount = allowance.amount.saturating_add(amount.u128());
+    if expiration.is_some() {
+        allowance.expiration = expiration;
+    }
+    let new_amount = allowance.amount;
     write_allowance(
         &mut deps.storage,
         &owner_address,
         &spender_address,
-        amount.u128(),
+        allowance,
     )?;
+
     let res = HandleResponse {
         messages: vec![],
-        log: vec![
-            log("action", "approve"),
-            log("owner", env.message.sender.0),
-            log("spender", spender.as_str()),
-        ],
-        data: None,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::IncreaseAllowance {
+            owner: env.message.sender,
+            spender,
+            allowance: Uint128(new_amount),
+        })?),
     };
     Ok(res)
 }
 
-/// Burn tokens
-///
-/// Remove `amount` tokens from the system irreversibly, from signer account
-///
-/// @param amount the amount of money to burn
-fn try_swap<S: Storage, A: Api, Q: Querier>(
+fn try_decrease_allowance<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
+    spender: HumanAddr,
     amount: Uint128,
-    network: String,
-    destination: String,
+    expiration: Option<u64>,
 ) -> StdResult<HandleResponse> {
-    try_burn(deps, env, amount)?;
-    store_swap(&mut deps.storage, destination, amount)?;
+    let owner_address = deps.api.canonical_address(&env.message.sender)?;
+    let spender_address = deps.api.canonical_address(&spender)?;
 
-    Ok(HandleResponse {
+    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+    allowance.amount = allowance.amount.saturating_add(amount.u128());
+    if expiration.is_some() {
+        allowance.expiration = expiration;
+    }
+    let new_amount = allowance.amount;
+    write_allowance(
+        &mut deps.storage,
+        &owner_address,
+        &spender_address,
+        allowance,
+    )?;
+
+    let res = HandleResponse {
         messages: vec![],
         log: vec![],
-        data: Some(to_binary(&HandleAnswer::Swap { status: Success })?),
-    })
+        data: Some(to_binary(&HandleAnswer::DecreaseAllowance {
+            owner: env.message.sender,
+            spender,
+            allowance: Uint128(new_amount),
+        })?),
+    };
+    Ok(res)
 }
 
 /// Burn tokens
@@ -615,7 +744,7 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     let amount = amount.u128();
 
     let mut balances = Balances::from_storage(&mut deps.storage);
-    let mut account_balance = balances.balance(&sender_address);
+    let mut account_balance = balances.account_amount(&sender_address);
 
     if account_balance < amount {
         return Err(StdError::generic_err(format!(
@@ -634,12 +763,8 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
 
     let res = HandleResponse {
         messages: vec![],
-        log: vec![
-            log("action", "burn"),
-            log("account", env.message.sender.0),
-            log("amount", amount.to_string()),
-        ],
-        data: None,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::Burn { status: Success })?),
     };
 
     Ok(res)
@@ -653,7 +778,7 @@ fn perform_transfer<T: Storage>(
 ) -> StdResult<()> {
     let mut balances = Balances::from_storage(store);
 
-    let mut from_balance = balances.balance(from);
+    let mut from_balance = balances.account_amount(from);
     if from_balance < amount {
         return Err(StdError::generic_err(format!(
             "Insufficient funds: balance={}, required={}",
@@ -663,7 +788,7 @@ fn perform_transfer<T: Storage>(
     from_balance -= amount;
     balances.set_account_balance(from, from_balance);
 
-    let mut to_balance = balances.balance(to);
+    let mut to_balance = balances.account_amount(to);
     to_balance = to_balance.checked_add(amount).ok_or_else(|| {
         StdError::generic_err("This tx will literally make them too rich. Try transferring less")
     })?;
@@ -687,7 +812,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
 fn to_display_token(amount: u128, symbol: &str, decimals: u8) -> String {
     let base: u32 = 10;
 
-    let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u128);
+    let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u64);
 
     format!("{} {}", amnt, symbol)
 }

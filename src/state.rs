@@ -6,7 +6,7 @@ use cosmwasm_std::{
 };
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
-use secret_toolkit::storage::{AppendStore, AppendStoreMut};
+use secret_toolkit::storage::{AppendStore, AppendStoreMut, TypedStore, TypedStoreMut};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,7 @@ pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const KEY_CONSTANTS: &[u8] = b"constants";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
+pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Tx {
@@ -154,6 +155,7 @@ pub fn get_transfers<A: Api, S: ReadonlyStorage>(
     api: &A,
     storage: &S,
     for_address: &CanonicalAddr,
+    start: u32,
     count: u32,
 ) -> StdResult<Vec<Tx>> {
     let store = ReadonlyPrefixedStorage::multilevel(&[PREFIX_TXS, for_address.as_slice()], storage);
@@ -166,8 +168,8 @@ pub fn get_transfers<A: Api, S: ReadonlyStorage>(
         return Ok(vec![]);
     };
 
-    // Take `count` txs starting from the latest tx.
-    let tx_iter = store.iter().rev().take(count as _);
+    // Take `count` txs starting from the latest tx, potentially skipping some from the start.
+    let tx_iter = store.iter().rev().skip(start as usize).take(count as _);
     // The `and_then` here flattens the `StdResult<StdResult<Tx>>` to an `StdResult<Tx>`
     let txs: StdResult<Vec<Tx>> = tx_iter
         .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
@@ -339,47 +341,65 @@ impl<'a, S: ReadonlyStorage> ReadonlyBalancesImpl<'a, S> {
 
 // Allowances
 
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Default, JsonSchema)]
+pub struct Allowance {
+    pub amount: u128,
+    pub expiration: Option<u64>,
+}
+
 pub fn read_allowance<S: Storage>(
     store: &S,
     owner: &CanonicalAddr,
     spender: &CanonicalAddr,
-) -> StdResult<u128> {
-    let allowances_store = ReadonlyPrefixedStorage::new(PREFIX_ALLOWANCES, store);
-    let owner_store = ReadonlyPrefixedStorage::new(owner.as_slice(), &allowances_store);
-    let result = owner_store.get(spender.as_slice());
-    match result {
-        Some(data) => slice_to_u128(&data),
-        None => Ok(0u128),
-    }
+) -> StdResult<Allowance> {
+    let owner_store =
+        ReadonlyPrefixedStorage::multilevel(&[PREFIX_ALLOWANCES, owner.as_slice()], store);
+    let owner_store = TypedStore::attach(&owner_store);
+    let allowance = owner_store.may_load(spender.as_slice());
+    allowance.map(Option::unwrap_or_default)
 }
 
 pub fn write_allowance<S: Storage>(
     store: &mut S,
     owner: &CanonicalAddr,
     spender: &CanonicalAddr,
-    amount: u128,
+    allowance: Allowance,
 ) -> StdResult<()> {
-    let mut allowances_store = PrefixedStorage::new(PREFIX_ALLOWANCES, store);
-    let mut owner_store = PrefixedStorage::new(owner.as_slice(), &mut allowances_store);
-    owner_store.set(spender.as_slice(), &amount.to_be_bytes());
-    Ok(())
+    let mut owner_store =
+        PrefixedStorage::multilevel(&[PREFIX_ALLOWANCES, owner.as_slice()], store);
+    let mut owner_store = TypedStoreMut::attach(&mut owner_store);
+
+    owner_store.store(spender.as_slice(), &allowance)
 }
 
 // Viewing Keys
 
-pub fn write_viewing_key<S: Storage>(
-    store: &mut S,
-    owner: &CanonicalAddr,
-    key: &ViewingKey,
-) -> StdResult<()> {
+pub fn write_viewing_key<S: Storage>(store: &mut S, owner: &CanonicalAddr, key: &ViewingKey) {
     let mut balance_store = PrefixedStorage::new(PREFIX_VIEW_KEY, store);
-    balance_store.set(owner.as_slice(), key.to_hashed().as_ref());
-    Ok(())
+    balance_store.set(owner.as_slice(), &key.to_hashed());
 }
 
 pub fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<Vec<u8>> {
     let balance_store = ReadonlyPrefixedStorage::new(PREFIX_VIEW_KEY, store);
     balance_store.get(owner.as_slice())
+}
+
+// Receiver Interface
+
+pub fn get_receiver_hash<S: ReadonlyStorage>(
+    store: &S,
+    account: &HumanAddr,
+) -> Option<StdResult<String>> {
+    let store = ReadonlyPrefixedStorage::new(PREFIX_RECEIVERS, store);
+    store.get(account.as_str().as_bytes()).map(|data| {
+        String::from_utf8(data)
+            .map_err(|_err| StdError::invalid_utf8("stored code hash was not a valid String"))
+    })
+}
+
+pub fn set_receiver_hash<S: Storage>(store: &mut S, account: &HumanAddr, code_hash: String) {
+    let mut store = PrefixedStorage::new(PREFIX_RECEIVERS, store);
+    store.set(account.as_str().as_bytes(), code_hash.as_bytes());
 }
 
 // Helpers
