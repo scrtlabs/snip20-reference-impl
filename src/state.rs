@@ -114,6 +114,7 @@ pub fn get_transfers<A: Api, S: ReadonlyStorage>(
     api: &A,
     storage: &S,
     for_address: &CanonicalAddr,
+    start: u32,
     count: u32,
 ) -> StdResult<Vec<Tx>> {
     let store = ReadonlyPrefixedStorage::multilevel(&[PREFIX_TXS, for_address.as_slice()], storage);
@@ -126,8 +127,8 @@ pub fn get_transfers<A: Api, S: ReadonlyStorage>(
         return Ok(vec![]);
     };
 
-    // Take `count` txs starting from the latest tx.
-    let tx_iter = store.iter().rev().take(count as _);
+    // Take `count` txs starting from the latest tx, potentially skipping some from the start.
+    let tx_iter = store.iter().rev().skip(start as usize).take(count as _);
     // The `and_then` here flattens the `StdResult<StdResult<Tx>>` to an `StdResult<Tx>`
     let txs: StdResult<Vec<Tx>> = tx_iter
         .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))

@@ -135,7 +135,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         // Base
         QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
         // todo TokenInfo
-        QueryMsg::Transfers /* todo rename TransferHistory */ { address, n, .. } => query_transactions(&deps, &address, n),
+        QueryMsg::Transfers /* todo rename TransferHistory */ { address, n, start, .. } => query_transactions(&deps, &address, start.unwrap_or(0), n),
         // Native
         // todo ExchangeRate
         // Other - Test
@@ -146,10 +146,11 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
 pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     account: &HumanAddr,
+    start: u32,
     count: u32,
 ) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account).unwrap();
-    let address = get_transfers(&deps.api, &deps.storage, &address, count)?;
+    let address = get_transfers(&deps.api, &deps.storage, &address, start, count)?;
 
     Ok(Binary(format!("{:?}", address).into_bytes().to_vec()))
 }

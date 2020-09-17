@@ -103,6 +103,7 @@ pub enum QueryMsg {
         address: HumanAddr,
         key: String,
         n: u32,
+        start: Option<u32>,
     },
     Test {},
 }
