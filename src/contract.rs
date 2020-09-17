@@ -110,7 +110,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             msg,
             ..
         } => try_send_from(deps, env, &owner, &recipient, amount, msg),
-        // todo BurnFrom
+        HandleMsg::BurnFrom {owner, amount, ..} => try_burn_from(deps, env, &owner, amount),
         HandleMsg::Allowance /* todo make query? */ { spender, .. } => try_check_allowance(deps, env, spender),
         // todo Send
         HandleMsg::Swap { amount, network, destination, .. } => try_swap(deps, env, amount, network, destination),
@@ -669,6 +669,67 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
         log: vec![],
         data: Some(to_binary(&HandleAnswer::SendFrom { status: Success })?),
     };
+    Ok(res)
+}
+
+fn try_burn_from<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    owner: &HumanAddr,
+    amount: Uint128,
+) -> StdResult<HandleResponse> {
+    let spender_address = deps.api.canonical_address(&env.message.sender)?;
+    let owner_address = deps.api.canonical_address(owner)?;
+    let amount = amount.u128();
+
+    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+    if allowance.amount < amount {
+        return Err(insufficient_allowance(allowance.amount, amount));
+    }
+    if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) {
+        allowance.amount = 0;
+        write_allowance(
+            &mut deps.storage,
+            &owner_address,
+            &spender_address,
+            allowance,
+        )?;
+        return Err(insufficient_allowance(0, amount));
+    }
+    allowance.amount -= amount;
+    write_allowance(
+        &mut deps.storage,
+        &owner_address,
+        &spender_address,
+        allowance,
+    )?;
+
+    // subtract from owner account
+    let mut balances = Balances::from_storage(&mut deps.storage);
+    let mut account_balance = balances.account_amount(&owner_address);
+
+    if account_balance < amount {
+        return Err(StdError::generic_err(format!(
+            "insufficient funds to burn: balance={}, required={}",
+            account_balance, amount
+        )));
+    }
+
+    account_balance -= amount;
+    balances.set_account_balance(&owner_address, account_balance);
+
+    // remove from supply
+    let mut config = Config::from_storage(&mut deps.storage);
+    let mut total_supply = config.total_supply();
+    total_supply -= amount;
+    config.set_total_supply(total_supply);
+
+    let res = HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::BurnFrom { status: Success })?),
+    };
+
     Ok(res)
 }
 

@@ -76,6 +76,11 @@ pub enum HandleMsg {
         msg: Option<Binary>,
         padding: Option<String>,
     },
+    BurnFrom {
+        owner: HumanAddr,
+        amount: Uint128,
+        padding: Option<String>,
+    },
     Burn {
         amount: Uint128,
         padding: Option<String>,
@@ -161,6 +166,9 @@ pub enum HandleAnswer {
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
     Swap { result: Swap },
+    BurnFrom {
+        status: ResponseStatus,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
