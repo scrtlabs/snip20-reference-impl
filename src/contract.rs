@@ -85,8 +85,12 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
         HandleMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
         // Allowance
-        // todo IncreaseAllowance
-        // todo DecreaseAllowance
+        HandleMsg::IncreaseAllowance {
+            spender, amount, expiration, ..
+        } => try_increase_allowance(deps, env, spender, amount, expiration),
+        HandleMsg::DecreaseAllowance {
+            spender, amount, expiration, ..
+        } => try_decrease_allowance(deps, env, spender, amount, expiration),
         HandleMsg::TransferFrom {
             owner,
             recipient,
@@ -96,9 +100,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // todo SendFrom
         // todo BurnFrom
         HandleMsg::Allowance /* todo make query? */ { spender, .. } => try_check_allowance(deps, env, spender),
-        HandleMsg::Approve /* todo unspecified??? */ {
-            spender, amount, ..
-        } => try_approve(deps, env, &spender, amount),
     };
 
     response.map(|mut response| {
@@ -459,13 +460,13 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     let amount_raw = amount.u128();
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
-    if allowance < amount_raw {
+    if allowance.amount < amount_raw {
         return Err(StdError::generic_err(format!(
             "Insufficient allowance: allowance={}, required={}",
-            allowance, amount_raw
+            allowance.amount, amount_raw
         )));
     }
-    allowance -= amount_raw;
+    allowance.amount -= amount_raw;
     write_allowance(
         &mut deps.storage,
         &owner_address,
@@ -497,24 +498,72 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_approve<S: Storage, A: Api, Q: Querier>(
+fn try_increase_allowance<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    spender: &HumanAddr,
+    spender: HumanAddr,
     amount: Uint128,
+    expiration: Option<u64>,
 ) -> StdResult<HandleResponse> {
     let owner_address = deps.api.canonical_address(&env.message.sender)?;
-    let spender_address = deps.api.canonical_address(spender)?;
+    let spender_address = deps.api.canonical_address(&spender)?;
+
+    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+    allowance.amount = allowance.amount.saturating_add(amount.u128());
+    if expiration.is_some() {
+        allowance.expiration = expiration;
+    }
+    let new_amount = allowance.amount;
     write_allowance(
         &mut deps.storage,
         &owner_address,
         &spender_address,
-        amount.u128(),
+        allowance,
     )?;
+
     let res = HandleResponse {
         messages: vec![],
         log: vec![],
-        data: None,
+        data: Some(to_binary(&HandleAnswer::IncreaseAllowance {
+            owner: env.message.sender,
+            spender,
+            allowance: Uint128(new_amount),
+        })?),
+    };
+    Ok(res)
+}
+
+fn try_decrease_allowance<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    spender: HumanAddr,
+    amount: Uint128,
+    expiration: Option<u64>,
+) -> StdResult<HandleResponse> {
+    let owner_address = deps.api.canonical_address(&env.message.sender)?;
+    let spender_address = deps.api.canonical_address(&spender)?;
+
+    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+    allowance.amount = allowance.amount.saturating_add(amount.u128());
+    if expiration.is_some() {
+        allowance.expiration = expiration;
+    }
+    let new_amount = allowance.amount;
+    write_allowance(
+        &mut deps.storage,
+        &owner_address,
+        &spender_address,
+        allowance,
+    )?;
+
+    let res = HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::DecreaseAllowance {
+            owner: env.message.sender,
+            spender,
+            allowance: Uint128(new_amount),
+        })?),
     };
     Ok(res)
 }

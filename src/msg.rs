@@ -32,9 +32,16 @@ pub enum HandleMsg {
     },
 
     // ERC-20 stuff
-    Approve {
+    IncreaseAllowance {
         spender: HumanAddr,
         amount: Uint128,
+        expiration: Option<u64>,
+        padding: Option<String>,
+    },
+    DecreaseAllowance {
+        spender: HumanAddr,
+        amount: Uint128,
+        expiration: Option<u64>,
         padding: Option<String>,
     },
     Transfer {
@@ -84,12 +91,34 @@ pub enum HandleMsg {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
-    Transfer { status: ResponseStatus },
-    Send { status: ResponseStatus },
-    Burn { status: ResponseStatus },
-    RegisterReceive { status: ResponseStatus },
-    CreateViewingKey { status: ResponseStatus },
-    SetViewingKey { status: ResponseStatus },
+    Transfer {
+        status: ResponseStatus,
+    },
+    Send {
+        status: ResponseStatus,
+    },
+    Burn {
+        status: ResponseStatus,
+    },
+    RegisterReceive {
+        status: ResponseStatus,
+    },
+    CreateViewingKey {
+        status: ResponseStatus,
+    },
+    SetViewingKey {
+        status: ResponseStatus,
+    },
+    IncreaseAllowance {
+        spender: HumanAddr,
+        owner: HumanAddr,
+        allowance: Uint128,
+    },
+    DecreaseAllowance {
+        spender: HumanAddr,
+        owner: HumanAddr,
+        allowance: Uint128,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
