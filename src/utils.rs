@@ -17,7 +17,7 @@ pub struct ConstLenStr(pub String);
 
 impl fmt::Display for ConstLenStr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let len = 16 - self.0.len();
+        let len = 32 - self.0.len();
         write!(f, "{}{}", "0".repeat(len), self.0)
     }
 }

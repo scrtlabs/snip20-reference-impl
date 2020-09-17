@@ -76,6 +76,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // todo Send
         HandleMsg::Burn { amount, .. } => try_burn(deps, env, amount),
         HandleMsg::Mint { amount, address } => try_mint(deps, env, address, amount),
+        HandleMsg::ChangeAdmin { address} => change_admin(deps, env, address),
         // todo RegisterReceive
         HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
         HandleMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
@@ -167,6 +168,28 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
     let address = deps.api.canonical_address(account)?;
 
     Ok(Binary(Vec::from(get_balance(deps, &address)?)))
+}
+
+fn change_admin<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    address: HumanAddr,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    let msg_sender = &env.message.sender;
+    let mut consts = config.constants()?;
+    if &consts.admin != msg_sender {
+        return Err(StdError::generic_err(
+            "Admin commands can only be ran from admin address",
+        ));
+    }
+
+    consts.admin = address;
+
+    config.set_constants(&consts)?;
+
+    Ok(HandleResponse::default())
 }
 
 fn try_mint<S: Storage, A: Api, Q: Querier>(
@@ -664,7 +687,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
 fn to_display_token(amount: u128, symbol: &str, decimals: u8) -> String {
     let base: u32 = 10;
 
-    let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u64);
+    let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u128);
 
     format!("{} {}", amnt, symbol)
 }

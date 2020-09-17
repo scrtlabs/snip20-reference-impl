@@ -72,7 +72,10 @@ pub enum HandleMsg {
         spender: HumanAddr,
         padding: Option<String>,
     },
-
+    // Admin
+    ChangeAdmin {
+        address: HumanAddr,
+    },
     // Privacy stuff
     SetViewingKey {
         key: String,
