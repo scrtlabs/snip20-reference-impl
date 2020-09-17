@@ -119,6 +119,9 @@ pub enum HandleAnswer {
         owner: HumanAddr,
         allowance: Uint128,
     },
+    TransferFrom {
+        status: ResponseStatus,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

@@ -447,6 +447,13 @@ fn try_register_receive<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
+fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
+    StdError::generic_err(format!(
+        "Insufficient allowance: allowance={}, required={}",
+        allowance, required
+    ))
+}
+
 fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -461,10 +468,17 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
     if allowance.amount < amount_raw {
-        return Err(StdError::generic_err(format!(
-            "Insufficient allowance: allowance={}, required={}",
-            allowance.amount, amount_raw
-        )));
+        return Err(insufficient_allowance(allowance.amount, amount_raw));
+    }
+    if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) {
+        allowance.amount = 0;
+        write_allowance(
+            &mut deps.storage,
+            &owner_address,
+            &spender_address,
+            allowance,
+        )?;
+        return Err(insufficient_allowance(0, amount_raw));
     }
     allowance.amount -= amount_raw;
     write_allowance(
@@ -493,7 +507,7 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     let res = HandleResponse {
         messages: vec![],
         log: vec![],
-        data: None,
+        data: Some(to_binary(&HandleAnswer::TransferFrom { status: Success })?),
     };
     Ok(res)
 }
