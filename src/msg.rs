@@ -99,7 +99,7 @@ pub enum QueryMsg {
         address: HumanAddr,
         key: String,
     },
-    Transfers {
+    TransferHistory {
         address: HumanAddr,
         key: String,
         n: u32,
@@ -112,7 +112,7 @@ impl QueryMsg {
     pub fn get_validation_params(&self) -> (&HumanAddr, ViewingKey) {
         match self {
             Self::Balance { address, key } => (address, ViewingKey(key.clone())),
-            Self::Transfers { address, key, .. } => (address, ViewingKey(key.clone())),
+            Self::TransferHistory { address, key, .. } => (address, ViewingKey(key.clone())),
             _ => (panic!("lol")),
         }
     }

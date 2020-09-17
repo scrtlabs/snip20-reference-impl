@@ -135,7 +135,9 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         // Base
         QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
         // todo TokenInfo
-        QueryMsg::Transfers /* todo rename TransferHistory */ { address, n, start, .. } => query_transactions(&deps, &address, start.unwrap_or(0), n),
+        QueryMsg::TransferHistory {
+            address, n, start, ..
+        } => query_transactions(&deps, &address, start.unwrap_or(0), n),
         // Native
         // todo ExchangeRate
         // Other - Test
