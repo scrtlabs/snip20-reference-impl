@@ -1,7 +1,7 @@
 use cosmwasm_std::{
     to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
-    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, StdError, StdResult, Storage,
-    Uint128, WasmMsg,
+    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
+    StdResult, Storage, Uint128, WasmMsg,
 };
 
 use crate::msg::{
@@ -97,7 +97,13 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             amount,
             ..
         } => try_transfer_from(deps, env, &owner, &recipient, amount),
-        // todo SendFrom
+        HandleMsg::SendFrom {
+            owner,
+            recipient,
+            amount,
+            msg,
+            ..
+        } => try_send_from(deps, env, &owner, &recipient, amount, msg),
         // todo BurnFrom
         HandleMsg::Allowance /* todo make query? */ { spender, .. } => try_check_allowance(deps, env, spender),
     };
@@ -394,6 +400,7 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
     try_transfer_impl(deps, env, recipient, amount)?;
+
     let res = HandleResponse {
         messages: vec![],
         log: vec![],
@@ -402,17 +409,13 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_send<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
+fn try_add_receiver_api_callback<S: ReadonlyStorage>(
+    messages: &mut Vec<CosmosMsg>,
+    storage: &S,
     recipient: &HumanAddr,
-    amount: Uint128,
     msg: Binary,
-) -> StdResult<HandleResponse> {
-    try_transfer_impl(deps, env, recipient, amount)?;
-
-    let receiver_hash = get_receiver_hash(&deps.storage, recipient);
-    let mut messages = vec![];
+) -> StdResult<()> {
+    let receiver_hash = get_receiver_hash(storage, recipient);
     if let Some(receiver_hash) = receiver_hash {
         let receiver_hash = receiver_hash?;
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
@@ -420,7 +423,23 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
             callback_code_hash: receiver_hash,
             contract_addr: recipient.clone(),
             send: vec![],
-        }))
+        }));
+    }
+    Ok(())
+}
+
+fn try_send<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    recipient: &HumanAddr,
+    amount: Uint128,
+    msg: Option<Binary>,
+) -> StdResult<HandleResponse> {
+    try_transfer_impl(deps, env, recipient, amount)?;
+
+    let mut messages = vec![];
+    if let Some(msg) = msg {
+        try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg)?;
     }
 
     let res = HandleResponse {
@@ -454,13 +473,13 @@ fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
     ))
 }
 
-fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
+fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     owner: &HumanAddr,
     recipient: &HumanAddr,
     amount: Uint128,
-) -> StdResult<HandleResponse> {
+) -> StdResult<()> {
     let spender_address = deps.api.canonical_address(&env.message.sender)?;
     let owner_address = deps.api.canonical_address(owner)?;
     let recipient_address = deps.api.canonical_address(recipient)?;
@@ -504,10 +523,45 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
         symbol,
     )?;
 
+    Ok(())
+}
+
+fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    owner: &HumanAddr,
+    recipient: &HumanAddr,
+    amount: Uint128,
+) -> StdResult<HandleResponse> {
+    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
+
     let res = HandleResponse {
         messages: vec![],
         log: vec![],
         data: Some(to_binary(&HandleAnswer::TransferFrom { status: Success })?),
+    };
+    Ok(res)
+}
+
+fn try_send_from<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    owner: &HumanAddr,
+    recipient: &HumanAddr,
+    amount: Uint128,
+    msg: Option<Binary>,
+) -> StdResult<HandleResponse> {
+    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
+
+    let mut messages = vec![];
+    if let Some(msg) = msg {
+        try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg)?;
+    }
+
+    let res = HandleResponse {
+        messages,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::SendFrom { status: Success })?),
     };
     Ok(res)
 }

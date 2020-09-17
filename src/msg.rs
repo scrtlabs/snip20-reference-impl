@@ -52,13 +52,20 @@ pub enum HandleMsg {
     Send {
         recipient: HumanAddr,
         amount: Uint128,
-        msg: Binary,
+        msg: Option<Binary>,
         padding: Option<String>,
     },
     TransferFrom {
         owner: HumanAddr,
         recipient: HumanAddr,
         amount: Uint128,
+        padding: Option<String>,
+    },
+    SendFrom {
+        owner: HumanAddr,
+        recipient: HumanAddr,
+        amount: Uint128,
+        msg: Option<Binary>,
         padding: Option<String>,
     },
     Burn {
@@ -120,6 +127,9 @@ pub enum HandleAnswer {
         allowance: Uint128,
     },
     TransferFrom {
+        status: ResponseStatus,
+    },
+    SendFrom {
         status: ResponseStatus,
     },
 }
