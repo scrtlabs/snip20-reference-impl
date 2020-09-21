@@ -185,6 +185,8 @@ pub struct Constants {
     pub admin: HumanAddr,
     pub symbol: String,
     pub decimals: u8,
+    // privacy configuration
+    pub total_supply_is_public: bool,
 }
 
 pub struct ReadonlyConfig<'a, S: ReadonlyStorage> {

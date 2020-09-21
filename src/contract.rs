@@ -57,6 +57,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         symbol: msg.symbol,
         decimals: msg.decimals,
         admin,
+        total_supply_is_public: msg.config.public_total_supply(),
     })?;
     config.set_total_supply(total_supply);
 
@@ -125,6 +126,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
     match msg {
+        QueryMsg::TokenInfo {} => query_token_info(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(),
         QueryMsg::Swap { nonce, .. } => query_swap(&deps, nonce),
         QueryMsg::Allowance { owner, spender, .. } => try_check_allowance(deps, owner, spender),
@@ -159,7 +161,6 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
     match msg {
         // Base
         QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
-        // todo TokenInfo
         QueryMsg::TransferHistory {
             address, n, start, ..
         } => query_transactions(&deps, &address, start.unwrap_or(0), n),
@@ -174,6 +175,23 @@ fn query_exchange_rate() -> QueryResult {
     to_binary(&QueryAnswer::ExchangeRate {
         rate: Uint128(1),
         denom: "uscrt".to_string(),
+    })
+}
+
+fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
+    let config = ReadonlyConfig::from_storage(storage);
+    let constants = config.constants()?;
+
+    let mut total_supply = None;
+    if constants.total_supply_is_public {
+        total_supply = Some(config.total_supply());
+    }
+
+    to_binary(&QueryAnswer::TokenInfo {
+        name: constants.name,
+        symbol: constants.symbol,
+        decimals: constants.decimals,
+        total_supply,
     })
 }
 

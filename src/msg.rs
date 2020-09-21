@@ -19,6 +19,23 @@ pub struct InitMsg {
     pub symbol: String,
     pub decimals: u8,
     pub initial_balances: Vec<InitialBalance>,
+    pub config: InitConfig,
+}
+
+/// This type represents optional configuration values which can be overridden.
+/// All values are optional and have defaults which are more private by default,
+/// but can be overridden if necessary
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Default)]
+pub struct InitConfig {
+    /// Indicates whether the total supply is public or should be kept secret.
+    /// default: False
+    public_total_supply: Option<bool>,
+}
+
+impl InitConfig {
+    pub fn public_total_supply(&self) -> bool {
+        self.public_total_supply.unwrap_or(false)
+    }
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -171,6 +188,7 @@ pub enum HandleAnswer {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     ExchangeRate {},
+    TokenInfo {},
     Balance {
         address: HumanAddr,
         key: String,
@@ -210,6 +228,12 @@ pub enum QueryAnswer {
     ExchangeRate {
         rate: Uint128,
         denom: String,
+    },
+    TokenInfo {
+        name: String,
+        symbol: String,
+        decimals: u8,
+        total_supply: Option<u128>,
     },
     Allowance {
         spender: HumanAddr,
