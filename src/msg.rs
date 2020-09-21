@@ -98,10 +98,6 @@ pub enum HandleMsg {
     Balance {
         padding: Option<String>,
     },
-    Allowance {
-        spender: HumanAddr,
-        padding: Option<String>,
-    },
     // Admin
     ChangeAdmin {
         address: HumanAddr,
@@ -165,12 +161,6 @@ pub enum HandleAnswer {
     },
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum QueryAnswer {
-    Swap { result: Swap },
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
@@ -183,6 +173,11 @@ pub enum QueryMsg {
         key: String,
         n: u32,
         start: Option<u32>,
+    },
+    Allowance {
+        owner: HumanAddr,
+        spender: HumanAddr,
+        padding: Option<String>,
     },
     Test {},
     Swap {
@@ -204,7 +199,17 @@ impl QueryMsg {
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-struct QueryResponse {}
+pub enum QueryAnswer {
+    Allowance {
+        spender: HumanAddr,
+        owner: HumanAddr,
+        allowance: Uint128,
+        expiration: Option<u64>,
+    },
+    Swap {
+        result: Swap,
+    },
+}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct CreateViewingKeyResponse {

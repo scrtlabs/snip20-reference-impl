@@ -111,8 +111,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             ..
         } => try_send_from(deps, env, &owner, &recipient, amount, msg),
         HandleMsg::BurnFrom {owner, amount, ..} => try_burn_from(deps, env, &owner, amount),
-        HandleMsg::Allowance /* todo make query? */ { spender, .. } => try_check_allowance(deps, env, spender),
-        // todo Send
+        // Other
         HandleMsg::Swap { amount, network, destination, .. } => try_swap(deps, env, amount, network, destination),
     };
 
@@ -124,6 +123,16 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         response
     })
 }
+
+pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
+    match msg {
+        // todo ExchangeRate
+        QueryMsg::Swap { nonce, .. } => query_swap(&deps, nonce),
+        QueryMsg::Allowance { owner, spender, .. } => try_check_allowance(deps, owner, spender),
+        _ => authenticated_queries(deps, msg),
+    }
+}
+
 pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     msg: QueryMsg,
@@ -155,18 +164,8 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
         QueryMsg::TransferHistory {
             address, n, start, ..
         } => query_transactions(&deps, &address, start.unwrap_or(0), n),
-        // Native
-        // todo ExchangeRate
         // Other - Test
         _ => unimplemented!(),
-    }
-}
-
-pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
-    match msg {
-        // Base
-        QueryMsg::Swap { nonce, .. } => query_swap(&deps, nonce),
-        _ => authenticated_queries(deps, msg),
     }
 }
 
@@ -324,30 +323,22 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
 }
 
 pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
+    deps: &Extern<S, A, Q>,
+    owner: HumanAddr,
     spender: HumanAddr,
-) -> StdResult<HandleResponse> {
-    let sender_address = deps.api.canonical_address(&env.message.sender)?;
-    let allowance = read_allowance(
-        &deps.storage,
-        &sender_address,
-        &deps.api.canonical_address(&spender)?,
-    );
+) -> StdResult<Binary> {
+    let owner_address = deps.api.canonical_address(&owner)?;
+    let spender_address = deps.api.canonical_address(&spender)?;
 
-    if let Err(_e) = allowance {
-        Ok(HandleResponse {
-            messages: vec![],
-            log: vec![],
-            data: None,
-        })
-    } else {
-        Ok(HandleResponse {
-            messages: vec![],
-            log: vec![],
-            data: None,
-        })
-    }
+    let allowance = read_allowance(&deps.storage, &owner_address, &spender_address?)?;
+
+    let response = QueryAnswer::Allowance {
+        owner,
+        spender,
+        allowance: Uint128(allowance.amount),
+        expiration: allowance.expiration,
+    };
+    to_binary(&response)
 }
 
 pub fn try_balance<S: Storage, A: Api, Q: Querier>(
