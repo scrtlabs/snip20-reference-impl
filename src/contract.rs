@@ -391,7 +391,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     }
 
     if amount.is_zero() {
-        return Err(StdError::generic_err("Lol send some funds dude"));
+        return Err(StdError::generic_err("No funds were sent to be deposited"));
     }
 
     let amount = amount.u128();
@@ -400,13 +400,23 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let mut balances = Balances::from_storage(&mut deps.storage);
     let mut account_balance = balances.balance(&sender_address);
-    account_balance += amount;
-    balances.set_account_balance(&sender_address, account_balance);
+    if let Some(account_balance) = account_balance.checked_add(amount) {
+        balances.set_account_balance(&sender_address, account_balance);
+    } else {
+        return Err(StdError::generic_err(
+            "This deposit would overflow your balance",
+        ));
+    }
 
     let mut config = Config::from_storage(&mut deps.storage);
     let mut total_supply = config.total_supply();
-    total_supply += amount;
-    config.set_total_supply(total_supply);
+    if let Some(total_supply) = total_supply.checked_add(amount) {
+        config.set_total_supply(total_supply);
+    } else {
+        return Err(StdError::generic_err(
+            "This deposit would overflow the currency's total supply",
+        ));
+    }
 
     let res = HandleResponse {
         messages: vec![],
