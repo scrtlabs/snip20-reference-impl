@@ -116,6 +116,9 @@ pub enum HandleMsg {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
+    Deposit {
+        status: ResponseStatus,
+    },
     Transfer {
         status: ResponseStatus,
     },

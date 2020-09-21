@@ -421,7 +421,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let res = HandleResponse {
         messages: vec![],
         log: vec![],
-        data: None,
+        data: Some(to_binary(&HandleAnswer::Deposit { status: Success })?),
     };
 
     Ok(res)
