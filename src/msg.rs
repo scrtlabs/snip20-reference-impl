@@ -166,9 +166,7 @@ pub enum HandleAnswer {
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
     Swap { result: Swap },
-    BurnFrom {
-        status: ResponseStatus,
-    },
+    BurnFrom { status: ResponseStatus },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
