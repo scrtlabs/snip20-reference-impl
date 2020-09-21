@@ -5,13 +5,13 @@ use cosmwasm_std::{
 };
 
 use crate::msg::{
-    space_pad, HandleAnswer, HandleMsg, InitMsg, QueryMsg,
+    space_pad, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::{Failure, Success},
 };
 use crate::state::{
-    get_receiver_hash, get_transfers, read_allowance, read_viewing_key, set_receiver_hash,
-    store_transfer, write_allowance, write_viewing_key, Balances, Config, Constants,
-    ReadonlyBalances, ReadonlyConfig,
+    get_receiver_hash, get_swap, get_transfers, read_allowance, read_viewing_key,
+    set_receiver_hash, store_swap, store_transfer, write_allowance, write_viewing_key, Balances,
+    Config, Constants, ReadonlyBalances, ReadonlyConfig,
 };
 use crate::viewing_key::ViewingKey;
 
@@ -49,11 +49,14 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Decimals must not exceed 18"));
     }
 
+    let admin = msg.admin.clone();
+
     let mut config = Config::from_storage(&mut deps.storage);
     config.set_constants(&Constants {
         name: msg.name,
         symbol: msg.symbol,
         decimals: msg.decimals,
+        admin,
     })?;
     config.set_total_supply(total_supply);
 
@@ -69,7 +72,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // Native
         HandleMsg::Deposit { .. } => try_deposit(deps, env),
         HandleMsg::Withdraw /* todo rename Redeem */ { amount, .. } => try_withdraw(deps, env, amount),
-        HandleMsg::Balance /* todo move to query? */ {..} => try_balance(deps, env),
+        HandleMsg::Balance /* todo move to query? */ { .. } => try_balance(deps, env),
         // Base
         HandleMsg::Transfer {
             recipient, amount, ..
@@ -82,6 +85,9 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         } => try_send(deps, env, &recipient, amount, msg),
         HandleMsg::Burn { amount, .. } => try_burn(deps, env, amount),
         HandleMsg::RegisterReceive { code_hash, .. } => try_register_receive(deps, env, code_hash),
+        HandleMsg::Mint { amount, address } => try_mint(deps, env, address, amount),
+        HandleMsg::ChangeAdmin { address } => change_admin(deps, env, address),
+        // todo RegisterReceive
         HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
         HandleMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
         // Allowance
@@ -106,6 +112,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         } => try_send_from(deps, env, &owner, &recipient, amount, msg),
         HandleMsg::BurnFrom {owner, amount, ..} => try_burn_from(deps, env, &owner, amount),
         HandleMsg::Allowance /* todo make query? */ { spender, .. } => try_check_allowance(deps, env, spender),
+        // todo Send
+        HandleMsg::Swap { amount, network, destination, .. } => try_swap(deps, env, amount, network, destination),
     };
 
     response.map(|mut response| {
@@ -116,8 +124,10 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         response
     })
 }
-
-pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
+pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    msg: QueryMsg,
+) -> QueryResult {
     let (address, key) = msg.get_validation_params();
 
     let canonical_addr = deps.api.canonical_address(address)?;
@@ -152,6 +162,23 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
     }
 }
 
+pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
+    match msg {
+        // Base
+        QueryMsg::Swap { nonce, .. } => query_swap(&deps, nonce),
+        _ => authenticated_queries(deps, msg),
+    }
+}
+
+pub fn query_swap<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    nonce: u32,
+) -> StdResult<Binary> {
+    let swap = get_swap(&deps.storage, nonce)?;
+
+    Ok(to_binary(&QueryAnswer::Swap { result: swap })?)
+}
+
 pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     account: &HumanAddr,
@@ -171,6 +198,85 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
     let address = deps.api.canonical_address(account)?;
 
     Ok(Binary(Vec::from(get_balance(deps, &address)?)))
+}
+
+fn change_admin<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    address: HumanAddr,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    let msg_sender = &env.message.sender;
+    let mut consts = config.constants()?;
+    if &consts.admin != msg_sender {
+        return Err(StdError::generic_err(
+            "Admin commands can only be ran from admin address",
+        ));
+    }
+
+    consts.admin = address;
+
+    config.set_constants(&consts)?;
+
+    Ok(HandleResponse::default())
+}
+
+fn try_swap<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    amount: Uint128,
+    _network: String,
+    destination: String,
+) -> StdResult<HandleResponse> {
+    try_burn(deps, env, amount)?;
+    store_swap(&mut deps.storage, destination, amount)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::Swap { status: Success })?),
+    })
+}
+
+fn try_mint<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    address: HumanAddr,
+    amount: Uint128,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    let msg_sender = &env.message.sender;
+    if &config.constants()?.admin != msg_sender {
+        return Err(StdError::generic_err(
+            "Admin commands can only be ran from admin address",
+        ));
+    }
+
+    let amt = amount.u128();
+
+    let mut total = config.total_supply();
+    total += amt;
+    config.set_total_supply(total);
+
+    let receipient_account = &deps.api.canonical_address(&address)?;
+
+    let mut balances = Balances::from_storage(&mut deps.storage);
+
+    let mut account_balance = balances.balance(receipient_account);
+
+    account_balance += amt;
+
+    balances.set_account_balance(receipient_account, account_balance);
+
+    let res = HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::Mint { status: Success })?),
+    };
+
+    Ok(res)
 }
 
 pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
@@ -302,7 +408,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
 
     let mut balances = Balances::from_storage(&mut deps.storage);
-    let mut account_balance = balances.account_amount(&sender_address);
+    let mut account_balance = balances.balance(&sender_address);
     account_balance += amount;
     balances.set_account_balance(&sender_address, account_balance);
 
@@ -329,7 +435,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let amount_raw = amount.u128();
 
     let mut balances = Balances::from_storage(&mut deps.storage);
-    let mut account_balance = balances.account_amount(&sender_address);
+    let mut account_balance = balances.balance(&sender_address);
 
     if account_balance < amount_raw {
         return Err(StdError::generic_err(format!(
@@ -600,7 +706,7 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
 
     // subtract from owner account
     let mut balances = Balances::from_storage(&mut deps.storage);
-    let mut account_balance = balances.account_amount(&owner_address);
+    let mut account_balance = balances.balance(&owner_address);
 
     if account_balance < amount {
         return Err(StdError::generic_err(format!(
@@ -711,7 +817,7 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     let amount = amount.u128();
 
     let mut balances = Balances::from_storage(&mut deps.storage);
-    let mut account_balance = balances.account_amount(&sender_address);
+    let mut account_balance = balances.balance(&sender_address);
 
     if account_balance < amount {
         return Err(StdError::generic_err(format!(
@@ -745,7 +851,7 @@ fn perform_transfer<T: Storage>(
 ) -> StdResult<()> {
     let mut balances = Balances::from_storage(store);
 
-    let mut from_balance = balances.account_amount(from);
+    let mut from_balance = balances.balance(from);
     if from_balance < amount {
         return Err(StdError::generic_err(format!(
             "Insufficient funds: balance={}, required={}",
@@ -755,7 +861,7 @@ fn perform_transfer<T: Storage>(
     from_balance -= amount;
     balances.set_account_balance(from, from_balance);
 
-    let mut to_balance = balances.account_amount(to);
+    let mut to_balance = balances.balance(to);
     to_balance = to_balance.checked_add(amount).ok_or_else(|| {
         StdError::generic_err("This tx will literally make them too rich. Try transferring less")
     })?;
@@ -779,7 +885,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
 fn to_display_token(amount: u128, symbol: &str, decimals: u8) -> String {
     let base: u32 = 10;
 
-    let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u64);
+    let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u128);
 
     format!("{} {}", amnt, symbol)
 }
