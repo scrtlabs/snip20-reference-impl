@@ -182,6 +182,9 @@ pub enum HandleAnswer {
     Swap {
         status: ResponseStatus,
     },
+    Balance {
+        amount: Uint128,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -243,6 +246,9 @@ pub enum QueryAnswer {
     },
     Swap {
         result: Swap,
+    },
+    Balance {
+        amount: Uint128,
     },
 }
 

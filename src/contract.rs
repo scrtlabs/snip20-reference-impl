@@ -1,7 +1,7 @@
 use cosmwasm_std::{
-    to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
-    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
-    StdResult, Storage, Uint128, WasmMsg,
+    to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern, HandleResponse,
+    HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError, StdResult, Storage,
+    Uint128, WasmMsg,
 };
 
 use crate::msg::{
@@ -73,7 +73,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // Native
         HandleMsg::Deposit { .. } => try_deposit(deps, env),
         HandleMsg::Redeem { amount, .. } => try_redeem(deps, env, amount),
-        HandleMsg::Balance /* todo move to query? */ { .. } => try_balance(deps, env),
+        HandleMsg::Balance { .. } => try_balance(deps, env),
         // Base
         HandleMsg::Transfer {
             recipient, amount, ..
@@ -92,10 +92,16 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
         // Allowance
         HandleMsg::IncreaseAllowance {
-            spender, amount, expiration, ..
+            spender,
+            amount,
+            expiration,
+            ..
         } => try_increase_allowance(deps, env, spender, amount, expiration),
         HandleMsg::DecreaseAllowance {
-            spender, amount, expiration, ..
+            spender,
+            amount,
+            expiration,
+            ..
         } => try_decrease_allowance(deps, env, spender, amount, expiration),
         HandleMsg::TransferFrom {
             owner,
@@ -110,9 +116,14 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             msg,
             ..
         } => try_send_from(deps, env, &owner, &recipient, amount, msg),
-        HandleMsg::BurnFrom {owner, amount, ..} => try_burn_from(deps, env, &owner, amount),
+        HandleMsg::BurnFrom { owner, amount, .. } => try_burn_from(deps, env, &owner, amount),
         // Other
-        HandleMsg::Swap { amount, network, destination, .. } => try_swap(deps, env, amount, network, destination),
+        HandleMsg::Swap {
+            amount,
+            network,
+            destination,
+            ..
+        } => try_swap(deps, env, amount, network, destination),
     };
 
     response.map(|mut response| {
@@ -222,7 +233,10 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account)?;
 
-    Ok(Binary(Vec::from(get_balance(deps, &address)?)))
+    let response = QueryAnswer::Balance {
+        amount: Uint128(get_balance(&deps.storage, &address)),
+    };
+    to_binary(&response)
 }
 
 fn change_admin<S: Storage, A: Api, Q: Querier>(
@@ -372,36 +386,19 @@ pub fn try_balance<S: Storage, A: Api, Q: Querier>(
     env: Env,
 ) -> StdResult<HandleResponse> {
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
-    let account_balance = get_balance(deps, &sender_address);
+    let account_balance = get_balance(&deps.storage, &sender_address);
 
-    if let Err(_e) = account_balance {
-        Ok(HandleResponse {
-            messages: vec![],
-            log: vec![],
-            data: None,
-        })
-    } else {
-        Ok(HandleResponse {
-            messages: vec![],
-            log: vec![],
-            data: None,
-        })
-    }
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::Balance {
+            amount: Uint128(account_balance),
+        })?),
+    })
 }
 
-fn get_balance<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    account: &CanonicalAddr,
-) -> StdResult<String> {
-    let account_balance = ReadonlyBalances::from_storage(&deps.storage).account_amount(account);
-
-    let consts = ReadonlyConfig::from_storage(&deps.storage).constants()?;
-
-    Ok(to_display_token(
-        account_balance,
-        &consts.symbol,
-        consts.decimals,
-    ))
+fn get_balance<S: Storage>(storage: &S, account: &CanonicalAddr) -> u128 {
+    ReadonlyBalances::from_storage(storage).account_amount(account)
 }
 
 fn try_deposit<S: Storage, A: Api, Q: Querier>(
@@ -911,14 +908,6 @@ fn is_valid_symbol(symbol: &str) -> bool {
     let len_is_valid = 3 <= len && len <= 6;
 
     len_is_valid && symbol.bytes().all(|byte| b'A' <= byte && byte <= b'Z')
-}
-
-fn to_display_token(amount: u128, symbol: &str, decimals: u8) -> String {
-    let base: u32 = 10;
-
-    let amnt: Decimal = Decimal::from_ratio(amount, (base.pow(decimals.into())) as u128);
-
-    format!("{} {}", amnt, symbol)
 }
 
 // pub fn migrate<S: Storage, A: Api, Q: Querier>(
