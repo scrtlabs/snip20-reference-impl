@@ -25,7 +25,7 @@ pub struct InitMsg {
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
     // Native coin interactions
-    Withdraw {
+    Redeem {
         amount: Uint128,
         padding: Option<String>,
     },
@@ -117,6 +117,9 @@ pub enum HandleMsg {
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
     Deposit {
+        status: ResponseStatus,
+    },
+    Redeem {
         status: ResponseStatus,
     },
     Transfer {

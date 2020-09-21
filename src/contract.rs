@@ -71,7 +71,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     let response = match msg {
         // Native
         HandleMsg::Deposit { .. } => try_deposit(deps, env),
-        HandleMsg::Withdraw /* todo rename Redeem */ { amount, .. } => try_withdraw(deps, env, amount),
+        HandleMsg::Redeem { amount, .. } => try_redeem(deps, env, amount),
         HandleMsg::Balance /* todo move to query? */ { .. } => try_balance(deps, env),
         // Base
         HandleMsg::Transfer {
@@ -427,7 +427,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_withdraw<S: Storage, A: Api, Q: Querier>(
+fn try_redeem<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     amount: Uint128,
@@ -438,20 +438,24 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let mut balances = Balances::from_storage(&mut deps.storage);
     let mut account_balance = balances.balance(&sender_address);
 
-    if account_balance < amount_raw {
+    if let Some(account_balance) = account_balance.checked_sub(amount_raw) {
+        balances.set_account_balance(&sender_address, account_balance);
+    } else {
         return Err(StdError::generic_err(format!(
             "insufficient funds to burn: balance={}, required={}",
             account_balance, amount_raw
         )));
     }
-    account_balance -= amount_raw;
-
-    balances.set_account_balance(&sender_address, account_balance);
 
     let mut config = Config::from_storage(&mut deps.storage);
     let mut total_supply = config.total_supply();
-    total_supply -= amount_raw;
-    config.set_total_supply(total_supply);
+    if let Some(total_supply) = total_supply.checked_sub(amount_raw) {
+        config.set_total_supply(total_supply);
+    } else {
+        return Err(StdError::generic_err(
+            "You are tyring to redeem more tokens than what is available in the total supply",
+        ));
+    }
 
     let withdrawl_coins: Vec<Coin> = vec![Coin {
         denom: "uscrt".to_string(),
@@ -465,7 +469,7 @@ fn try_withdraw<S: Storage, A: Api, Q: Querier>(
             amount: withdrawl_coins,
         })],
         log: vec![],
-        data: None,
+        data: Some(to_binary(&HandleAnswer::Redeem { status: Success })?),
     };
 
     Ok(res)
