@@ -706,7 +706,7 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
 
     // subtract from owner account
     let mut balances = Balances::from_storage(&mut deps.storage);
-    let mut account_balance = balances.account_amount(&owner_address);
+    let mut account_balance = balances.balance(&owner_address);
 
     if account_balance < amount {
         return Err(StdError::generic_err(format!(

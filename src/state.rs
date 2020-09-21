@@ -118,7 +118,7 @@ pub fn get_swap<S: ReadonlyStorage>(storage: &S, nonce: u32) -> StdResult<Swap> 
         }
     }
 
-    return Err(StdError::generic_err("Tx does not exist"));
+    Err(StdError::generic_err("Tx does not exist"))
 }
 
 pub fn store_transfer<S: Storage>(
