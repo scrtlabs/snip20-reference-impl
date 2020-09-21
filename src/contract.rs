@@ -87,7 +87,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::RegisterReceive { code_hash, .. } => try_register_receive(deps, env, code_hash),
         HandleMsg::Mint { amount, address } => try_mint(deps, env, address, amount),
         HandleMsg::ChangeAdmin { address } => change_admin(deps, env, address),
-        // todo RegisterReceive
         HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
         HandleMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
         // Allowance
@@ -126,7 +125,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
     match msg {
-        // todo ExchangeRate
+        QueryMsg::ExchangeRate {} => query_exchange_rate(),
         QueryMsg::Swap { nonce, .. } => query_swap(&deps, nonce),
         QueryMsg::Allowance { owner, spender, .. } => try_check_allowance(deps, owner, spender),
         _ => authenticated_queries(deps, msg),
@@ -167,6 +166,15 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
         // Other - Test
         _ => unimplemented!(),
     }
+}
+
+/// This function just returns a constant 1:1 rate to uscrt, since that's the purpose of this
+/// contract.
+fn query_exchange_rate() -> QueryResult {
+    to_binary(&QueryAnswer::ExchangeRate {
+        rate: Uint128(1),
+        denom: "uscrt".to_string(),
+    })
 }
 
 pub fn query_swap<S: Storage, A: Api, Q: Querier>(

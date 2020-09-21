@@ -170,6 +170,7 @@ pub enum HandleAnswer {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
+    ExchangeRate {},
     Balance {
         address: HumanAddr,
         key: String,
@@ -206,6 +207,10 @@ impl QueryMsg {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
+    ExchangeRate {
+        rate: Uint128,
+        denom: String,
+    },
     Allowance {
         spender: HumanAddr,
         owner: HumanAddr,
