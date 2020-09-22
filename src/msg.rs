@@ -180,6 +180,7 @@ pub enum HandleAnswer {
         status: ResponseStatus,
     },
     Swap {
+        nonce: u32,
         status: ResponseStatus,
     },
     Balance {

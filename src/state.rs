@@ -86,7 +86,7 @@ pub fn store_swap<S: Storage>(
     store: &mut S,
     destination: String,
     amount: Uint128,
-) -> StdResult<()> {
+) -> StdResult<u32> {
     let mut store = PrefixedStorage::new(PREFIX_SWAP, store);
     let mut store = AppendStoreMut::attach_or_create(&mut store)?;
 
@@ -96,7 +96,8 @@ pub fn store_swap<S: Storage>(
         amount,
         nonce,
     };
-    store.push(&swap)
+    store.push(&swap)?;
+    Ok(nonce)
 }
 
 pub fn get_swap<S: ReadonlyStorage>(storage: &S, nonce: u32) -> StdResult<Swap> {

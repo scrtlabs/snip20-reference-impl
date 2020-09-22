@@ -269,12 +269,15 @@ fn try_swap<S: Storage, A: Api, Q: Querier>(
     destination: String,
 ) -> StdResult<HandleResponse> {
     try_burn(deps, env, amount)?;
-    store_swap(&mut deps.storage, destination, amount)?;
+    let nonce = store_swap(&mut deps.storage, destination, amount)?;
 
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
-        data: Some(to_binary(&HandleAnswer::Swap { status: Success })?),
+        data: Some(to_binary(&HandleAnswer::Swap {
+            status: Success,
+            nonce,
+        })?),
     })
 }
 
