@@ -262,11 +262,11 @@ pub enum QueryAnswer {
         allowance: Uint128,
         expiration: Option<u64>,
     },
-    TransferHistory {
-        txs: Vec<Tx>,
-    },
     Balance {
         amount: Uint128,
+    },
+    TransferHistory {
+        txs: Vec<Tx>,
     },
 }
 
