@@ -111,15 +111,9 @@ pub fn get_swap<S: ReadonlyStorage>(storage: &S, nonce: u32) -> StdResult<Swap> 
         return Err(StdError::generic_err("Tx does not exist"));
     };
 
-    for x in store {
-        if let Ok(tx) = x {
-            if tx.nonce == nonce {
-                return Ok(tx);
-            }
-        }
-    }
+    let swap = store.get_at(nonce);
 
-    Err(StdError::generic_err("Tx does not exist"))
+    swap.map_err(|_| StdError::generic_err("Tx does not exist"))
 }
 
 pub fn store_transfer<S: Storage>(
