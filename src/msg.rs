@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Binary, HumanAddr, Uint128};
 
-use crate::state::Swap;
+use crate::state::{Swap, Tx};
 use crate::viewing_key::ViewingKey;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -49,26 +49,11 @@ pub enum HandleMsg {
     Deposit {
         padding: Option<String>,
     },
-
-    // Mintable
-    Mint {
-        amount: Uint128,
-        address: HumanAddr,
-    },
-
-    // ERC-20 stuff
-    IncreaseAllowance {
-        spender: HumanAddr,
-        amount: Uint128,
-        expiration: Option<u64>,
+    Balance {
         padding: Option<String>,
     },
-    DecreaseAllowance {
-        spender: HumanAddr,
-        amount: Uint128,
-        expiration: Option<u64>,
-        padding: Option<String>,
-    },
+
+    // Base ERC-20 stuff
     Transfer {
         recipient: HumanAddr,
         amount: Uint128,
@@ -80,72 +65,94 @@ pub enum HandleMsg {
         msg: Option<Binary>,
         padding: Option<String>,
     },
-    TransferFrom {
-        owner: HumanAddr,
-        recipient: HumanAddr,
-        amount: Uint128,
-        padding: Option<String>,
-    },
-    SendFrom {
-        owner: HumanAddr,
-        recipient: HumanAddr,
-        amount: Uint128,
-        msg: Option<Binary>,
-        padding: Option<String>,
-    },
-    BurnFrom {
-        owner: HumanAddr,
-        amount: Uint128,
-        padding: Option<String>,
-    },
     Burn {
         amount: Uint128,
-        padding: Option<String>,
-    },
-    Swap {
-        amount: Uint128,
-        network: String,
-        destination: String,
         padding: Option<String>,
     },
     RegisterReceive {
         code_hash: String,
         padding: Option<String>,
     },
-    Balance {
+    CreateViewingKey {
+        entropy: String,
         padding: Option<String>,
     },
-    // Admin
-    ChangeAdmin {
-        address: HumanAddr,
-    },
-    // Privacy stuff
     SetViewingKey {
         key: String,
         padding: Option<String>,
     },
-    CreateViewingKey {
-        entropy: String,
+
+    // Allowance
+    IncreaseAllowance {
+        spender: HumanAddr,
+        amount: Uint128,
+        expiration: Option<u64>,
         padding: Option<String>,
+    },
+    DecreaseAllowance {
+        spender: HumanAddr,
+        amount: Uint128,
+        expiration: Option<u64>,
+        padding: Option<String>,
+    },
+    TransferFrom {
+        owner: HumanAddr,
+        recipient: HumanAddr,
+        amount: Uint128,
+        padding: Option<String>,
+    },
+    SendFrom {
+        owner: HumanAddr,
+        recipient: HumanAddr,
+        amount: Uint128,
+        msg: Option<Binary>,
+        padding: Option<String>,
+    },
+    BurnFrom {
+        owner: HumanAddr,
+        amount: Uint128,
+        padding: Option<String>,
+    },
+
+    // Mint
+    Mint {
+        amount: Uint128,
+        address: HumanAddr,
+    },
+
+    // Swap
+    Swap {
+        amount: Uint128,
+        network: String,
+        destination: String,
+        padding: Option<String>,
+    },
+
+    // Admin
+    ChangeAdmin {
+        address: HumanAddr,
     },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
+    // Native
     Deposit {
         status: ResponseStatus,
     },
     Redeem {
         status: ResponseStatus,
     },
+    Balance {
+        amount: Uint128,
+    },
+
+    // Base
     Transfer {
         status: ResponseStatus,
     },
     Send {
-        status: ResponseStatus,
-    },
-    Mint {
         status: ResponseStatus,
     },
     Burn {
@@ -160,6 +167,8 @@ pub enum HandleAnswer {
     SetViewingKey {
         status: ResponseStatus,
     },
+
+    // Allowance
     IncreaseAllowance {
         spender: HumanAddr,
         owner: HumanAddr,
@@ -179,20 +188,35 @@ pub enum HandleAnswer {
     BurnFrom {
         status: ResponseStatus,
     },
+
+    // Mint
+    Mint {
+        status: ResponseStatus,
+    },
+
+    // Other
     Swap {
         nonce: u32,
         status: ResponseStatus,
     },
-    Balance {
-        amount: Uint128,
+    ChangeAdmin {
+        status: ResponseStatus,
     },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    ExchangeRate {},
     TokenInfo {},
+    ExchangeRate {},
+    Swap {
+        nonce: u32,
+    },
+    Allowance {
+        owner: HumanAddr,
+        spender: HumanAddr,
+        padding: Option<String>,
+    },
     Balance {
         address: HumanAddr,
         key: String,
@@ -203,17 +227,7 @@ pub enum QueryMsg {
         n: u32,
         start: Option<u32>,
     },
-    Allowance {
-        owner: HumanAddr,
-        spender: HumanAddr,
-        padding: Option<String>,
-    },
     Test {},
-    Swap {
-        // address: HumanAddr,
-        // key: String,
-        nonce: u32,
-    },
 }
 
 impl QueryMsg {
@@ -229,15 +243,18 @@ impl QueryMsg {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
-    ExchangeRate {
-        rate: Uint128,
-        denom: String,
-    },
     TokenInfo {
         name: String,
         symbol: String,
         decimals: u8,
         total_supply: Option<u128>,
+    },
+    ExchangeRate {
+        rate: Uint128,
+        denom: String,
+    },
+    Swap {
+        result: Swap,
     },
     Allowance {
         spender: HumanAddr,
@@ -245,8 +262,8 @@ pub enum QueryAnswer {
         allowance: Uint128,
         expiration: Option<u64>,
     },
-    Swap {
-        result: Swap,
+    TransferHistory {
+        txs: Vec<Tx>,
     },
     Balance {
         amount: Uint128,

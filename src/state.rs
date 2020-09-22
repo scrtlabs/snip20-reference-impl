@@ -25,7 +25,7 @@ pub const KEY_CONSTANTS: &[u8] = b"constants";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
 pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub struct Tx {
     pub sender: HumanAddr,
     pub receiver: HumanAddr,

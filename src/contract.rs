@@ -74,6 +74,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::Deposit { .. } => try_deposit(deps, env),
         HandleMsg::Redeem { amount, .. } => try_redeem(deps, env, amount),
         HandleMsg::Balance { .. } => try_balance(deps, env),
+
         // Base
         HandleMsg::Transfer {
             recipient, amount, ..
@@ -86,10 +87,9 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         } => try_send(deps, env, &recipient, amount, msg),
         HandleMsg::Burn { amount, .. } => try_burn(deps, env, amount),
         HandleMsg::RegisterReceive { code_hash, .. } => try_register_receive(deps, env, code_hash),
-        HandleMsg::Mint { amount, address } => try_mint(deps, env, address, amount),
-        HandleMsg::ChangeAdmin { address } => change_admin(deps, env, address),
         HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
         HandleMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
+
         // Allowance
         HandleMsg::IncreaseAllowance {
             spender,
@@ -117,6 +117,10 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             ..
         } => try_send_from(deps, env, &owner, &recipient, amount, msg),
         HandleMsg::BurnFrom { owner, amount, .. } => try_burn_from(deps, env, &owner, amount),
+
+        // Mint
+        HandleMsg::Mint { amount, address } => try_mint(deps, env, address, amount),
+
         // Other
         HandleMsg::Swap {
             amount,
@@ -124,6 +128,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             destination,
             ..
         } => try_swap(deps, env, amount, network, destination),
+        HandleMsg::ChangeAdmin { address } => change_admin(deps, env, address),
     };
 
     response.map(|mut response| {
@@ -222,9 +227,10 @@ pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     count: u32,
 ) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account).unwrap();
-    let address = get_transfers(&deps.api, &deps.storage, &address, start, count)?;
+    let txs = get_transfers(&deps.api, &deps.storage, &address, start, count)?;
 
-    Ok(Binary(format!("{:?}", address).into_bytes().to_vec()))
+    let result = QueryAnswer::TransferHistory { txs };
+    to_binary(&result)
 }
 
 pub fn query_balance<S: Storage, A: Api, Q: Querier>(
@@ -250,7 +256,7 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
     let mut consts = config.constants()?;
     if &consts.admin != msg_sender {
         return Err(StdError::generic_err(
-            "Admin commands can only be ran from admin address",
+            "Admin commands can only be run from admin address",
         ));
     }
 
@@ -258,7 +264,11 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
 
     config.set_constants(&consts)?;
 
-    Ok(HandleResponse::default())
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::ChangeAdmin { status: Success })?),
+    })
 }
 
 fn try_swap<S: Storage, A: Api, Q: Querier>(
