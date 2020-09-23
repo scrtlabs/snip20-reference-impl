@@ -15,10 +15,6 @@ use crate::state::{
 };
 use crate::viewing_key::ViewingKey;
 
-pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
-pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
-pub const KEY_CONSTANTS: &[u8] = b"constants";
-pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
 pub const VK_PRNG_SEED: &[u8] = b"yo";
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -208,10 +204,11 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     let config = ReadonlyConfig::from_storage(storage);
     let constants = config.constants()?;
 
-    let mut total_supply = None;
-    if constants.total_supply_is_public {
-        total_supply = Some(config.total_supply());
-    }
+    let total_supply = if constants.total_supply_is_public {
+        Some(config.total_supply())
+    } else {
+        None
+    };
 
     to_binary(&QueryAnswer::TokenInfo {
         name: constants.name,
@@ -371,7 +368,7 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
     env: Env,
     entropy: String,
 ) -> StdResult<HandleResponse> {
-    let vk = ViewingKey::new(&env, VK_PRNG_SEED, (&entropy).as_ref());
+    let key = ViewingKey::new(&env, VK_PRNG_SEED, (&entropy).as_ref());
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
     write_viewing_key(&mut deps.storage, &message_sender, &key);
