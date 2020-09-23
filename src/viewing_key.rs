@@ -22,7 +22,9 @@ impl ViewingKey {
     }
 
     pub fn new(env: &Env, seed: &[u8], entropy: &[u8]) -> Self {
-        let mut rng_entropy: Vec<u8> = vec![];
+        // 16 here represents the lengths in bytes of the block height and time.
+        let entropy_len = 16 + env.message.sender.len() + entropy.len();
+        let mut rng_entropy = Vec::with_capacity(entropy_len);
         rng_entropy.extend_from_slice(&env.block.height.to_be_bytes());
         rng_entropy.extend_from_slice(&env.block.time.to_be_bytes());
         rng_entropy.extend_from_slice(&env.message.sender.0.as_bytes());
@@ -30,15 +32,9 @@ impl ViewingKey {
 
         let mut rng = Prng::new(seed, rng_entropy.as_slice());
 
-        let rand_slice = rng.rand_slice();
-        let mut rand_vec = Vec::with_capacity(32);
-        for n in &rand_slice {
-            for n in &n.to_le_bytes() {
-                rand_vec.push(*n);
-            }
-        }
+        let rand_slice = rng.rand_bytes();
 
-        let key = sha_256(rand_vec.as_slice());
+        let key = sha_256(&rand_slice);
 
         Self(VIEWING_KEY_PREFIX.to_string() + &base64::encode(key))
     }
