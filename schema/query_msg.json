@@ -5,56 +5,39 @@
     {
       "type": "object",
       "required": [
-        "balance"
+        "token_info"
       ],
       "properties": {
-        "balance": {
-          "type": "object",
-          "required": [
-            "address",
-            "key"
-          ],
-          "properties": {
-            "address": {
-              "$ref": "#/definitions/HumanAddr"
-            },
-            "key": {
-              "type": "string"
-            }
-          }
+        "token_info": {
+          "type": "object"
         }
       }
     },
     {
       "type": "object",
       "required": [
-        "transfer_history"
+        "exchange_rate"
       ],
       "properties": {
-        "transfer_history": {
+        "exchange_rate": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "swap"
+      ],
+      "properties": {
+        "swap": {
           "type": "object",
           "required": [
-            "address",
-            "key",
-            "n"
+            "nonce"
           ],
           "properties": {
-            "address": {
-              "$ref": "#/definitions/HumanAddr"
-            },
-            "key": {
-              "type": "string"
-            },
-            "n": {
+            "nonce": {
               "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            },
-            "start": {
-              "type": [
-                "integer",
-                "null"
-              ],
               "format": "uint32",
               "minimum": 0.0
             }
@@ -94,32 +77,71 @@
     {
       "type": "object",
       "required": [
-        "test"
+        "balance"
       ],
       "properties": {
-        "test": {
-          "type": "object"
+        "balance": {
+          "type": "object",
+          "required": [
+            "address",
+            "key"
+          ],
+          "properties": {
+            "address": {
+              "$ref": "#/definitions/HumanAddr"
+            },
+            "key": {
+              "type": "string"
+            }
+          }
         }
       }
     },
     {
       "type": "object",
       "required": [
-        "swap"
+        "transfer_history"
       ],
       "properties": {
-        "swap": {
+        "transfer_history": {
           "type": "object",
           "required": [
-            "nonce"
+            "address",
+            "key",
+            "page_size"
           ],
           "properties": {
-            "nonce": {
+            "address": {
+              "$ref": "#/definitions/HumanAddr"
+            },
+            "key": {
+              "type": "string"
+            },
+            "page": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "page_size": {
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
             }
           }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "test"
+      ],
+      "properties": {
+        "test": {
+          "type": "object"
         }
       }
     }

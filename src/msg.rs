@@ -162,7 +162,7 @@ pub enum HandleAnswer {
         status: ResponseStatus,
     },
     CreateViewingKey {
-        status: ResponseStatus,
+        key: ViewingKey,
     },
     SetViewingKey {
         status: ResponseStatus,
@@ -224,8 +224,8 @@ pub enum QueryMsg {
     TransferHistory {
         address: HumanAddr,
         key: String,
-        n: u32,
-        start: Option<u32>,
+        page: Option<u32>,
+        page_size: u32,
     },
     Test {},
 }

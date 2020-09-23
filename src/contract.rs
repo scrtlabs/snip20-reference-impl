@@ -186,8 +186,11 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
         // Base
         QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
         QueryMsg::TransferHistory {
-            address, n, start, ..
-        } => query_transactions(&deps, &address, start.unwrap_or(0), n),
+            address,
+            page,
+            page_size,
+            ..
+        } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
         // Other - Test
         _ => unimplemented!(),
     }
@@ -231,11 +234,11 @@ pub fn query_swap<S: Storage, A: Api, Q: Querier>(
 pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     account: &HumanAddr,
-    start: u32,
-    count: u32,
+    page: u32,
+    page_size: u32,
 ) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account).unwrap();
-    let txs = get_transfers(&deps.api, &deps.storage, &address, start, count)?;
+    let txs = get_transfers(&deps.api, &deps.storage, &address, page, page_size)?;
 
     let result = QueryAnswer::TransferHistory { txs };
     to_binary(&result)
@@ -372,14 +375,12 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
     let vk = ViewingKey::new(&env, VK_PRNG_SEED, (&entropy).as_ref());
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
-    write_viewing_key(&mut deps.storage, &message_sender, &vk);
+    write_viewing_key(&mut deps.storage, &message_sender, &key);
 
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
-        data: Some(to_binary(&HandleAnswer::CreateViewingKey {
-            status: Success,
-        })?),
+        data: Some(to_binary(&HandleAnswer::CreateViewingKey { key })?),
     })
 }
 
