@@ -5,7 +5,7 @@ use cosmwasm_std::Env;
 use crate::rand::{sha_256, Prng};
 use crate::utils::{create_hashed_password, ct_slice_compare};
 
-pub const VIEWING_KEY_PREFIX: String = "api_key_".to_string();
+pub const VIEWING_KEY_PREFIX: &str = "api_key_";
 pub const VIEWING_KEY_LENGTH: usize = 44 /* length of base64 encoded 32 bytes */ + VIEWING_KEY_PREFIX.len();
 
 #[derive(Clone)]
@@ -25,7 +25,7 @@ impl ViewingKey {
         rng_entropy.extend_from_slice(&env.message.sender.0.as_bytes());
         rng_entropy.extend_from_slice(entropy);
 
-        let mut rng = Prng::new(seed, &*rng_entropy);
+        let mut rng = Prng::new(seed, rng_entropy.as_slice());
 
         let rand_slice = rng.rand_slice();
         let mut rand_vec = Vec::with_capacity(32);
@@ -37,7 +37,7 @@ impl ViewingKey {
 
         let key = sha_256(rand_vec.as_slice());
 
-        Self(VIEWING_KEY_PREFIX + &base64::encode(key))
+        Self(VIEWING_KEY_PREFIX.to_string() + &base64::encode(key))
     }
 
     pub fn to_hashed(&self) -> [u8; 24] {
