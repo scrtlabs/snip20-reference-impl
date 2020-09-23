@@ -268,6 +268,10 @@ pub enum QueryAnswer {
     TransferHistory {
         txs: Vec<Tx>,
     },
+
+    ViewingKeyError {
+        msg: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]

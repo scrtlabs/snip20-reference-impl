@@ -169,15 +169,15 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
     // checking the key will take significant time. We don't want to exit immediately if it isn't set
     // in a way which will allow to time the command and determine if a viewing key doesn't exist
     if expected_key.is_none() && !key.check_viewing_key(&[0u8; 24]) {
-        return Ok(Binary(
-            b"Wrong viewing key for this address or viewing key not set".to_vec(),
-        ));
+        return Ok(to_binary(&QueryAnswer::ViewingKeyError {
+            msg: "Wrong viewing key for this address or viewing key not set".to_string(),
+        })?);
     }
 
     if !key.check_viewing_key(expected_key.unwrap().as_slice()) {
-        return Ok(Binary(
-            b"Wrong viewing key for this address or viewing key not set".to_vec(),
-        ));
+        return Ok(to_binary(&QueryAnswer::ViewingKeyError {
+            msg: "Wrong viewing key for this address or viewing key not set".to_string(),
+        })?);
     }
 
     match msg {
