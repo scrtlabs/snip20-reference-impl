@@ -8,6 +8,7 @@ use crate::msg::{
     space_pad, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::{Failure, Success},
 };
+use crate::rand::sha_256;
 use crate::state::{
     get_receiver_hash, get_swap, get_transfers, read_allowance, read_viewing_key,
     set_receiver_hash, store_swap, store_transfer, write_allowance, write_viewing_key, Balances,
@@ -54,6 +55,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let prng_seed = hex::decode(msg.prng_seed).map_err(|e| {
         StdError::generic_err(format!("PRNG seed must be a hexadecimal string: {}", e,))
     })?;
+    let prng_seed_hashed = sha_256(&prng_seed);
 
     let mut config = Config::from_storage(&mut deps.storage);
     config.set_constants(&Constants {
@@ -61,7 +63,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         symbol: msg.symbol,
         decimals: msg.decimals,
         admin,
-        prng_seed,
+        prng_seed: prng_seed_hashed.to_vec(),
         total_supply_is_public: msg.config.public_total_supply(),
     })?;
     config.set_total_supply(total_supply);
