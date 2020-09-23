@@ -15,6 +15,7 @@ pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const KEY_CONSTANTS: &[u8] = b"constants";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
+pub const VK_PRNG_SEED: &[u8] = b"yo";
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -88,9 +89,10 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
 
     let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
 
-    // checking the key will take significant time. We don't want to exit immediately if it isn't set
-    // in a way which will allow to time the command and determine if a viewing key doesn't exist
-    if expected_key.is_none() && !key.check_viewing_key(&[0u8; 24]) {
+    if expected_key.is_none() {
+        // Checking the key will take significant time. We don't want to exit immediately if it isn't set
+        // in a way which will allow to time the command and determine if a viewing key doesn't exist
+        key.check_viewing_key(&[0u8; 24]);
         return Ok(Binary(
             b"Wrong viewing key for this address or viewing key not set".to_vec(),
         ));
@@ -170,7 +172,7 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
     env: Env,
     entropy: String,
 ) -> StdResult<HandleResponse> {
-    let vk = ViewingKey::new(&env, b"yo", (&entropy).as_ref());
+    let vk = ViewingKey::new(&env, VK_PRNG_SEED, (&entropy).as_ref());
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
     write_viewing_key(&mut deps.storage, &message_sender, &vk)?;
