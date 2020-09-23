@@ -4,7 +4,7 @@ use crate::state::{
     write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
 };
 use crate::utils::ConstLenStr;
-use crate::viewing_key::{ViewingKey, API_KEY_LENGTH};
+use crate::viewing_key::{ViewingKey, VIEWING_KEY_LENGTH};
 use cosmwasm_std::{
     log, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Decimal, Env, Extern,
     HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, StdError, StdResult, Storage,
@@ -144,7 +144,7 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
                     "viewing key",
                     format!(
                         "viewing key must be a string exactly {} characters!",
-                        API_KEY_LENGTH
+                        VIEWING_KEY_LENGTH
                     ),
                 ),
             ],
