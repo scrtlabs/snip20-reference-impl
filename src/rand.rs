@@ -28,7 +28,7 @@ impl Prng {
         }
     }
 
-    pub fn rand_slice(&mut self) -> [u32; 8] {
+    pub fn rand_bytes(&mut self) -> [u8; 32] {
         let mut hasher = Sha256::new();
 
         // write input message
@@ -44,11 +44,9 @@ impl Prng {
         rng.set_word_pos(self.pos);
         self.pos += 8;
 
-        let mut output = [0u32; 8];
-        for i in output.iter_mut() {
-            *i = rng.next_u32();
-        }
+        let mut bytes = [0u8; 32];
+        rng.fill_bytes(&mut bytes);
 
-        output
+        bytes
     }
 }

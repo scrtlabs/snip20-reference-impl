@@ -30,15 +30,9 @@ impl ViewingKey {
 
         let mut rng = Prng::new(seed, rng_entropy.as_slice());
 
-        let rand_slice = rng.rand_slice();
-        let mut rand_vec = Vec::with_capacity(32);
-        for n in &rand_slice {
-            for n in &n.to_le_bytes() {
-                rand_vec.push(*n);
-            }
-        }
+        let rand_slice = rng.rand_bytes();
 
-        let key = sha_256(rand_vec.as_slice());
+        let key = sha_256(&rand_slice);
 
         Self(VIEWING_KEY_PREFIX.to_string() + &base64::encode(key))
     }
