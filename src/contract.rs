@@ -15,8 +15,6 @@ use crate::state::{
 };
 use crate::viewing_key::ViewingKey;
 
-pub const VK_PRNG_SEED: &[u8] = b"yo";
-
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 const RESPONSE_BLOCK_SIZE: usize = 256;
 
@@ -53,12 +51,17 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     let admin = msg.admin.clone();
 
+    let prng_seed = hex::decode(msg.prng_seed).map_err(|e| {
+        StdError::generic_err(format!("PRNG seed must be a hexadecimal string: {}", e,))
+    })?;
+
     let mut config = Config::from_storage(&mut deps.storage);
     config.set_constants(&Constants {
         name: msg.name,
         symbol: msg.symbol,
         decimals: msg.decimals,
         admin,
+        prng_seed,
         total_supply_is_public: msg.config.public_total_supply(),
     })?;
     config.set_total_supply(total_supply);
@@ -368,7 +371,10 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
     env: Env,
     entropy: String,
 ) -> StdResult<HandleResponse> {
-    let key = ViewingKey::new(&env, VK_PRNG_SEED, (&entropy).as_ref());
+    let constants = ReadonlyConfig::from_storage(&deps.storage).constants()?;
+    let prng_seed = constants.prng_seed;
+
+    let key = ViewingKey::new(&env, &prng_seed, (&entropy).as_ref());
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
     write_viewing_key(&mut deps.storage, &message_sender, &key);
