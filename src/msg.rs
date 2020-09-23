@@ -162,7 +162,7 @@ pub enum HandleAnswer {
         status: ResponseStatus,
     },
     CreateViewingKey {
-        status: ResponseStatus,
+        key: ViewingKey,
     },
     SetViewingKey {
         status: ResponseStatus,

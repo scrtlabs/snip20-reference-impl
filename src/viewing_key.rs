@@ -1,5 +1,8 @@
 use std::fmt;
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
 use cosmwasm_std::Env;
 
 use crate::rand::{sha_256, Prng};
@@ -7,7 +10,7 @@ use crate::utils::{create_hashed_password, ct_slice_compare};
 
 pub const API_KEY_LENGTH: usize = 44 + 8;
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone)]
 pub struct ViewingKey(pub String);
 
 impl ViewingKey {
