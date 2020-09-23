@@ -4,6 +4,7 @@
   "type": "object",
   "required": [
     "admin",
+    "config",
     "decimals",
     "initial_balances",
     "name",
@@ -12,6 +13,9 @@
   "properties": {
     "admin": {
       "$ref": "#/definitions/HumanAddr"
+    },
+    "config": {
+      "$ref": "#/definitions/InitConfig"
     },
     "decimals": {
       "type": "integer",
@@ -34,6 +38,19 @@
   "definitions": {
     "HumanAddr": {
       "type": "string"
+    },
+    "InitConfig": {
+      "description": "This type represents optional configuration values which can be overridden. All values are optional and have defaults which are more private by default, but can be overridden if necessary",
+      "type": "object",
+      "properties": {
+        "public_total_supply": {
+          "description": "Indicates whether the total supply is public or should be kept secret. default: False",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
     },
     "InitialBalance": {
       "type": "object",

@@ -49,21 +49,185 @@
     {
       "type": "object",
       "required": [
-        "mint"
+        "balance"
       ],
       "properties": {
-        "mint": {
+        "balance": {
+          "type": "object",
+          "properties": {
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "transfer"
+      ],
+      "properties": {
+        "transfer": {
           "type": "object",
           "required": [
-            "address",
+            "amount",
+            "recipient"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "recipient": {
+              "$ref": "#/definitions/HumanAddr"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "send"
+      ],
+      "properties": {
+        "send": {
+          "type": "object",
+          "required": [
+            "amount",
+            "recipient"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "msg": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Binary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "recipient": {
+              "$ref": "#/definitions/HumanAddr"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "burn"
+      ],
+      "properties": {
+        "burn": {
+          "type": "object",
+          "required": [
             "amount"
           ],
           "properties": {
-            "address": {
-              "$ref": "#/definitions/HumanAddr"
-            },
             "amount": {
               "$ref": "#/definitions/Uint128"
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "register_receive"
+      ],
+      "properties": {
+        "register_receive": {
+          "type": "object",
+          "required": [
+            "code_hash"
+          ],
+          "properties": {
+            "code_hash": {
+              "type": "string"
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "create_viewing_key"
+      ],
+      "properties": {
+        "create_viewing_key": {
+          "type": "object",
+          "required": [
+            "entropy"
+          ],
+          "properties": {
+            "entropy": {
+              "type": "string"
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "set_viewing_key"
+      ],
+      "properties": {
+        "set_viewing_key": {
+          "type": "object",
+          "required": [
+            "key"
+          ],
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         }
@@ -137,74 +301,6 @@
               ]
             },
             "spender": {
-              "$ref": "#/definitions/HumanAddr"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "transfer"
-      ],
-      "properties": {
-        "transfer": {
-          "type": "object",
-          "required": [
-            "amount",
-            "recipient"
-          ],
-          "properties": {
-            "amount": {
-              "$ref": "#/definitions/Uint128"
-            },
-            "padding": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "recipient": {
-              "$ref": "#/definitions/HumanAddr"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "send"
-      ],
-      "properties": {
-        "send": {
-          "type": "object",
-          "required": [
-            "amount",
-            "recipient"
-          ],
-          "properties": {
-            "amount": {
-              "$ref": "#/definitions/Uint128"
-            },
-            "msg": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Binary"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "padding": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "recipient": {
               "$ref": "#/definitions/HumanAddr"
             }
           }
@@ -319,23 +415,21 @@
     {
       "type": "object",
       "required": [
-        "burn"
+        "mint"
       ],
       "properties": {
-        "burn": {
+        "mint": {
           "type": "object",
           "required": [
+            "address",
             "amount"
           ],
           "properties": {
+            "address": {
+              "$ref": "#/definitions/HumanAddr"
+            },
             "amount": {
               "$ref": "#/definitions/Uint128"
-            },
-            "padding": {
-              "type": [
-                "string",
-                "null"
-              ]
             }
           }
         }
@@ -377,50 +471,6 @@
     {
       "type": "object",
       "required": [
-        "register_receive"
-      ],
-      "properties": {
-        "register_receive": {
-          "type": "object",
-          "required": [
-            "code_hash"
-          ],
-          "properties": {
-            "code_hash": {
-              "type": "string"
-            },
-            "padding": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "balance"
-      ],
-      "properties": {
-        "balance": {
-          "type": "object",
-          "properties": {
-            "padding": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "change_admin"
       ],
       "properties": {
@@ -432,56 +482,6 @@
           "properties": {
             "address": {
               "$ref": "#/definitions/HumanAddr"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "set_viewing_key"
-      ],
-      "properties": {
-        "set_viewing_key": {
-          "type": "object",
-          "required": [
-            "key"
-          ],
-          "properties": {
-            "key": {
-              "type": "string"
-            },
-            "padding": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "create_viewing_key"
-      ],
-      "properties": {
-        "create_viewing_key": {
-          "type": "object",
-          "required": [
-            "entropy"
-          ],
-          "properties": {
-            "entropy": {
-              "type": "string"
-            },
-            "padding": {
-              "type": [
-                "string",
-                "null"
-              ]
             }
           }
         }
