@@ -8,6 +8,7 @@ use crate::msg::{
     space_pad, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::{Failure, Success},
 };
+use crate::rand::sha_256;
 use crate::state::{
     get_receiver_hash, get_swap, get_transfers, read_allowance, read_viewing_key,
     set_receiver_hash, store_swap, store_transfer, write_allowance, write_viewing_key, Balances,
@@ -57,12 +58,18 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     let admin = msg.admin.clone();
 
+    let prng_seed = hex::decode(msg.prng_seed).map_err(|e| {
+        StdError::generic_err(format!("PRNG seed must be a hexadecimal string: {}", e,))
+    })?;
+    let prng_seed_hashed = sha_256(&prng_seed);
+
     let mut config = Config::from_storage(&mut deps.storage);
     config.set_constants(&Constants {
         name: msg.name,
         symbol: msg.symbol,
         decimals: msg.decimals,
         admin,
+        prng_seed: prng_seed_hashed.to_vec(),
         total_supply_is_public: msg.config.public_total_supply(),
     })?;
     config.set_total_supply(total_supply);
@@ -166,9 +173,10 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
 
     let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
 
-    // checking the key will take significant time. We don't want to exit immediately if it isn't set
-    // in a way which will allow to time the command and determine if a viewing key doesn't exist
-    if expected_key.is_none() && !key.check_viewing_key(&[0u8; 24]) {
+    if expected_key.is_none() {
+        // Checking the key will take significant time. We don't want to exit immediately if it isn't set
+        // in a way which will allow to time the command and determine if a viewing key doesn't exist
+        key.check_viewing_key(&[0u8; 24]);
         return Ok(to_binary(&QueryAnswer::ViewingKeyError {
             msg: "Wrong viewing key for this address or viewing key not set".to_string(),
         })?);
@@ -207,10 +215,11 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     let config = ReadonlyConfig::from_storage(storage);
     let constants = config.constants()?;
 
-    let mut total_supply = None;
-    if constants.total_supply_is_public {
-        total_supply = Some(config.total_supply());
-    }
+    let total_supply = if constants.total_supply_is_public {
+        Some(config.total_supply())
+    } else {
+        None
+    };
 
     to_binary(&QueryAnswer::TokenInfo {
         name: constants.name,
@@ -386,7 +395,10 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
     env: Env,
     entropy: String,
 ) -> StdResult<HandleResponse> {
-    let key = ViewingKey::new(&env, b"yo", (&entropy).as_ref());
+    let constants = ReadonlyConfig::from_storage(&deps.storage).constants()?;
+    let prng_seed = constants.prng_seed;
+
+    let key = ViewingKey::new(&env, &prng_seed, (&entropy).as_ref());
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
     write_viewing_key(&mut deps.storage, &message_sender, &key);
