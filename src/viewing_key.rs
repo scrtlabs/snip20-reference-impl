@@ -18,7 +18,7 @@ impl ViewingKey {
     pub fn check_viewing_key(&self, hashed_pw: &[u8]) -> bool {
         let mine_hashed = create_hashed_password(&self.0);
 
-        ct_slice_compare(mine_hashed.to_vec().as_slice(), hashed_pw)
+        ct_slice_compare(&mine_hashed, hashed_pw)
     }
 
     pub fn new(env: &Env, seed: &[u8], entropy: &[u8]) -> Self {
@@ -30,7 +30,7 @@ impl ViewingKey {
         rng_entropy.extend_from_slice(&env.message.sender.0.as_bytes());
         rng_entropy.extend_from_slice(entropy);
 
-        let mut rng = Prng::new(seed, rng_entropy.as_slice());
+        let mut rng = Prng::new(seed, &rng_entropy);
 
         let rand_slice = rng.rand_bytes();
 
