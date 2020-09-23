@@ -31,7 +31,13 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
             let balance_address = deps.api.canonical_address(&balance.address)?;
             let amount = balance.amount.u128();
             balances.set_account_balance(&balance_address, amount);
-            total_supply += amount;
+            if let Some(new_total_supply) = total_supply.checked_add(amount) {
+                total_supply = new_total_supply;
+            } else {
+                return Err(StdError::generic_err(
+                    "The sum of all initial balances will exceed the maximum possible total supply",
+                ));
+            }
         }
     }
 
@@ -171,15 +177,15 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
         // Checking the key will take significant time. We don't want to exit immediately if it isn't set
         // in a way which will allow to time the command and determine if a viewing key doesn't exist
         key.check_viewing_key(&[0u8; 24]);
-        return Ok(Binary(
-            b"Wrong viewing key for this address or viewing key not set".to_vec(),
-        ));
+        return Ok(to_binary(&QueryAnswer::ViewingKeyError {
+            msg: "Wrong viewing key for this address or viewing key not set".to_string(),
+        })?);
     }
 
     if !key.check_viewing_key(expected_key.unwrap().as_slice()) {
-        return Ok(Binary(
-            b"Wrong viewing key for this address or viewing key not set".to_vec(),
-        ));
+        return Ok(to_binary(&QueryAnswer::ViewingKeyError {
+            msg: "Wrong viewing key for this address or viewing key not set".to_string(),
+        })?);
     }
 
     match msg {
@@ -318,11 +324,17 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    let amt = amount.u128();
+    let amount = amount.u128();
 
-    let mut total = config.total_supply();
-    total += amt;
-    config.set_total_supply(total);
+    let mut total_supply = config.total_supply();
+    if let Some(new_total_supply) = total_supply.checked_add(amount) {
+        total_supply = new_total_supply;
+    } else {
+        return Err(StdError::generic_err(
+            "This mint attempt would increase the total supply above the supported maximum",
+        ));
+    }
+    config.set_total_supply(total_supply);
 
     let receipient_account = &deps.api.canonical_address(&address)?;
 
@@ -330,7 +342,17 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
 
     let mut account_balance = balances.balance(receipient_account);
 
-    account_balance += amt;
+    if let Some(new_balance) = account_balance.checked_add(amount) {
+        account_balance = new_balance;
+    } else {
+        // This error literally can not happen, since the account's funds are a subset
+        // of the total supply, both are stored as u128, and we check for overflow of
+        // the total supply just a couple lines before.
+        // Still, writing this to cover all overflows.
+        return Err(StdError::generic_err(
+            "This mint attempt would increase the account's balance above the supported maximum",
+        ));
+    }
 
     balances.set_account_balance(receipient_account, account_balance);
 
@@ -646,9 +668,7 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
     let amount_raw = amount.u128();
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
-    if allowance.amount < amount_raw {
-        return Err(insufficient_allowance(allowance.amount, amount_raw));
-    }
+
     if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) {
         allowance.amount = 0;
         write_allowance(
@@ -659,7 +679,13 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
         )?;
         return Err(insufficient_allowance(0, amount_raw));
     }
-    allowance.amount -= amount_raw;
+
+    if let Some(new_allowance) = allowance.amount.checked_sub(amount_raw) {
+        allowance.amount = new_allowance;
+    } else {
+        return Err(insufficient_allowance(allowance.amount, amount_raw));
+    }
+
     write_allowance(
         &mut deps.storage,
         &owner_address,
@@ -737,9 +763,7 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
     let amount = amount.u128();
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
-    if allowance.amount < amount {
-        return Err(insufficient_allowance(allowance.amount, amount));
-    }
+
     if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) {
         allowance.amount = 0;
         write_allowance(
@@ -750,7 +774,13 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
         )?;
         return Err(insufficient_allowance(0, amount));
     }
-    allowance.amount -= amount;
+
+    if let Some(new_allowance) = allowance.amount.checked_sub(amount) {
+        allowance.amount = new_allowance;
+    } else {
+        return Err(insufficient_allowance(allowance.amount, amount));
+    }
+
     write_allowance(
         &mut deps.storage,
         &owner_address,
@@ -762,20 +792,26 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
     let mut balances = Balances::from_storage(&mut deps.storage);
     let mut account_balance = balances.balance(&owner_address);
 
-    if account_balance < amount {
+    if let Some(new_balance) = account_balance.checked_sub(amount) {
+        account_balance = new_balance;
+    } else {
         return Err(StdError::generic_err(format!(
             "insufficient funds to burn: balance={}, required={}",
             account_balance, amount
         )));
     }
-
-    account_balance -= amount;
     balances.set_account_balance(&owner_address, account_balance);
 
     // remove from supply
     let mut config = Config::from_storage(&mut deps.storage);
     let mut total_supply = config.total_supply();
-    total_supply -= amount;
+    if let Some(new_total_supply) = total_supply.checked_sub(amount) {
+        total_supply = new_total_supply;
+    } else {
+        return Err(StdError::generic_err(
+            "You're trying to burn more than is available in the total supply",
+        ));
+    }
     config.set_total_supply(total_supply);
 
     let res = HandleResponse {
@@ -873,19 +909,26 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     let mut balances = Balances::from_storage(&mut deps.storage);
     let mut account_balance = balances.balance(&sender_address);
 
-    if account_balance < amount {
+    if let Some(new_account_balance) = account_balance.checked_sub(amount) {
+        account_balance = new_account_balance;
+    } else {
         return Err(StdError::generic_err(format!(
             "insufficient funds to burn: balance={}, required={}",
             account_balance, amount
         )));
     }
-    account_balance -= amount;
 
     balances.set_account_balance(&sender_address, account_balance);
 
     let mut config = Config::from_storage(&mut deps.storage);
     let mut total_supply = config.total_supply();
-    total_supply -= amount;
+    if let Some(new_total_supply) = total_supply.checked_sub(amount) {
+        total_supply = new_total_supply;
+    } else {
+        return Err(StdError::generic_err(
+            "You're trying to burn more than is available in the total supply",
+        ));
+    }
     config.set_total_supply(total_supply);
 
     let res = HandleResponse {
@@ -906,13 +949,14 @@ fn perform_transfer<T: Storage>(
     let mut balances = Balances::from_storage(store);
 
     let mut from_balance = balances.balance(from);
-    if from_balance < amount {
+    if let Some(new_from_balance) = from_balance.checked_sub(amount) {
+        from_balance = new_from_balance;
+    } else {
         return Err(StdError::generic_err(format!(
             "Insufficient funds: balance={}, required={}",
             from_balance, amount
         )));
     }
-    from_balance -= amount;
     balances.set_account_balance(from, from_balance);
 
     let mut to_balance = balances.balance(to);
