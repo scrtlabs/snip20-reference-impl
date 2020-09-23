@@ -156,6 +156,25 @@
           }
         }
       }
+    },
+    {
+      "type": "object",
+      "required": [
+        "viewing_key_error"
+      ],
+      "properties": {
+        "viewing_key_error": {
+          "type": "object",
+          "required": [
+            "msg"
+          ],
+          "properties": {
+            "msg": {
+              "type": "string"
+            }
+          }
+        }
+      }
     }
   ],
   "definitions": {
