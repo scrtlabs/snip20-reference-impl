@@ -74,7 +74,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         total_supply_is_public: msg.config.public_total_supply(),
     })?;
     config.set_total_supply(total_supply);
-    config.set_contract_status(ContractStatusLevel::NotPaused);
+    config.set_contract_status(ContractStatusLevel::NormalRun);
 
     Ok(InitResponse::default())
 }
@@ -84,68 +84,94 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
+    let contract_status = ReadonlyConfig::from_storage(&deps.storage).contract_status();
+
     let response = match msg {
-        // Native
-        HandleMsg::Deposit { .. } => try_deposit(deps, env),
-        HandleMsg::Redeem { amount, .. } => try_redeem(deps, env, amount),
-        HandleMsg::Balance { .. } => try_balance(deps, env),
-
-        // Base
-        HandleMsg::Transfer {
-            recipient, amount, ..
-        } => try_transfer(deps, env, &recipient, amount),
-        HandleMsg::Send {
-            recipient,
-            amount,
-            msg,
-            ..
-        } => try_send(deps, env, &recipient, amount, msg),
-        HandleMsg::Burn { amount, .. } => try_burn(deps, env, amount),
-        HandleMsg::RegisterReceive { code_hash, .. } => try_register_receive(deps, env, code_hash),
-        HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
-        HandleMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
-
-        // Allowance
-        HandleMsg::IncreaseAllowance {
-            spender,
-            amount,
-            expiration,
-            ..
-        } => try_increase_allowance(deps, env, spender, amount, expiration),
-        HandleMsg::DecreaseAllowance {
-            spender,
-            amount,
-            expiration,
-            ..
-        } => try_decrease_allowance(deps, env, spender, amount, expiration),
-        HandleMsg::TransferFrom {
-            owner,
-            recipient,
-            amount,
-            ..
-        } => try_transfer_from(deps, env, &owner, &recipient, amount),
-        HandleMsg::SendFrom {
-            owner,
-            recipient,
-            amount,
-            msg,
-            ..
-        } => try_send_from(deps, env, &owner, &recipient, amount, msg),
-        HandleMsg::BurnFrom { owner, amount, .. } => try_burn_from(deps, env, &owner, amount),
-
-        // Mint
-        HandleMsg::Mint { amount, address } => try_mint(deps, env, address, amount),
-
-        // Other
-        HandleMsg::Swap {
-            amount,
-            network,
-            destination,
-            ..
-        } => try_swap(deps, env, amount, network, destination),
-        HandleMsg::ChangeAdmin { address } => change_admin(deps, env, address),
         HandleMsg::SetContractStatus { level } => set_contract_status(deps, env, level),
+        _ => match contract_status {
+            ContractStatusLevel::NormalRun => match msg {
+                // Native
+                HandleMsg::Deposit { .. } => try_deposit(deps, env),
+                HandleMsg::Redeem { amount, .. } => try_redeem(deps, env, amount),
+                HandleMsg::Balance { .. } => try_balance(deps, env),
+
+                // Base
+                HandleMsg::Transfer {
+                    recipient, amount, ..
+                } => try_transfer(deps, env, &recipient, amount),
+                HandleMsg::Send {
+                    recipient,
+                    amount,
+                    msg,
+                    ..
+                } => try_send(deps, env, &recipient, amount, msg),
+                HandleMsg::Burn { amount, .. } => try_burn(deps, env, amount),
+                HandleMsg::RegisterReceive { code_hash, .. } => {
+                    try_register_receive(deps, env, code_hash)
+                }
+                HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
+                HandleMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
+
+                // Allowance
+                HandleMsg::IncreaseAllowance {
+                    spender,
+                    amount,
+                    expiration,
+                    ..
+                } => try_increase_allowance(deps, env, spender, amount, expiration),
+                HandleMsg::DecreaseAllowance {
+                    spender,
+                    amount,
+                    expiration,
+                    ..
+                } => try_decrease_allowance(deps, env, spender, amount, expiration),
+                HandleMsg::TransferFrom {
+                    owner,
+                    recipient,
+                    amount,
+                    ..
+                } => try_transfer_from(deps, env, &owner, &recipient, amount),
+                HandleMsg::SendFrom {
+                    owner,
+                    recipient,
+                    amount,
+                    msg,
+                    ..
+                } => try_send_from(deps, env, &owner, &recipient, amount, msg),
+                HandleMsg::BurnFrom { owner, amount, .. } => {
+                    try_burn_from(deps, env, &owner, amount)
+                }
+
+                // Mint
+                HandleMsg::Mint { amount, address } => try_mint(deps, env, address, amount),
+
+                // Other
+                HandleMsg::Swap {
+                    amount,
+                    network,
+                    destination,
+                    ..
+                } => try_swap(deps, env, amount, network, destination),
+                HandleMsg::ChangeAdmin { address } => change_admin(deps, env, address),
+                _ => unimplemented!(),
+            },
+            _ => match msg {
+                HandleMsg::Redeem { amount, .. }
+                    if contract_status == ContractStatusLevel::StopAllButWithdrawals =>
+                {
+                    try_redeem(deps, env, amount)
+                }
+                _ => Err(StdError::generic_err(
+                    "This contract is stopped and this action is not allowed",
+                )),
+            },
+        },
     };
+
+    // if contract_status != ContractStatusLevel::NotPaused {
+    //     let response =
+    //     };
+    // }
 
     response.map(|mut response| {
         response.data = response.data.map(|mut data| {
@@ -418,6 +444,8 @@ fn set_contract_status<S: Storage, A: Api, Q: Querier>(
     env: Env,
     status_level: ContractStatusLevel,
 ) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
     // Check for admin privileges
     let msg_sender = &env.message.sender;
     let mut consts = config.constants()?;
@@ -427,7 +455,6 @@ fn set_contract_status<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    let mut config = Config::from_storage(&mut deps.storage);
     config.set_contract_status(status_level);
 
     Ok(HandleResponse {
