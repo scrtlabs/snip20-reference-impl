@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InitMsg",
+  "type": "object",
+  "required": [
+    "admin",
+    "config",
+    "decimals",
+    "initial_balances",
+    "name",
+    "symbol"
+  ],
+  "properties": {
+    "admin": {
+      "$ref": "#/definitions/HumanAddr"
+    },
+    "config": {
+      "$ref": "#/definitions/InitConfig"
+    },
+    "decimals": {
+      "type": "integer",
+      "format": "uint8",
+      "minimum": 0.0
+    },
+    "initial_balances": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/InitialBalance"
+      }
+    },
+    "name": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "HumanAddr": {
+      "type": "string"
+    },
+    "InitConfig": {
+      "description": "This type represents optional configuration values which can be overridden. All values are optional and have defaults which are more private by default, but can be overridden if necessary",
+      "type": "object",
+      "properties": {
+        "public_total_supply": {
+          "description": "Indicates whether the total supply is public or should be kept secret. default: False",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "InitialBalance": {
+      "type": "object",
+      "required": [
+        "address",
+        "amount"
+      ],
+      "properties": {
+        "address": {
+          "$ref": "#/definitions/HumanAddr"
+        },
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        }
+      }
+    },
+    "Uint128": {
+      "type": "string"
+    }
+  }
+}

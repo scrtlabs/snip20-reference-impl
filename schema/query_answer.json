@@ -1,0 +1,243 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QueryAnswer",
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "token_info"
+      ],
+      "properties": {
+        "token_info": {
+          "type": "object",
+          "required": [
+            "decimals",
+            "name",
+            "symbol"
+          ],
+          "properties": {
+            "decimals": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0.0
+            },
+            "name": {
+              "type": "string"
+            },
+            "symbol": {
+              "type": "string"
+            },
+            "total_supply": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint128",
+              "minimum": 0.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "exchange_rate"
+      ],
+      "properties": {
+        "exchange_rate": {
+          "type": "object",
+          "required": [
+            "denom",
+            "rate"
+          ],
+          "properties": {
+            "denom": {
+              "type": "string"
+            },
+            "rate": {
+              "$ref": "#/definitions/Uint128"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "swap"
+      ],
+      "properties": {
+        "swap": {
+          "type": "object",
+          "required": [
+            "result"
+          ],
+          "properties": {
+            "result": {
+              "$ref": "#/definitions/Swap"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "allowance"
+      ],
+      "properties": {
+        "allowance": {
+          "type": "object",
+          "required": [
+            "allowance",
+            "owner",
+            "spender"
+          ],
+          "properties": {
+            "allowance": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "expiration": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "owner": {
+              "$ref": "#/definitions/HumanAddr"
+            },
+            "spender": {
+              "$ref": "#/definitions/HumanAddr"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "balance"
+      ],
+      "properties": {
+        "balance": {
+          "type": "object",
+          "required": [
+            "amount"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "transfer_history"
+      ],
+      "properties": {
+        "transfer_history": {
+          "type": "object",
+          "required": [
+            "txs"
+          ],
+          "properties": {
+            "txs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tx"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "viewing_key_error"
+      ],
+      "properties": {
+        "viewing_key_error": {
+          "type": "object",
+          "required": [
+            "msg"
+          ],
+          "properties": {
+            "msg": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "Coin": {
+      "type": "object",
+      "required": [
+        "amount",
+        "denom"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "denom": {
+          "type": "string"
+        }
+      }
+    },
+    "HumanAddr": {
+      "type": "string"
+    },
+    "Swap": {
+      "type": "object",
+      "required": [
+        "amount",
+        "destination",
+        "nonce"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "nonce": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "Tx": {
+      "type": "object",
+      "required": [
+        "coins",
+        "receiver",
+        "sender"
+      ],
+      "properties": {
+        "coins": {
+          "$ref": "#/definitions/Coin"
+        },
+        "receiver": {
+          "$ref": "#/definitions/HumanAddr"
+        },
+        "sender": {
+          "$ref": "#/definitions/HumanAddr"
+        }
+      }
+    },
+    "Uint128": {
+      "type": "string"
+    }
+  }
+}
