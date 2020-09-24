@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Binary, HumanAddr, Uint128};
+use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
 
 use crate::state::{Swap, Tx};
 use crate::viewing_key::ViewingKey;
@@ -133,6 +133,9 @@ pub enum HandleMsg {
     ChangeAdmin {
         address: HumanAddr,
     },
+    SetContractStatus {
+        level: ContractStatusLevel,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -201,6 +204,9 @@ pub enum HandleAnswer {
         status: ResponseStatus,
     },
     ChangeAdmin {
+        status: ResponseStatus,
+    },
+    SetContractStatus {
         status: ResponseStatus,
     },
 }
@@ -285,6 +291,31 @@ pub struct CreateViewingKeyResponse {
 pub enum ResponseStatus {
     Success,
     Failure,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ContractStatusLevel {
+    NotPaused,
+    PauseAllButWithdrawals,
+    PauseAll,
+}
+
+pub fn status_level_to_u8(status_level: ContractStatusLevel) -> u8 {
+    match status_level {
+        ContractStatusLevel::NotPaused => 0,
+        ContractStatusLevel::PauseAllButWithdrawals => 1,
+        ContractStatusLevel::PauseAll => 2,
+    }
+}
+
+pub fn u8_to_status_level(status_level: u8) -> StdResult<ContractStatusLevel> {
+    match status_level {
+        0 => Ok(ContractStatusLevel::NotPaused),
+        1 => Ok(ContractStatusLevel::PauseAllButWithdrawals),
+        2 => Ok(ContractStatusLevel::PauseAll),
+        _ => Err(StdError::generic_err("Invalid state level")),
+    }
 }
 
 // Take a Vec<u8> and pad it up to a multiple of `block_size`, using spaces at the end.
