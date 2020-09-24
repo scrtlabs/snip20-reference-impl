@@ -5,7 +5,8 @@ use cosmwasm_std::{
 };
 
 use crate::msg::{
-    space_pad, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
+    space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
+    ResponseStatus,
     ResponseStatus::{Failure, Success},
 };
 use crate::rand::sha_256;
@@ -73,6 +74,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         total_supply_is_public: msg.config.public_total_supply(),
     })?;
     config.set_total_supply(total_supply);
+    config.set_contract_status(ContractStatusLevel::NotPaused);
 
     Ok(InitResponse::default())
 }
@@ -142,6 +144,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             ..
         } => try_swap(deps, env, amount, network, destination),
         HandleMsg::ChangeAdmin { address } => change_admin(deps, env, address),
+        HandleMsg::SetContractStatus { level } => set_contract_status(deps, env, level),
     };
 
     response.map(|mut response| {
@@ -407,6 +410,32 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![],
         data: Some(to_binary(&HandleAnswer::CreateViewingKey { key })?),
+    })
+}
+
+fn set_contract_status<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    status_level: ContractStatusLevel,
+) -> StdResult<HandleResponse> {
+    // Check for admin privileges
+    let msg_sender = &env.message.sender;
+    let mut consts = config.constants()?;
+    if &consts.admin != msg_sender {
+        return Err(StdError::generic_err(
+            "This is an admin command. Admin commands can only be run from admin address",
+        ));
+    }
+
+    let mut config = Config::from_storage(&mut deps.storage);
+    config.set_contract_status(status_level);
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::SetContractStatus {
+            status: Success,
+        })?),
     })
 }
 
