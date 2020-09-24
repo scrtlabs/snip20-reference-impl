@@ -215,6 +215,10 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfig<'a, S> {
     pub fn total_supply(&self) -> u128 {
         self.as_readonly().total_supply()
     }
+
+    pub fn contract_status(&self) -> ContractStatusLevel {
+        self.as_readonly().contract_status()
+    }
 }
 
 pub struct Config<'a, S: Storage> {
