@@ -6,7 +6,6 @@ use cosmwasm_std::{
 
 use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
-    ResponseStatus,
     ResponseStatus::{Failure, Success},
 };
 use crate::rand::sha_256;
@@ -448,7 +447,7 @@ fn set_contract_status<S: Storage, A: Api, Q: Querier>(
 
     // Check for admin privileges
     let msg_sender = &env.message.sender;
-    let mut consts = config.constants()?;
+    let consts = config.constants()?;
     if &consts.admin != msg_sender {
         return Err(StdError::generic_err(
             "This is an admin command. Admin commands can only be run from admin address",
