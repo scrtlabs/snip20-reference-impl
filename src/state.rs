@@ -449,10 +449,11 @@ fn slice_to_u128(data: &[u8]) -> StdResult<u128> {
 /// Converts 1 byte value into u8
 /// Errors if data found that is not 1 byte
 fn slice_to_u8(data: &[u8]) -> StdResult<u8> {
-    match <[u8; 1]>::try_from(data) {
-        Ok(bytes) => Ok(u8::from_be_bytes(bytes)),
-        Err(_) => Err(StdError::generic_err(
+    if data.len() == 1 {
+        Ok(data[0])
+    } else {
+        Err(StdError::generic_err(
             "Corrupted data found. 1 byte expected.",
-        )),
+        ))
     }
 }
