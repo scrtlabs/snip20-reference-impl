@@ -119,6 +119,7 @@ pub enum HandleMsg {
     Mint {
         amount: Uint128,
         address: HumanAddr,
+        padding: Option<String>,
     },
 
     // Swap
@@ -132,9 +133,11 @@ pub enum HandleMsg {
     // Admin
     ChangeAdmin {
         address: HumanAddr,
+        padding: Option<String>,
     },
     SetContractStatus {
         level: ContractStatusLevel,
+        padding: Option<String>,
     },
 }
 

@@ -98,7 +98,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     match contract_status {
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButWithdrawals => {
             let response = match msg {
-                HandleMsg::SetContractStatus { level } => set_contract_status(deps, env, level),
+                HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
                 HandleMsg::Redeem { amount, .. }
                     if contract_status == ContractStatusLevel::StopAllButWithdrawals =>
                 {
@@ -163,7 +163,9 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::BurnFrom { owner, amount, .. } => try_burn_from(deps, env, &owner, amount),
 
         // Mint
-        HandleMsg::Mint { amount, address } => try_mint(deps, env, address, amount),
+        HandleMsg::Mint {
+            amount, address, ..
+        } => try_mint(deps, env, address, amount),
 
         // Other
         HandleMsg::Swap {
@@ -172,8 +174,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             destination,
             ..
         } => try_swap(deps, env, amount, network, destination),
-        HandleMsg::ChangeAdmin { address } => change_admin(deps, env, address),
-        HandleMsg::SetContractStatus { level } => set_contract_status(deps, env, level),
+        HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
+        HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
     };
 
     pad_response(response)
