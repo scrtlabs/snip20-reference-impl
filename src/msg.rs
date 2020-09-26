@@ -248,7 +248,7 @@ pub enum QueryAnswer {
         name: String,
         symbol: String,
         decimals: u8,
-        total_supply: Option<u128>,
+        total_supply: Option<Uint128>,
     },
     ExchangeRate {
         rate: Uint128,

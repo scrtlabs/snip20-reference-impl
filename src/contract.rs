@@ -216,7 +216,7 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     let constants = config.constants()?;
 
     let total_supply = if constants.total_supply_is_public {
-        Some(config.total_supply())
+        Some(Uint128(config.total_supply()))
     } else {
         None
     };
