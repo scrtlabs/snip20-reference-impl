@@ -5,7 +5,7 @@ use cosmwasm_std::{
 };
 
 use crate::msg::{
-    space_pad, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
+    space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::{Failure, Success},
 };
 use crate::rand::sha_256;
@@ -73,8 +73,19 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         total_supply_is_public: msg.config.public_total_supply(),
     })?;
     config.set_total_supply(total_supply);
+    config.set_contract_status(ContractStatusLevel::NormalRun);
 
     Ok(InitResponse::default())
+}
+
+fn pad_response(response: StdResult<HandleResponse>) -> StdResult<HandleResponse> {
+    response.map(|mut response| {
+        response.data = response.data.map(|mut data| {
+            space_pad(RESPONSE_BLOCK_SIZE, &mut data.0);
+            data
+        });
+        response
+    })
 }
 
 pub fn handle<S: Storage, A: Api, Q: Querier>(
@@ -82,6 +93,26 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
+    let contract_status = ReadonlyConfig::from_storage(&deps.storage).contract_status();
+
+    match contract_status {
+        ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButWithdrawals => {
+            let response = match msg {
+                HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
+                HandleMsg::Redeem { amount, .. }
+                    if contract_status == ContractStatusLevel::StopAllButWithdrawals =>
+                {
+                    try_redeem(deps, env, amount)
+                }
+                _ => Err(StdError::generic_err(
+                    "This contract is stopped and this action is not allowed",
+                )),
+            };
+            return pad_response(response);
+        }
+        ContractStatusLevel::NormalRun => {} // If it's a normal run just continue
+    }
+
     let response = match msg {
         // Native
         HandleMsg::Deposit { .. } => try_deposit(deps, env),
@@ -132,7 +163,9 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::BurnFrom { owner, amount, .. } => try_burn_from(deps, env, &owner, amount),
 
         // Mint
-        HandleMsg::Mint { amount, address } => try_mint(deps, env, address, amount),
+        HandleMsg::Mint {
+            amount, address, ..
+        } => try_mint(deps, env, address, amount),
 
         // Other
         HandleMsg::Swap {
@@ -141,16 +174,11 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             destination,
             ..
         } => try_swap(deps, env, amount, network, destination),
-        HandleMsg::ChangeAdmin { address } => change_admin(deps, env, address),
+        HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
+        HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
     };
 
-    response.map(|mut response| {
-        response.data = response.data.map(|mut data| {
-            space_pad(RESPONSE_BLOCK_SIZE, &mut data.0);
-            data
-        });
-        response
-    })
+    pad_response(response)
 }
 
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
@@ -407,6 +435,33 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![],
         data: Some(to_binary(&HandleAnswer::CreateViewingKey { key })?),
+    })
+}
+
+fn set_contract_status<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    status_level: ContractStatusLevel,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    // Check for admin privileges
+    let msg_sender = &env.message.sender;
+    let consts = config.constants()?;
+    if &consts.admin != msg_sender {
+        return Err(StdError::generic_err(
+            "This is an admin command. Admin commands can only be run from admin address",
+        ));
+    }
+
+    config.set_contract_status(status_level);
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::SetContractStatus {
+            status: Success,
+        })?),
     })
 }
 

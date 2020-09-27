@@ -11,18 +11,21 @@ use secret_toolkit::storage::{AppendStore, AppendStoreMut, TypedStore, TypedStor
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::msg::{status_level_to_u8, u8_to_status_level, ContractStatusLevel};
 use crate::viewing_key::ViewingKey;
 
 pub static CONFIG_KEY: &[u8] = b"config";
 pub const PREFIX_TXS: &[u8] = b"transfers";
+
+pub const KEY_CONSTANTS: &[u8] = b"constants";
+pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
+pub const KEY_CONTRACT_STATUS: &[u8] = b"contract_status";
 
 pub const PREFIX_SWAP: &[u8] = b"swaps";
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
-pub const KEY_CONSTANTS: &[u8] = b"constants";
-pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
 pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
@@ -212,6 +215,10 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfig<'a, S> {
     pub fn total_supply(&self) -> u128 {
         self.as_readonly().total_supply()
     }
+
+    pub fn contract_status(&self) -> ContractStatusLevel {
+        self.as_readonly().contract_status()
+    }
 }
 
 pub struct Config<'a, S: Storage> {
@@ -248,6 +255,16 @@ impl<'a, S: Storage> Config<'a, S> {
     pub fn set_total_supply(&mut self, supply: u128) {
         self.storage.set(KEY_TOTAL_SUPPLY, &supply.to_be_bytes());
     }
+
+    pub fn contract_status(&self) -> ContractStatusLevel {
+        self.as_readonly().contract_status()
+    }
+
+    pub fn set_contract_status(&mut self, status: ContractStatusLevel) {
+        let status_u8 = status_level_to_u8(status);
+        self.storage
+            .set(KEY_CONTRACT_STATUS, &status_u8.to_be_bytes());
+    }
 }
 
 /// This struct refactors out the readonly methods that we need for `Config` and `ReadonlyConfig`
@@ -274,6 +291,17 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfigImpl<'a, S> {
             .expect("no total supply stored in config");
         // This unwrap is ok because we know we stored things correctly
         slice_to_u128(&supply_bytes).unwrap()
+    }
+
+    fn contract_status(&self) -> ContractStatusLevel {
+        let supply_bytes = self
+            .0
+            .get(KEY_CONTRACT_STATUS)
+            .expect("no contract status stored in config");
+
+        // These unwraps are ok because we know we stored things correctly
+        let status = slice_to_u8(&supply_bytes).unwrap();
+        u8_to_status_level(status).unwrap()
     }
 }
 
@@ -415,5 +443,17 @@ fn slice_to_u128(data: &[u8]) -> StdResult<u128> {
         Err(_) => Err(StdError::generic_err(
             "Corrupted data found. 16 byte expected.",
         )),
+    }
+}
+
+/// Converts 1 byte value into u8
+/// Errors if data found that is not 1 byte
+fn slice_to_u8(data: &[u8]) -> StdResult<u8> {
+    if data.len() == 1 {
+        Ok(data[0])
+    } else {
+        Err(StdError::generic_err(
+            "Corrupted data found. 1 byte expected.",
+        ))
     }
 }
