@@ -1042,3 +1042,89 @@ fn is_valid_symbol(symbol: &str) -> bool {
 // ) -> StdResult<MigrateResponse> {
 //     Ok(MigrateResponse::default())
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::msg::InitialBalance;
+    use cosmwasm_std::testing::*;
+    use hex::ToHex;
+
+    fn init_helper(
+        initial_balances: Vec<InitialBalance>,
+    ) -> (
+        StdResult<InitResponse>,
+        Extern<MockStorage, MockApi, MockQuerier>,
+    ) {
+        let mut deps = mock_dependencies(20, &[]);
+        let env = mock_env("instantiator", &[]);
+
+        let init_msg = InitMsg {
+            name: "sec-sec".to_string(),
+            admin: HumanAddr("admin".to_string()),
+            symbol: "SECSEC".to_string(),
+            decimals: 8,
+            initial_balances,
+            prng_seed: hex::encode("lolz fun yay"),
+            config: Default::default(),
+        };
+
+        (init(&mut deps, env, init_msg), deps)
+    }
+
+    #[test]
+    #[ignore]
+    fn admin_commands() {
+        unimplemented!()
+    }
+
+    #[test]
+    fn test_pause_with_withdrawals() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("lebron".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let pause_msg = HandleMsg::SetContractStatus {
+            level: ContractStatusLevel::StopAllButWithdrawals,
+            padding: None,
+        };
+
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), pause_msg);
+        assert!(
+            handle_result.is_ok(),
+            "Pause handle failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let send_msg = HandleMsg::Transfer {
+            recipient: HumanAddr("account".to_string()),
+            amount: Uint128(123),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), send_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::GenericErr {
+                msg: "This contract is stopped and this action is not allowed".to_string(),
+                backtrace: None
+            }
+        );
+
+        let withdraw_msg = HandleMsg::Redeem {
+            amount: Uint128(5000),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("lebron", &[]), withdraw_msg);
+        assert!(
+            handle_result.is_ok(),
+            "Withdraw failed: {}",
+            handle_result.err().unwrap()
+        );
+    }
+}
