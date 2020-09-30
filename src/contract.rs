@@ -1127,4 +1127,56 @@ mod tests {
             handle_result.err().unwrap()
         );
     }
+
+    #[test]
+    fn test_pause_all() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("lebron".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let pause_msg = HandleMsg::SetContractStatus {
+            level: ContractStatusLevel::StopAll,
+            padding: None,
+        };
+
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), pause_msg);
+        assert!(
+            handle_result.is_ok(),
+            "Pause handle failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let send_msg = HandleMsg::Transfer {
+            recipient: HumanAddr("account".to_string()),
+            amount: Uint128(123),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), send_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::GenericErr {
+                msg: "This contract is stopped and this action is not allowed".to_string(),
+                backtrace: None
+            }
+        );
+
+        let withdraw_msg = HandleMsg::Redeem {
+            amount: Uint128(5000),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("lebron", &[]), withdraw_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::GenericErr {
+                msg: "This contract is stopped and this action is not allowed".to_string(),
+                backtrace: None
+            }
+        );
+    }
 }
