@@ -348,7 +348,7 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     let msg_sender = &env.message.sender;
     if &config.constants()?.admin != msg_sender {
         return Err(StdError::generic_err(
-            "Admin commands can only be ran from admin address",
+            "Admin commands can only be run from admin address",
         ));
     }
 
@@ -447,10 +447,9 @@ fn set_contract_status<S: Storage, A: Api, Q: Querier>(
 
     // Check for admin privileges
     let msg_sender = &env.message.sender;
-    let consts = config.constants()?;
-    if &consts.admin != msg_sender {
+    if &config.constants()?.admin != msg_sender {
         return Err(StdError::generic_err(
-            "This is an admin command. Admin commands can only be run from admin address",
+            "Admin commands can only be run from admin address",
         ));
     }
 
@@ -1048,7 +1047,7 @@ mod tests {
     use super::*;
     use crate::msg::InitialBalance;
     use cosmwasm_std::testing::*;
-    use hex::ToHex;
+    // use hex::ToHex;
 
     fn init_helper(
         initial_balances: Vec<InitialBalance>,
@@ -1073,9 +1072,58 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn admin_commands() {
-        unimplemented!()
+        let admin_err = "Admin commands can only be run from admin address".to_string();
+
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("lebron".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let pause_msg = HandleMsg::SetContractStatus {
+            level: ContractStatusLevel::StopAllButWithdrawals,
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("not_admin", &[]), pause_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::GenericErr {
+                msg: admin_err.clone(),
+                backtrace: None
+            }
+        );
+
+        let mint_msg = HandleMsg::Mint {
+            amount: Uint128(1000),
+            address: HumanAddr("not_admin".to_string()),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("not_admin", &[]), mint_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::GenericErr {
+                msg: admin_err.clone(),
+                backtrace: None
+            }
+        );
+
+        let change_admin_msg = HandleMsg::ChangeAdmin {
+            address: HumanAddr("not_admin".to_string()),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("not_admin", &[]), change_admin_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::GenericErr {
+                msg: admin_err.clone(),
+                backtrace: None
+            }
+        );
     }
 
     #[test]
