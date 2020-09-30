@@ -400,6 +400,7 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let vk = ViewingKey(key);
 
+    // TODO: Is this check needed? do we want to enforce 52-byte long passphrases?
     if !vk.is_valid() {
         return Ok(HandleResponse {
             messages: vec![],
@@ -1047,7 +1048,7 @@ mod tests {
     use super::*;
     use crate::msg::InitialBalance;
     use cosmwasm_std::testing::*;
-    // use hex::ToHex;
+    use cosmwasm_std::{from_binary, QueryResponse};
 
     fn init_helper(
         initial_balances: Vec<InitialBalance>,
@@ -1072,7 +1073,7 @@ mod tests {
     }
 
     #[test]
-    fn admin_commands() {
+    fn test_admin_commands() {
         let admin_err = "Admin commands can only be run from admin address".to_string();
 
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
@@ -1225,6 +1226,78 @@ mod tests {
                 msg: "This contract is stopped and this action is not allowed".to_string(),
                 backtrace: None
             }
+        );
+    }
+
+    #[test]
+    fn test_authenticated_queries() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("giannis".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let no_vk_yet_query_msg = QueryMsg::Balance {
+            address: HumanAddr("giannis".to_string()),
+            key: "no_vk_yet".to_string(),
+        };
+        let query_result_answer: QueryAnswer =
+            from_binary(&query(&deps, no_vk_yet_query_msg).unwrap()).unwrap();
+        let error = match query_result_answer {
+            QueryAnswer::ViewingKeyError { msg } => msg,
+            _ => panic!("Unexpected result from query"),
+        };
+        assert_eq!(
+            error,
+            "Wrong viewing key for this address or viewing key not set".to_string()
+        );
+
+        let create_vk_msg = HandleMsg::CreateViewingKey {
+            entropy: "34".to_string(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("giannis", &[]), create_vk_msg);
+        assert!(
+            handle_result.is_ok(),
+            "Set viewing key failed: {}",
+            init_result.err().unwrap()
+        );
+        let create_vk_answer: HandleAnswer =
+            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
+        let vk = match create_vk_answer {
+            HandleAnswer::CreateViewingKey { key } => key,
+            _ => panic!("Unexpected result from handle"),
+        };
+
+        let query_balance_msg = QueryMsg::Balance {
+            address: HumanAddr("giannis".to_string()),
+            key: vk.0,
+        };
+        let query_result_answer: QueryAnswer =
+            from_binary(&query(&deps, query_balance_msg).unwrap()).unwrap();
+        let balance = match query_result_answer {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected result from query"),
+        };
+        assert_eq!(balance, Uint128(5000));
+
+        let wrong_vk_query_msg = QueryMsg::Balance {
+            address: HumanAddr("giannis".to_string()),
+            key: "wrong_vk".to_string(),
+        };
+        let query_result_answer: QueryAnswer =
+            from_binary(&query(&deps, wrong_vk_query_msg).unwrap()).unwrap();
+        let error = match query_result_answer {
+            QueryAnswer::ViewingKeyError { msg } => msg,
+            _ => panic!("Unexpected result from query"),
+        };
+        assert_eq!(
+            error,
+            "Wrong viewing key for this address or viewing key not set".to_string()
         );
     }
 }
