@@ -1048,7 +1048,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::msg::InitialBalance;
+    use crate::msg::{InitConfig, InitialBalance};
     use cosmwasm_std::testing::*;
     use cosmwasm_std::{from_binary, QueryResponse};
     use std::any::Any;
@@ -1096,6 +1096,29 @@ mod tests {
     // Init tests
 
     #[test]
+    fn test_init_sanity() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("lebron".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert_eq!(init_result.unwrap(), InitResponse::default());
+
+        let config = ReadonlyConfig::from_storage(&deps.storage);
+        let constants = config.constants().unwrap();
+        assert_eq!(config.total_supply(), 5000);
+        assert_eq!(config.contract_status(), ContractStatusLevel::NormalRun);
+        assert_eq!(constants.name, "sec-sec".to_string());
+        assert_eq!(constants.admin, HumanAddr("admin".to_string()));
+        assert_eq!(constants.symbol, "SECSEC".to_string());
+        assert_eq!(constants.decimals, 8);
+        assert_eq!(
+            constants.prng_seed,
+            sha_256("lolz fun yay".to_owned().as_bytes())
+        );
+        assert_eq!(constants.total_supply_is_public, false);
+    }
+
+    #[test]
     fn test_total_supply_overflow() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("lebron".to_string()),
@@ -1125,6 +1148,105 @@ mod tests {
     }
 
     // Handle tests
+
+    #[test]
+    fn test_deposit() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("lebron".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::Deposit { padding: None };
+        let handle_result = handle(
+            &mut deps,
+            mock_env(
+                "lebron",
+                &[Coin {
+                    denom: "uscrt".to_string(),
+                    amount: Uint128(1000),
+                }],
+            ),
+            handle_msg,
+        );
+        assert!(
+            handle_result.is_ok(),
+            "Pause handle failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let balances = ReadonlyBalances::from_storage(&deps.storage);
+        let canonical = deps
+            .api
+            .canonical_address(&HumanAddr("lebron".to_string()))
+            .unwrap();
+        assert_eq!(balances.account_amount(&canonical), 6000)
+    }
+
+    #[test]
+    fn test_burn() {
+        let initial_amount: u128 = 5000;
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("lebron".to_string()),
+            amount: Uint128(initial_amount),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        let burn_amount: u128 = 100;
+        let handle_msg = HandleMsg::Burn {
+            amount: Uint128(burn_amount),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("lebron", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "Pause handle failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let new_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        assert_eq!(new_supply, supply - burn_amount);
+    }
+
+    #[test]
+    fn test_mint() {
+        let initial_amount: u128 = 5000;
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("lebron".to_string()),
+            amount: Uint128(initial_amount),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        let mint_amount: u128 = 100;
+        let handle_msg = HandleMsg::Mint {
+            amount: Uint128(mint_amount),
+            address: HumanAddr("lebron".to_string()),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "Pause handle failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let new_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        assert_eq!(new_supply, supply + mint_amount);
+    }
 
     #[test]
     fn test_admin_commands() {
@@ -1261,6 +1383,8 @@ mod tests {
             "This contract is stopped and this action is not allowed".to_string()
         );
     }
+
+    // Query tests
 
     #[test]
     fn test_authenticated_queries() {
