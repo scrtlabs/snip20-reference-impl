@@ -1051,6 +1051,7 @@ mod tests {
     use crate::msg::InitialBalance;
     use cosmwasm_std::testing::*;
     use cosmwasm_std::{from_binary, QueryResponse};
+    use std::any::Any;
 
     // Helper functions
 
@@ -1076,10 +1077,19 @@ mod tests {
         (init(&mut deps, env, init_msg), deps)
     }
 
-    fn extract_error_msg<T>(error: StdResult<T>) -> String {
-        match error.err().unwrap() {
-            StdError::GenericErr { msg, .. } => msg,
-            _ => panic!("Unexpected result from init"),
+    fn extract_error_msg<T: Any>(error: StdResult<T>) -> String {
+        match error {
+            Ok(response) => {
+                let bin_err = (&response as &dyn Any).downcast_ref::<Binary>().unwrap();
+                match from_binary(bin_err).unwrap() {
+                    QueryAnswer::ViewingKeyError { msg } => msg,
+                    _ => panic!("Unexpected query answer"),
+                }
+            }
+            Err(err) => match err {
+                StdError::GenericErr { msg, .. } => msg,
+                _ => panic!("Unexpected result from init"),
+            },
         }
     }
 
@@ -1135,13 +1145,8 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("not_admin", &[]), pause_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::GenericErr {
-                msg: admin_err.clone(),
-                backtrace: None
-            }
-        );
+        let error = extract_error_msg(handle_result);
+        assert_eq!(error, admin_err.clone());
 
         let mint_msg = HandleMsg::Mint {
             amount: Uint128(1000),
@@ -1149,26 +1154,16 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("not_admin", &[]), mint_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::GenericErr {
-                msg: admin_err.clone(),
-                backtrace: None
-            }
-        );
+        let error = extract_error_msg(handle_result);
+        assert_eq!(error, admin_err.clone());
 
         let change_admin_msg = HandleMsg::ChangeAdmin {
             address: HumanAddr("not_admin".to_string()),
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("not_admin", &[]), change_admin_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::GenericErr {
-                msg: admin_err.clone(),
-                backtrace: None
-            }
-        );
+        let error = extract_error_msg(handle_result);
+        assert_eq!(error, admin_err.clone());
     }
 
     #[test]
@@ -1201,12 +1196,10 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), send_msg);
+        let error = extract_error_msg(handle_result);
         assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::GenericErr {
-                msg: "This contract is stopped and this action is not allowed".to_string(),
-                backtrace: None
-            }
+            error,
+            "This contract is stopped and this action is not allowed".to_string()
         );
 
         let withdraw_msg = HandleMsg::Redeem {
@@ -1251,12 +1244,10 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), send_msg);
+        let error = extract_error_msg(handle_result);
         assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::GenericErr {
-                msg: "This contract is stopped and this action is not allowed".to_string(),
-                backtrace: None
-            }
+            error,
+            "This contract is stopped and this action is not allowed".to_string()
         );
 
         let withdraw_msg = HandleMsg::Redeem {
@@ -1264,12 +1255,10 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("lebron", &[]), withdraw_msg);
+        let error = extract_error_msg(handle_result);
         assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::GenericErr {
-                msg: "This contract is stopped and this action is not allowed".to_string(),
-                backtrace: None
-            }
+            error,
+            "This contract is stopped and this action is not allowed".to_string()
         );
     }
 
@@ -1289,12 +1278,8 @@ mod tests {
             address: HumanAddr("giannis".to_string()),
             key: "no_vk_yet".to_string(),
         };
-        let query_result_answer: QueryAnswer =
-            from_binary(&query(&deps, no_vk_yet_query_msg).unwrap()).unwrap();
-        let error = match query_result_answer {
-            QueryAnswer::ViewingKeyError { msg } => msg,
-            _ => panic!("Unexpected result from query"),
-        };
+        let query_result = query(&deps, no_vk_yet_query_msg);
+        let error = extract_error_msg(query_result);
         assert_eq!(
             error,
             "Wrong viewing key for this address or viewing key not set".to_string()
@@ -1304,15 +1289,8 @@ mod tests {
             entropy: "34".to_string(),
             padding: None,
         };
-        let handle_result = handle(&mut deps, mock_env("giannis", &[]), create_vk_msg);
-        assert!(
-            handle_result.is_ok(),
-            "Set viewing key failed: {}",
-            init_result.err().unwrap()
-        );
-        let create_vk_answer: HandleAnswer =
-            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
-        let vk = match create_vk_answer {
+        let handle_response = handle(&mut deps, mock_env("giannis", &[]), create_vk_msg).unwrap();
+        let vk = match from_binary(&handle_response.data.unwrap()).unwrap() {
             HandleAnswer::CreateViewingKey { key } => key,
             _ => panic!("Unexpected result from handle"),
         };
@@ -1321,9 +1299,9 @@ mod tests {
             address: HumanAddr("giannis".to_string()),
             key: vk.0,
         };
-        let query_result_answer: QueryAnswer =
-            from_binary(&query(&deps, query_balance_msg).unwrap()).unwrap();
-        let balance = match query_result_answer {
+
+        let query_response = query(&deps, query_balance_msg).unwrap();
+        let balance = match from_binary(&query_response).unwrap() {
             QueryAnswer::Balance { amount } => amount,
             _ => panic!("Unexpected result from query"),
         };
@@ -1333,12 +1311,8 @@ mod tests {
             address: HumanAddr("giannis".to_string()),
             key: "wrong_vk".to_string(),
         };
-        let query_result_answer: QueryAnswer =
-            from_binary(&query(&deps, wrong_vk_query_msg).unwrap()).unwrap();
-        let error = match query_result_answer {
-            QueryAnswer::ViewingKeyError { msg } => msg,
-            _ => panic!("Unexpected result from query"),
-        };
+        let query_result = query(&deps, wrong_vk_query_msg);
+        let error = extract_error_msg(query_result);
         assert_eq!(
             error,
             "Wrong viewing key for this address or viewing key not set".to_string()
