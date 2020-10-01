@@ -1,3 +1,5 @@
+/// This contract implements SNIP-20 standard:
+/// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
     to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern, HandleResponse,
     HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError, StdResult, Storage,
@@ -35,7 +37,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
                 total_supply = new_total_supply;
             } else {
                 return Err(StdError::generic_err(
-                    "The sum of all initial balances will exceed the maximum possible total supply",
+                    "The sum of all initial balances exceeds the maximum possible total supply",
                 ));
             }
         }
@@ -1050,6 +1052,8 @@ mod tests {
     use cosmwasm_std::testing::*;
     use cosmwasm_std::{from_binary, QueryResponse};
 
+    // Helper functions
+
     fn init_helper(
         initial_balances: Vec<InitialBalance>,
     ) -> (
@@ -1071,6 +1075,46 @@ mod tests {
 
         (init(&mut deps, env, init_msg), deps)
     }
+
+    fn extract_error_msg<T>(error: StdResult<T>) -> String {
+        match error.err().unwrap() {
+            StdError::GenericErr { msg, .. } => msg,
+            _ => panic!("Unexpected result from init"),
+        }
+    }
+
+    // Init tests
+
+    #[test]
+    fn test_total_supply_overflow() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("lebron".to_string()),
+            amount: Uint128(u128::max_value()),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let (init_result, mut deps) = init_helper(vec![
+            InitialBalance {
+                address: HumanAddr("lebron".to_string()),
+                amount: Uint128(u128::max_value()),
+            },
+            InitialBalance {
+                address: HumanAddr("giannis".to_string()),
+                amount: Uint128(1),
+            },
+        ]);
+        let error = extract_error_msg(init_result);
+        assert_eq!(
+            error,
+            "The sum of all initial balances exceeds the maximum possible total supply"
+        );
+    }
+
+    // Handle tests
 
     #[test]
     fn test_admin_commands() {
