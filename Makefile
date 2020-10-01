@@ -1,6 +1,3 @@
-KEY = a
-CLI_FLAGS = -y --from $(KEY)
-
 SECRETCLI = docker exec -it secretdev /usr/bin/secretcli
 
 .PHONY: all

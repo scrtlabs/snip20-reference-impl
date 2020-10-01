@@ -1,10 +1,14 @@
 #!/bin/bash
 
-set -e
-shopt -s expand_aliases
+set -eu
+set -o pipefail # If anything in a pipeline fails, the pipe's exit status is a failure
+#set -x # Print all commands for debugging
 
-KEY='a'
-CLI_FLAGS="-y --from $KEY"
+KEY_A='a'
+KEY_B='b'
+KEY_C='c'
+KEY_D='d'
+CLI_FLAGS="-y --from $KEY_A"
 
 # This means we don't need to configure the cli since it uses the preconfigured cli in the docker.
 # We define this as a function rather than as an alias because it has more flexible expansion behavior.
@@ -24,7 +28,10 @@ function trim_newlines() {
     tr --delete '\r\n' <<< "$input"
 }
 
-A_ADDRESS="$(trim_newlines "$(secretcli keys show --address a)")"
+ADDRESS_A="$(trim_newlines "$(secretcli keys show --address "$KEY_A")")"
+ADDRESS_B="$(trim_newlines "$(secretcli keys show --address "$KEY_B")")"
+ADDRESS_C="$(trim_newlines "$(secretcli keys show --address "$KEY_C")")"
+ADDRESS_D="$(trim_newlines "$(secretcli keys show --address "$KEY_D")")"
 
 # Generate a label for a contract with a given code id
 # This just adds "contract_" before the code id.
@@ -52,6 +59,39 @@ function wait_for_tx() {
     echo "$result"
 }
 
+# This is a wrapper around `wait_for_tx` that also decrypts the response,
+# and returns a nonzero status code if the tx failed
+function wait_for_compute_tx() {
+    local tx_hash="$1"
+    local message="$2"
+    local return_value=0
+    local result
+
+    result="$(wait_for_tx "$tx_hash" "$message")"
+    if jq -e '.logs == null' <<< "$result" > /dev/null; then
+        return_value=1
+    fi
+    secretcli query compute tx "$tx_hash"
+
+    return "$return_value"
+}
+
+# If the tx failed, return a nonzero status code.
+# The decrypted error or message will be echoed
+function check_tx() {
+    local tx_hash="$1"
+    local result
+    local return_value=0
+
+    result="$(secretcli query tx "$tx_hash")"
+    if jq -e '.logs == null' <<< "$result" > /dev/null; then
+        return_value=1
+    fi
+    secretcli query compute tx "$tx_hash"
+
+    return "$return_value"
+}
+
 # Extract the tx_hash from the output of the command
 function tx_of() {
     "$@" | jq -r '.txhash'
@@ -63,7 +103,7 @@ function upload_code() {
 
     tx_hash="$(tx_of secretcli tx compute store code/contract.wasm.gz $CLI_FLAGS --gas 10000000)"
     code_id="$(
-        wait_for_tx "$tx_hash" "waiting for contract upload" |
+        wait_for_tx "$tx_hash" 'waiting for contract upload' |
             jq -r '.logs[0].events[0].attributes[] | select(.key == "code_id") | .value'
     )"
 
@@ -76,32 +116,15 @@ function instantiate() {
     local code_id="$1"
 
     local prng_seed
-    prng_seed="$(xxd -ps <<< "enigma-rocks")"
+    prng_seed="$(xxd -ps <<< 'enigma-rocks')"
     local init_msg
-    init_msg='{"name":"secret-secret","admin":"'"$A_ADDRESS"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{}}'
-    log "sending init message:"
+    init_msg='{"name":"secret-secret","admin":"'"$ADDRESS_A"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{}}'
+    log 'sending init message:'
     log "${init_msg@Q}"
 
     local tx_hash
     tx_hash="$(tx_of secretcli tx compute instantiate "$code_id" "$init_msg" --label "$(label_by_id "$code_id")" $CLI_FLAGS --gas 10000000)"
-    wait_for_tx "$tx_hash" "waiting for init to complete" > /dev/null
-    check_tx "$tx_hash"
-}
-
-# If the tx failed, return a nonzero status code.
-# The decrypted error or message will be echoed
-function check_tx() {
-    local tx_hash="$1"
-    local tx_result
-    local return_value=0
-
-    tx_result="$(secretcli query tx "$tx_hash")"
-    if jq -e '.logs == null' <<< "$tx_result" > /dev/null; then
-        return_value=1
-    fi
-    secretcli query compute tx "$tx_hash"
-
-    return "$return_value"
+    wait_for_compute_tx "$tx_hash" 'waiting for init to complete'
 }
 
 function test_1() {
