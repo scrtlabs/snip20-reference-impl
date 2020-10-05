@@ -1,7 +1,7 @@
 use cosmwasm_std::{
     to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern, HandleResponse,
     HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError, StdResult, Storage,
-    Uint128, WasmMsg,
+    Uint128,
 };
 
 use crate::msg::{
@@ -15,6 +15,7 @@ use crate::state::{
     Config, Constants, ReadonlyBalances, ReadonlyConfig,
 };
 use crate::viewing_key::ViewingKey;
+use crate::receiver::Snip20ReceiveMsg;
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -650,17 +651,21 @@ fn try_add_receiver_api_callback<S: ReadonlyStorage>(
     messages: &mut Vec<CosmosMsg>,
     storage: &S,
     recipient: &HumanAddr,
-    msg: Binary,
+    msg: Option<Binary>,
+    sender: &HumanAddr,
+    amount: Uint128,
 ) -> StdResult<()> {
     let receiver_hash = get_receiver_hash(storage, recipient);
     if let Some(receiver_hash) = receiver_hash {
         let receiver_hash = receiver_hash?;
-        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            msg,
-            callback_code_hash: receiver_hash,
-            contract_addr: recipient.clone(),
-            send: vec![],
-        }));
+        let receiver_msg = Snip20ReceiveMsg {
+                               sender: sender.clone(),
+                               amount: amount,
+                               msg: msg,
+                           };
+        let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient.clone())?;
+
+        messages.push(callback_msg);
     }
     Ok(())
 }
@@ -672,12 +677,12 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
     amount: Uint128,
     msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
+    let sender = env.message.sender.clone();
     try_transfer_impl(deps, env, recipient, amount)?;
 
     let mut messages = vec![];
-    if let Some(msg) = msg {
-        try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg)?;
-    }
+
+    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, &sender, amount)?;
 
     let res = HandleResponse {
         messages,
@@ -792,12 +797,12 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
     amount: Uint128,
     msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
+    let sender = env.message.sender.clone();
     try_transfer_from_impl(deps, env, owner, recipient, amount)?;
 
     let mut messages = vec![];
-    if let Some(msg) = msg {
-        try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg)?;
-    }
+
+    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, &sender, amount)?;
 
     let res = HandleResponse {
         messages,
