@@ -568,7 +568,7 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
         balances.set_account_balance(&sender_address, account_balance);
     } else {
         return Err(StdError::generic_err(format!(
-            "insufficient funds to burn: balance={}, required={}",
+            "insufficient funds to redeem: balance={}, required={}",
             account_balance, amount_raw
         )));
     }
