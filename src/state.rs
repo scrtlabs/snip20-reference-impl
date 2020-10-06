@@ -179,6 +179,10 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfig<'a, S> {
     pub fn contract_status(&self) -> ContractStatusLevel {
         self.as_readonly().contract_status()
     }
+
+    pub fn minters(&self) -> Vec<HumanAddr> {
+        self.as_readonly().minters()
+    }
 }
 
 fn set_bin_data<T: Serialize, S: Storage>(storage: &mut S, key: &[u8], data: &T) -> StdResult<()> {

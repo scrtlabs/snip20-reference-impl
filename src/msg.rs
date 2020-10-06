@@ -129,6 +129,10 @@ pub enum HandleMsg {
         minters: Vec<HumanAddr>,
         padding: Option<String>,
     },
+    SetMinters {
+        minters: Vec<HumanAddr>,
+        padding: Option<String>,
+    },
 
     // Admin
     ChangeAdmin {
@@ -204,6 +208,9 @@ pub enum HandleAnswer {
         status: ResponseStatus,
     },
     RemoveMinters {
+        status: ResponseStatus,
+    },
+    SetMinters {
         status: ResponseStatus,
     },
 

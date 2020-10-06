@@ -173,6 +173,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
         HandleMsg::AddMinters { minters, .. } => add_minters(deps, env, minters),
         HandleMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
+        HandleMsg::SetMinters { minters, .. } => set_minters(deps, env, minters),
     };
 
     pad_response(response)
@@ -183,6 +184,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         QueryMsg::TokenInfo {} => query_token_info(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(),
         QueryMsg::Allowance { owner, spender, .. } => try_check_allowance(deps, owner, spender),
+        QueryMsg::Minters { .. } => query_minters(deps),
         _ => authenticated_queries(deps, msg),
     }
 }
@@ -275,6 +277,13 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
     let response = QueryAnswer::Balance {
         amount: Uint128(get_balance(&deps.storage, &address)),
     };
+    to_binary(&response)
+}
+
+fn query_minters<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdResult<Binary> {
+    let minters = ReadonlyConfig::from_storage(&deps.storage).minters();
+
+    let response = QueryAnswer::Minters { minters };
     to_binary(&response)
 }
 
@@ -941,6 +950,24 @@ fn remove_minters<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![],
         data: Some(to_binary(&HandleAnswer::RemoveMinters { status: Success })?),
+    })
+}
+
+fn set_minters<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minters_to_set: Vec<HumanAddr>,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_admin_command(&config, &env.message.sender)?;
+
+    config.set_minters(minters_to_set)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::SetMinters { status: Success })?),
     })
 }
 
