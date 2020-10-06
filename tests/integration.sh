@@ -384,18 +384,71 @@ function test_deposit() {
     done
 }
 
-function test_send() {
+function test_transfer() {
     local contract_addr="$1"
 
     log_test_header
 
-    # Deposit to "a"
+    local tx_hash
+
+    # Check "a" doesn't have any funds
+    log 'querying balance for "a"'
+    local balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
+    local balance_response
+    balance_response="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_a")"
+    log "balance response was: $balance_response"
+    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
+
     # Check "b" doesn't have any funds
+    log 'querying balance for "b"'
+    local balance_query_b='{"balance":{"address":"'"${ADDRESS[b]}"'","key":"'"${VK[b]}"'"}}'
+    local balance_response
+    balance_response="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_b")"
+    log "balance response was: $balance_response"
+    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
+
+    # Deposit to "a"
+    local deposit_message='{"deposit":{"padding":":::::::::::::::::"}}'
+    local deposit_response
+    tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$deposit_message" --amount '1000000uscrt' ${FROM[a]} --gas 150000)"
+    deposit_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for deposit to "a" to process')"
+    assert_eq "$deposit_response" "$(pad_space '{"deposit":{"status":"success"}}')"
+    log 'deposited 1000000uscrt to "a" successfully'
+
+    # Try to send more than "a" has
+    log 'sending funds from "a" to "b", but more than "a" has'
+    local transfer_message='{"transfer":{"recipient":"'"${ADDRESS[b]}"'","amount":"1000001"}}'
+    local transfer_response
+    tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
+    # Notice the `!` before the command - it is EXPECTED to fail.
+    ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
+    log "trying to overdraft from \"a\" to send to \"b\" was rejected"
+    assert_eq \
+        "$(jq -r '.output_error.generic_err.msg' <<<"$transfer_response")" \
+        "insufficient funds: balance=1000000, required=1000001"
+
     # Send from "a" to "b"
+    log 'sending funds from "a" to "b"'
+    local transfer_message='{"transfer":{"recipient":"'"${ADDRESS[b]}"'","amount":"400000"}}'
+    local transfer_response
+    tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
+    transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
+    assert_eq "$transfer_response" "$(pad_space '{"transfer":{"status":"success"}}')"
+
+    # Check that "a" has fewer funds
+    log 'querying balance for "a"'
+    balance_response="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_a")"
+    log "balance response was: $balance_response"
+    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '600000'
+
     # Check that "b" has the funds that "a" deposited
+    log 'querying balance for "b"'
+    balance_response="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_b")"
+    log "balance response was: $balance_response"
+    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '400000'
 }
 
-function test_transfer() {
+function test_send() {
     local contract_addr="$1"
 
     log_test_header
@@ -406,12 +459,6 @@ function test_transfer() {
     # Transfer from "a" to "b" and sent to C2
     # Check that "b" has the funds that "a" deposited
     # Check that C2 received the message
-}
-
-function test_3() {
-    local contract_addr="$1"
-
-    log_test_header
 }
 
 function main() {
@@ -425,15 +472,22 @@ function main() {
     init_result="$(instantiate "$code_id")"
     local contract_addr
     contract_addr="$(jq -r '.logs[0].events[0].attributes[] | select(.key == "contract_address") | .value' <<<"$init_result")"
+
+    # To make testing faster, check the logs and try to reuse the deployed contract and VKs from previous runs.
+    # Remember to comment out the contract deployment and `test_viewing_key` if you do.
+#    local contract_addr='secret10fjathdjlchsvp92x2k5xh5pstth4j9eexfrwf'
+#    VK[a]='api_key_7n1fPbZAoTvsjFmlUynqLP3lrYp4wg8BRW3vD0BWbRM='
+#    VK[b]='api_key_XEx/ON1gGs1DJ6aps05gl6nKJPhfukk81MglAHSEsXs='
+#    VK[c]='api_key_x1+iofn7sggNeUVwSZuNnVwQhpW52rel81TT2wxUqrM='
+#    VK[d]='api_key_0l3MyzqvSjD9XlxMi7PV4drSNBb/phDCJUxT6ipxIWI='
+
     log "contract address: $contract_addr"
 
-    # This first test also sets the `VK_*` global variables that are used in the other tests
+    # This first test also sets the `VK[*]` global variables that are used in the other tests
     test_viewing_key "$contract_addr"
     test_deposit "$contract_addr"
-    test_send "$contract_addr"
     test_transfer "$contract_addr"
-    # test_2 "$contract_addr"
-    # test_3 "$contract_addr"
+    test_send "$contract_addr"
 
     log 'Tests completed successfully'
 

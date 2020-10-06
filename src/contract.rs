@@ -705,7 +705,7 @@ fn try_register_receive<S: Storage, A: Api, Q: Querier>(
 
 fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
     StdError::generic_err(format!(
-        "Insufficient allowance: allowance={}, required={}",
+        "insufficient allowance: allowance={}, required={}",
         allowance, required
     ))
 }
@@ -1008,7 +1008,7 @@ fn perform_transfer<T: Storage>(
         from_balance = new_from_balance;
     } else {
         return Err(StdError::generic_err(format!(
-            "Insufficient funds: balance={}, required={}",
+            "insufficient funds: balance={}, required={}",
             from_balance, amount
         )));
     }
