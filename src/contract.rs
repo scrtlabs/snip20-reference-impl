@@ -10,9 +10,9 @@ use crate::msg::{
 };
 use crate::rand::sha_256;
 use crate::state::{
-    get_receiver_hash, get_swap, get_transfers, read_allowance, read_viewing_key,
-    set_receiver_hash, store_swap, store_transfer, write_allowance, write_viewing_key, Balances,
-    Config, Constants, ReadonlyBalances, ReadonlyConfig,
+    get_receiver_hash, get_transfers, read_allowance, read_viewing_key, set_receiver_hash,
+    store_transfer, write_allowance, write_viewing_key, Balances, Config, Constants,
+    ReadonlyBalances, ReadonlyConfig,
 };
 use crate::viewing_key::ViewingKey;
 
@@ -168,12 +168,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         } => try_mint(deps, env, address, amount),
 
         // Other
-        HandleMsg::Swap {
-            amount,
-            network,
-            destination,
-            ..
-        } => try_swap(deps, env, amount, network, destination),
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
         HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
     };
@@ -185,7 +179,6 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
     match msg {
         QueryMsg::TokenInfo {} => query_token_info(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(),
-        QueryMsg::Swap { nonce, .. } => query_swap(&deps, nonce),
         QueryMsg::Allowance { owner, spender, .. } => try_check_allowance(deps, owner, spender),
         _ => authenticated_queries(deps, msg),
     }
@@ -257,15 +250,6 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     })
 }
 
-pub fn query_swap<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    nonce: u32,
-) -> StdResult<Binary> {
-    let swap = get_swap(&deps.storage, nonce)?;
-
-    Ok(to_binary(&QueryAnswer::Swap { result: swap })?)
-}
-
 pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     account: &HumanAddr,
@@ -314,26 +298,6 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![],
         data: Some(to_binary(&HandleAnswer::ChangeAdmin { status: Success })?),
-    })
-}
-
-fn try_swap<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    amount: Uint128,
-    _network: String,
-    destination: String,
-) -> StdResult<HandleResponse> {
-    try_burn(deps, env, amount)?;
-    let nonce = store_swap(&mut deps.storage, destination, amount)?;
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: Some(to_binary(&HandleAnswer::Swap {
-            status: Success,
-            nonce,
-        })?),
     })
 }
 

@@ -21,7 +21,6 @@ pub const KEY_CONSTANTS: &[u8] = b"constants";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
 pub const KEY_CONTRACT_STATUS: &[u8] = b"contract_status";
 
-pub const PREFIX_SWAP: &[u8] = b"swaps";
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
@@ -53,13 +52,6 @@ pub struct StoredTx {
     pub coins: Coin,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct Swap {
-    pub destination: String,
-    pub amount: Uint128,
-    pub nonce: u32,
-}
-
 impl StoredTx {
     pub fn into_humanized<A: Api>(self, api: &A) -> StdResult<Tx> {
         let tx = Tx {
@@ -83,40 +75,6 @@ impl Default for Tx {
             },
         }
     }
-}
-
-pub fn store_swap<S: Storage>(
-    store: &mut S,
-    destination: String,
-    amount: Uint128,
-) -> StdResult<u32> {
-    let mut store = PrefixedStorage::new(PREFIX_SWAP, store);
-    let mut store = AppendStoreMut::attach_or_create(&mut store)?;
-
-    let nonce = store.len();
-    let swap = Swap {
-        destination,
-        amount,
-        nonce,
-    };
-    store.push(&swap)?;
-    Ok(nonce)
-}
-
-pub fn get_swap<S: ReadonlyStorage>(storage: &S, nonce: u32) -> StdResult<Swap> {
-    let store = ReadonlyPrefixedStorage::new(PREFIX_SWAP, storage);
-
-    // Try to access the storage of txs for the account.
-    // If it doesn't exist yet, return an empty list of transfers.
-    let store = if let Some(result) = AppendStore::<Swap, _>::attach(&store) {
-        result?
-    } else {
-        return Err(StdError::generic_err("Tx does not exist"));
-    };
-
-    let swap = store.get_at(nonce);
-
-    swap.map_err(|_| StdError::generic_err("Tx does not exist"))
 }
 
 pub fn store_transfer<S: Storage>(
