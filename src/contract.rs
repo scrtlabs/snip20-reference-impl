@@ -74,6 +74,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     })?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
+    config.set_minters(Vec::<HumanAddr>::from([msg.admin.clone()]))?;
 
     Ok(InitResponse::default())
 }
@@ -170,6 +171,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // Other
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
         HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
+        HandleMsg::AddMinters { minters, .. } => add_minters(deps, env, minters),
+        HandleMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
     };
 
     pad_response(response)
@@ -409,14 +412,7 @@ fn set_contract_status<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    // Check for admin privileges
-    let msg_sender = &env.message.sender;
-    let consts = config.constants()?;
-    if &consts.admin != msg_sender {
-        return Err(StdError::generic_err(
-            "This is an admin command. Admin commands can only be run from admin address",
-        ));
-    }
+    check_admin_command(&config, &env.message.sender)?;
 
     config.set_contract_status(status_level);
 
@@ -912,6 +908,42 @@ fn try_decrease_allowance<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
+fn add_minters<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minters_to_add: Vec<HumanAddr>,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_admin_command(&config, &env.message.sender)?;
+
+    config.add_minters(minters_to_add)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::AddMinters { status: Success })?),
+    })
+}
+
+fn remove_minters<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minters_to_remove: Vec<HumanAddr>,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_admin_command(&config, &env.message.sender)?;
+
+    config.remove_minters(minters_to_remove)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::RemoveMinters { status: Success })?),
+    })
+}
+
 /// Burn tokens
 ///
 /// Remove `amount` tokens from the system irreversibly, from signer account
@@ -983,6 +1015,25 @@ fn perform_transfer<T: Storage>(
         StdError::generic_err("This tx will literally make them too rich. Try transferring less")
     })?;
     balances.set_account_balance(to, to_balance);
+
+    Ok(())
+}
+
+fn is_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<bool> {
+    let consts = config.constants()?;
+    if &consts.admin != account {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+fn check_admin_command<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<()> {
+    if !is_admin(config, account)? {
+        return Err(StdError::generic_err(
+            "This is an admin command. Admin commands can only be run from admin address",
+        ));
+    }
 
     Ok(())
 }

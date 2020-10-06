@@ -240,13 +240,17 @@ impl<'a, S: Storage> Config<'a, S> {
             .set(KEY_CONTRACT_STATUS, &status_u8.to_be_bytes());
     }
 
-    pub fn add_minters(&mut self, minters_to_add: Vec<HumanAddr>) -> StdResult<()> {
-        let mut minters = self.minters();
-
-        minters.extend(minters_to_add);
-        set_bin_data(&mut self.storage, KEY_MINTERS, &minters)?;
+    pub fn set_minters(&mut self, minters_to_set: Vec<HumanAddr>) -> StdResult<()> {
+        set_bin_data(&mut self.storage, KEY_MINTERS, &minters_to_set)?;
 
         Ok(())
+    }
+
+    pub fn add_minters(&mut self, minters_to_add: Vec<HumanAddr>) -> StdResult<()> {
+        let mut minters = self.minters();
+        minters.extend(minters_to_add);
+
+        self.set_minters(minters)
     }
 
     pub fn remove_minters(&mut self, minters_to_remove: Vec<HumanAddr>) -> StdResult<()> {
@@ -259,9 +263,7 @@ impl<'a, S: Storage> Config<'a, S> {
             }
         }
 
-        set_bin_data(&mut self.storage, KEY_MINTERS, &minters)?;
-
-        Ok(())
+        self.set_minters(minters)
     }
 
     pub fn minters(&mut self) -> Vec<HumanAddr> {

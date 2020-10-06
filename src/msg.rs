@@ -121,6 +121,14 @@ pub enum HandleMsg {
         address: HumanAddr,
         padding: Option<String>,
     },
+    AddMinters {
+        minters: Vec<HumanAddr>,
+        padding: Option<String>,
+    },
+    RemoveMinters {
+        minters: Vec<HumanAddr>,
+        padding: Option<String>,
+    },
 
     // Admin
     ChangeAdmin {
@@ -192,6 +200,12 @@ pub enum HandleAnswer {
     Mint {
         status: ResponseStatus,
     },
+    AddMinters {
+        status: ResponseStatus,
+    },
+    RemoveMinters {
+        status: ResponseStatus,
+    },
 
     // Other
     ChangeAdmin {
@@ -222,6 +236,7 @@ pub enum QueryMsg {
         page: Option<u32>,
         page_size: u32,
     },
+    Minters {},
 }
 
 impl QueryMsg {
@@ -262,6 +277,9 @@ pub enum QueryAnswer {
 
     ViewingKeyError {
         msg: String,
+    },
+    Minters {
+        minters: Vec<HumanAddr>,
     },
 }
 
