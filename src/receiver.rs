@@ -13,6 +13,14 @@ pub struct Snip20ReceiveMsg {
 }
 
 impl Snip20ReceiveMsg {
+    pub fn new(sender: HumanAddr, amount: Uint128, msg: Option<Binary>) -> Self {
+        Self {
+            sender,
+            amount,
+            msg,
+        }
+    }
+
     /// serializes the message
     pub fn into_binary(self) -> StdResult<Binary> {
         let msg = ReceiverHandleMsg::Receive(self);
@@ -21,12 +29,15 @@ impl Snip20ReceiveMsg {
 
     /// creates a cosmos_msg sending this struct to the named contract
     pub fn into_cosmos_msg(
-        self, contract_code_hash: String, contract_addr: HumanAddr) -> StdResult<CosmosMsg> {
+        self,
+        callback_code_hash: String,
+        contract_addr: HumanAddr,
+    ) -> StdResult<CosmosMsg> {
         let msg = self.into_binary()?;
         let execute = WasmMsg::Execute {
             msg,
-            callback_code_hash: contract_code_hash,
-            contract_addr: contract_addr,
+            callback_code_hash,
+            contract_addr,
             send: vec![],
         };
         Ok(execute.into())

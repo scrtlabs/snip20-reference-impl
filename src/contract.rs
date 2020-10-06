@@ -9,13 +9,13 @@ use crate::msg::{
     ResponseStatus::{Failure, Success},
 };
 use crate::rand::sha_256;
+use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     get_receiver_hash, get_swap, get_transfers, read_allowance, read_viewing_key,
     set_receiver_hash, store_swap, store_transfer, write_allowance, write_viewing_key, Balances,
     Config, Constants, ReadonlyBalances, ReadonlyConfig,
 };
 use crate::viewing_key::ViewingKey;
-use crate::receiver::Snip20ReceiveMsg;
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -652,17 +652,13 @@ fn try_add_receiver_api_callback<S: ReadonlyStorage>(
     storage: &S,
     recipient: &HumanAddr,
     msg: Option<Binary>,
-    sender: &HumanAddr,
+    sender: HumanAddr,
     amount: Uint128,
 ) -> StdResult<()> {
     let receiver_hash = get_receiver_hash(storage, recipient);
     if let Some(receiver_hash) = receiver_hash {
         let receiver_hash = receiver_hash?;
-        let receiver_msg = Snip20ReceiveMsg {
-                               sender: sender.clone(),
-                               amount: amount,
-                               msg: msg,
-                           };
+        let receiver_msg = Snip20ReceiveMsg::new(sender, amount, msg);
         let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient.clone())?;
 
         messages.push(callback_msg);
@@ -682,7 +678,7 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
 
     let mut messages = vec![];
 
-    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, &sender, amount)?;
+    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, sender, amount)?;
 
     let res = HandleResponse {
         messages,
@@ -802,7 +798,7 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
 
     let mut messages = vec![];
 
-    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, &sender, amount)?;
+    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, sender, amount)?;
 
     let res = HandleResponse {
         messages,
