@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::msg::{status_level_to_u8, u8_to_status_level, ContractStatusLevel};
 use crate::viewing_key::ViewingKey;
+use serde::de::DeserializeOwned;
 
 pub static CONFIG_KEY: &[u8] = b"config";
 pub const PREFIX_TXS: &[u8] = b"transfers";
@@ -20,6 +21,7 @@ pub const PREFIX_TXS: &[u8] = b"transfers";
 pub const KEY_CONSTANTS: &[u8] = b"constants";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
 pub const KEY_CONTRACT_STATUS: &[u8] = b"contract_status";
+pub const KEY_MINTERS: &[u8] = b"minters";
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -179,6 +181,24 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfig<'a, S> {
     }
 }
 
+fn set_bin_data<T: Serialize, S: Storage>(storage: &mut S, key: &[u8], data: &T) -> StdResult<()> {
+    let bin_data =
+        bincode2::serialize(&data).map_err(|e| StdError::serialize_err(type_name::<T>(), e))?;
+
+    storage.set(key, &bin_data);
+    Ok(())
+}
+
+fn get_bin_data<T: DeserializeOwned, S: ReadonlyStorage>(storage: &S, key: &[u8]) -> StdResult<T> {
+    let bin_data = storage.get(key);
+
+    match bin_data {
+        None => Err(StdError::not_found("Key not found in storage")),
+        Some(bin_data) => Ok(bincode2::deserialize::<T>(&bin_data)
+            .map_err(|e| StdError::serialize_err(type_name::<T>(), e))?),
+    }
+}
+
 pub struct Config<'a, S: Storage> {
     storage: PrefixedStorage<'a, S>,
 }
@@ -199,11 +219,7 @@ impl<'a, S: Storage> Config<'a, S> {
     }
 
     pub fn set_constants(&mut self, constants: &Constants) -> StdResult<()> {
-        let constants = bincode2::serialize(&constants)
-            .map_err(|e| StdError::serialize_err(type_name::<Constants>(), e))?;
-
-        self.storage.set(KEY_CONSTANTS, &constants);
-        Ok(())
+        set_bin_data(&mut self.storage, KEY_CONSTANTS, constants)
     }
 
     pub fn total_supply(&self) -> u128 {
@@ -222,6 +238,34 @@ impl<'a, S: Storage> Config<'a, S> {
         let status_u8 = status_level_to_u8(status);
         self.storage
             .set(KEY_CONTRACT_STATUS, &status_u8.to_be_bytes());
+    }
+
+    pub fn add_minters(&mut self, minters_to_add: Vec<HumanAddr>) -> StdResult<()> {
+        let mut minters = self.minters();
+
+        minters.extend(minters_to_add);
+        set_bin_data(&mut self.storage, KEY_MINTERS, &minters)?;
+
+        Ok(())
+    }
+
+    pub fn remove_minters(&mut self, minters_to_remove: Vec<HumanAddr>) -> StdResult<()> {
+        let mut minters = self.minters();
+
+        for minter in minters_to_remove {
+            let index = minters.iter().position(|x| *x == minter);
+            if let Some(index) = index {
+                minters.remove(index);
+            }
+        }
+
+        set_bin_data(&mut self.storage, KEY_MINTERS, &minters)?;
+
+        Ok(())
+    }
+
+    pub fn minters(&mut self) -> Vec<HumanAddr> {
+        self.as_readonly().minters()
     }
 }
 
@@ -260,6 +304,10 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfigImpl<'a, S> {
         // These unwraps are ok because we know we stored things correctly
         let status = slice_to_u8(&supply_bytes).unwrap();
         u8_to_status_level(status).unwrap()
+    }
+
+    fn minters(&self) -> Vec<HumanAddr> {
+        get_bin_data(self.0, KEY_MINTERS).unwrap()
     }
 }
 
