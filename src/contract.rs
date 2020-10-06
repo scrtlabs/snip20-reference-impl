@@ -74,7 +74,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     })?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
-    config.set_minters(Vec::<HumanAddr>::from([msg.admin.clone()]))?;
+    config.set_minters(Vec::<HumanAddr>::from([msg.admin]))?;
 
     Ok(InitResponse::default())
 }
