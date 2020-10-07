@@ -1051,8 +1051,10 @@ mod tests {
     use super::*;
     use crate::msg::QueryMsg::Allowance;
     use crate::msg::{InitConfig, InitialBalance};
+    use crate::viewing_key::VIEWING_KEY_LENGTH;
     use cosmwasm_std::testing::*;
-    use cosmwasm_std::{from_binary, QueryResponse};
+    use cosmwasm_std::{from_binary, Empty, QueryResponse, WasmMsg};
+    use std::alloc::handle_alloc_error;
     use std::any::Any;
 
     // Helper functions
@@ -1165,23 +1167,374 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_create_viewing_key() {}
+    fn test_create_viewing_key() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::CreateViewingKey {
+            entropy: "".to_string(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+    }
 
     #[test]
-    #[ignore]
-    fn test_set_viewing_key() {}
+    fn test_set_viewing_key() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        // Set invalid VK
+        let handle_msg = HandleMsg::SetViewingKey {
+            key: "hi lol".to_string(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let unwrapped_result: HandleAnswer =
+            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&unwrapped_result).unwrap(),
+            to_binary(&HandleAnswer::SetViewingKey { status: Failure }).unwrap(),
+        );
+
+        // Set valid VK
+        let actual_vk = ViewingKey("x".to_string().repeat(VIEWING_KEY_LENGTH));
+        let handle_msg = HandleMsg::SetViewingKey {
+            key: actual_vk.0.clone(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let unwrapped_result: HandleAnswer =
+            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&unwrapped_result).unwrap(),
+            to_binary(&HandleAnswer::SetViewingKey { status: Success }).unwrap(),
+        );
+        let bob_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("bob".to_string()))
+            .unwrap();
+        let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
+        assert!(actual_vk.check_viewing_key(&saved_vk));
+    }
 
     #[test]
-    #[ignore]
-    fn test_transfer_from() {}
+    fn test_transfer_from() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        // Transfer before allowance
+        let handle_msg = HandleMsg::TransferFrom {
+            owner: HumanAddr("bob".to_string()),
+            recipient: HumanAddr("alice".to_string()),
+            amount: Uint128(2500),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::generic_err("Insufficient allowance: allowance=0, required=2500"),
+        );
+
+        // Transfer more than allowance
+        let handle_msg = HandleMsg::IncreaseAllowance {
+            spender: HumanAddr("alice".to_string()),
+            amount: Uint128(2000),
+            padding: None,
+            expiration: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+        let handle_msg = HandleMsg::TransferFrom {
+            owner: HumanAddr("bob".to_string()),
+            recipient: HumanAddr("alice".to_string()),
+            amount: Uint128(2500),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::generic_err("Insufficient allowance: allowance=2000, required=2500"),
+        );
+
+        // Sanity check
+        let handle_msg = HandleMsg::TransferFrom {
+            owner: HumanAddr("bob".to_string()),
+            recipient: HumanAddr("alice".to_string()),
+            amount: Uint128(2000),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+        let bob_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("bob".to_string()))
+            .unwrap();
+        let alice_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("alice".to_string()))
+            .unwrap();
+        let bob_balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
+            .account_amount(&bob_canonical);
+        let alice_balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
+            .account_amount(&alice_canonical);
+        assert_eq!(bob_balance, 5000 - 2000);
+        assert_eq!(alice_balance, 2000);
+        let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        assert_eq!(total_supply, 5000);
+
+        // Second send more than allowance
+        let handle_msg = HandleMsg::TransferFrom {
+            owner: HumanAddr("bob".to_string()),
+            recipient: HumanAddr("alice".to_string()),
+            amount: Uint128(1),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::generic_err("Insufficient allowance: allowance=0, required=1"),
+        );
+    }
 
     #[test]
-    #[ignore]
-    fn test_send_from() {}
+    fn test_send_from() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        // Send before allowance
+        let handle_msg = HandleMsg::SendFrom {
+            owner: HumanAddr("bob".to_string()),
+            recipient: HumanAddr("alice".to_string()),
+            amount: Uint128(2500),
+            msg: None,
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::generic_err("Insufficient allowance: allowance=0, required=2500"),
+        );
+
+        // Send more than allowance
+        let handle_msg = HandleMsg::IncreaseAllowance {
+            spender: HumanAddr("alice".to_string()),
+            amount: Uint128(2000),
+            padding: None,
+            expiration: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+        let handle_msg = HandleMsg::SendFrom {
+            owner: HumanAddr("bob".to_string()),
+            recipient: HumanAddr("alice".to_string()),
+            amount: Uint128(2500),
+            msg: None,
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::generic_err("Insufficient allowance: allowance=2000, required=2500"),
+        );
+
+        // Sanity check
+        let handle_msg = HandleMsg::RegisterReceive {
+            code_hash: "lolz".to_string(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("contract", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+        let send_msg = Binary::from(r#"{ "some_msg": { "some_key": "some_val" } }"#.as_bytes());
+        let snip20_msg = Snip20ReceiveMsg::new(
+            HumanAddr("alice".to_string()),
+            Uint128(2000),
+            Some(send_msg.clone()),
+        );
+        let handle_msg = HandleMsg::SendFrom {
+            owner: HumanAddr("bob".to_string()),
+            recipient: HumanAddr("contract".to_string()),
+            amount: Uint128(2000),
+            msg: Some(send_msg),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+        assert!(handle_result.unwrap().messages.contains(
+            &snip20_msg
+                .into_cosmos_msg("lolz".to_string(), HumanAddr("contract".to_string()))
+                .unwrap()
+        ));
+        let bob_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("bob".to_string()))
+            .unwrap();
+        let alice_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("alice".to_string()))
+            .unwrap();
+        let contract_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("contract".to_string()))
+            .unwrap();
+        let bob_balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
+            .account_amount(&bob_canonical);
+        let contract_balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
+            .account_amount(&contract_canonical);
+        assert_eq!(bob_balance, 5000 - 2000);
+        assert_eq!(contract_balance, 2000);
+        let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        assert_eq!(total_supply, 5000);
+
+        // Second send more than allowance
+        let handle_msg = HandleMsg::SendFrom {
+            owner: HumanAddr("bob".to_string()),
+            recipient: HumanAddr("alice".to_string()),
+            amount: Uint128(1),
+            msg: None,
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::generic_err("Insufficient allowance: allowance=0, required=1"),
+        );
+    }
 
     #[test]
-    #[ignore]
-    fn test_burn_from() {}
+    fn test_burn_from() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        // Burn before allowance
+        let handle_msg = HandleMsg::BurnFrom {
+            owner: HumanAddr("bob".to_string()),
+            amount: Uint128(2500),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::generic_err("Insufficient allowance: allowance=0, required=2500"),
+        );
+
+        // Burn more than allowance
+        let handle_msg = HandleMsg::IncreaseAllowance {
+            spender: HumanAddr("alice".to_string()),
+            amount: Uint128(2000),
+            padding: None,
+            expiration: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+        let handle_msg = HandleMsg::BurnFrom {
+            owner: HumanAddr("bob".to_string()),
+            amount: Uint128(2500),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::generic_err("Insufficient allowance: allowance=2000, required=2500"),
+        );
+
+        // Sanity check
+        let handle_msg = HandleMsg::BurnFrom {
+            owner: HumanAddr("bob".to_string()),
+            amount: Uint128(2000),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+        let bob_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("bob".to_string()))
+            .unwrap();
+        let bob_balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
+            .account_amount(&bob_canonical);
+        assert_eq!(bob_balance, 5000 - 2000);
+        let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        assert_eq!(total_supply, 5000 - 2000);
+
+        // Second burn more than allowance
+        let handle_msg = HandleMsg::BurnFrom {
+            owner: HumanAddr("bob".to_string()),
+            amount: Uint128(1),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::generic_err("Insufficient allowance: allowance=0, required=1"),
+        );
+    }
 
     #[test]
     fn test_decrease_allowance() {
