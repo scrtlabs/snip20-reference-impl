@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
 
-use crate::state::{Swap, Tx};
+use crate::state::Tx;
 use crate::viewing_key::ViewingKey;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -121,12 +121,16 @@ pub enum HandleMsg {
         address: HumanAddr,
         padding: Option<String>,
     },
-
-    // Swap
-    Swap {
-        amount: Uint128,
-        network: String,
-        destination: String,
+    AddMinters {
+        minters: Vec<HumanAddr>,
+        padding: Option<String>,
+    },
+    RemoveMinters {
+        minters: Vec<HumanAddr>,
+        padding: Option<String>,
+    },
+    SetMinters {
+        minters: Vec<HumanAddr>,
         padding: Option<String>,
     },
 
@@ -200,12 +204,17 @@ pub enum HandleAnswer {
     Mint {
         status: ResponseStatus,
     },
-
-    // Other
-    Swap {
-        nonce: u32,
+    AddMinters {
         status: ResponseStatus,
     },
+    RemoveMinters {
+        status: ResponseStatus,
+    },
+    SetMinters {
+        status: ResponseStatus,
+    },
+
+    // Other
     ChangeAdmin {
         status: ResponseStatus,
     },
@@ -219,9 +228,6 @@ pub enum HandleAnswer {
 pub enum QueryMsg {
     TokenInfo {},
     ExchangeRate {},
-    Swap {
-        nonce: u32,
-    },
     Allowance {
         owner: HumanAddr,
         spender: HumanAddr,
@@ -237,7 +243,7 @@ pub enum QueryMsg {
         page: Option<u32>,
         page_size: u32,
     },
-    Test {},
+    Minters {},
 }
 
 impl QueryMsg {
@@ -245,7 +251,7 @@ impl QueryMsg {
         match self {
             Self::Balance { address, key } => (address, ViewingKey(key.clone())),
             Self::TransferHistory { address, key, .. } => (address, ViewingKey(key.clone())),
-            _ => (panic!("lol")),
+            _ => panic!("This query type does not require authentication"),
         }
     }
 }
@@ -263,9 +269,6 @@ pub enum QueryAnswer {
         rate: Uint128,
         denom: String,
     },
-    Swap {
-        result: Swap,
-    },
     Allowance {
         spender: HumanAddr,
         owner: HumanAddr,
@@ -281,6 +284,9 @@ pub enum QueryAnswer {
 
     ViewingKeyError {
         msg: String,
+    },
+    Minters {
+        minters: Vec<HumanAddr>,
     },
 }
 
