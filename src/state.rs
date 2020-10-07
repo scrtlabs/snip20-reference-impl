@@ -261,10 +261,7 @@ impl<'a, S: Storage> Config<'a, S> {
         let mut minters = self.minters();
 
         for minter in minters_to_remove {
-            let index = minters.iter().position(|x| *x == minter);
-            if let Some(index) = index {
-                minters.remove(index);
-            }
+            minters.retain(|x| x != &minter);
         }
 
         self.set_minters(minters)

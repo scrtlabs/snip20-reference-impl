@@ -74,7 +74,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     })?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
-    config.set_minters(Vec::<HumanAddr>::from([msg.admin]))?;
+    config.set_minters(Vec::from([msg.admin]))?;
 
     Ok(InitResponse::default())
 }
@@ -185,7 +185,11 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         QueryMsg::ExchangeRate {} => query_exchange_rate(),
         QueryMsg::Allowance { owner, spender, .. } => try_check_allowance(deps, owner, spender),
         QueryMsg::Minters { .. } => query_minters(deps),
-        _ => authenticated_queries(deps, msg),
+
+        // Authenticated queries
+        QueryMsg::Balance { .. } | QueryMsg::TransferHistory { .. } => {
+            authenticated_queries(deps, msg)
+        }
     }
 }
 
@@ -223,8 +227,7 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
             page_size,
             ..
         } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
-        // Other - Test
-        _ => unimplemented!(),
+        _ => panic!("Unknown Query type"),
     }
 }
 
@@ -294,16 +297,10 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    let msg_sender = &env.message.sender;
+    check_if_admin(&config, &env.message.sender)?;
+
     let mut consts = config.constants()?;
-    if &consts.admin != msg_sender {
-        return Err(StdError::generic_err(
-            "Admin commands can only be run from admin address",
-        ));
-    }
-
     consts.admin = address;
-
     config.set_constants(&consts)?;
 
     Ok(HandleResponse {
@@ -321,10 +318,11 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    let msg_sender = &env.message.sender;
-    if &config.constants()?.admin != msg_sender {
+    let minters = config.minters();
+    let idx = minters.iter().position(|x| *x == env.message.sender);
+    if idx.is_none() {
         return Err(StdError::generic_err(
-            "Admin commands can only be ran from admin address",
+            "Minting is allowed to minter accounts only",
         ));
     }
 
@@ -421,7 +419,7 @@ fn set_contract_status<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    check_admin_command(&config, &env.message.sender)?;
+    check_if_admin(&config, &env.message.sender)?;
 
     config.set_contract_status(status_level);
 
@@ -924,7 +922,7 @@ fn add_minters<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    check_admin_command(&config, &env.message.sender)?;
+    check_if_admin(&config, &env.message.sender)?;
 
     config.add_minters(minters_to_add)?;
 
@@ -942,7 +940,7 @@ fn remove_minters<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    check_admin_command(&config, &env.message.sender)?;
+    check_if_admin(&config, &env.message.sender)?;
 
     config.remove_minters(minters_to_remove)?;
 
@@ -960,7 +958,7 @@ fn set_minters<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    check_admin_command(&config, &env.message.sender)?;
+    check_if_admin(&config, &env.message.sender)?;
 
     config.set_minters(minters_to_set)?;
 
@@ -1055,7 +1053,7 @@ fn is_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<bo
     Ok(true)
 }
 
-fn check_admin_command<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<()> {
+fn check_if_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<()> {
     if !is_admin(config, account)? {
         return Err(StdError::generic_err(
             "This is an admin command. Admin commands can only be run from admin address",
