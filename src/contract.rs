@@ -793,12 +793,18 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
     amount: Uint128,
     msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
-    let sender = env.message.sender.clone();
     try_transfer_from_impl(deps, env, owner, recipient, amount)?;
 
     let mut messages = vec![];
 
-    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, sender, amount)?;
+    try_add_receiver_api_callback(
+        &mut messages,
+        &deps.storage,
+        recipient,
+        msg,
+        owner.clone(),
+        amount,
+    )?;
 
     let res = HandleResponse {
         messages,
