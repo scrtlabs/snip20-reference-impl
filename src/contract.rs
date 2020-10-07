@@ -1,7 +1,7 @@
 use cosmwasm_std::{
     to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern, HandleResponse,
     HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError, StdResult, Storage,
-    Uint128, WasmMsg,
+    Uint128,
 };
 
 use crate::msg::{
@@ -9,10 +9,11 @@ use crate::msg::{
     ResponseStatus::{Failure, Success},
 };
 use crate::rand::sha_256;
+use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    get_receiver_hash, get_swap, get_transfers, read_allowance, read_viewing_key,
-    set_receiver_hash, store_swap, store_transfer, write_allowance, write_viewing_key, Balances,
-    Config, Constants, ReadonlyBalances, ReadonlyConfig,
+    get_receiver_hash, get_transfers, read_allowance, read_viewing_key, set_receiver_hash,
+    store_transfer, write_allowance, write_viewing_key, Balances, Config, Constants,
+    ReadonlyBalances, ReadonlyConfig,
 };
 use crate::viewing_key::ViewingKey;
 
@@ -74,6 +75,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     })?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
+    config.set_minters(Vec::from([msg.admin]))?;
 
     Ok(InitResponse::default())
 }
@@ -168,14 +170,11 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         } => try_mint(deps, env, address, amount),
 
         // Other
-        HandleMsg::Swap {
-            amount,
-            network,
-            destination,
-            ..
-        } => try_swap(deps, env, amount, network, destination),
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
         HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
+        HandleMsg::AddMinters { minters, .. } => add_minters(deps, env, minters),
+        HandleMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
+        HandleMsg::SetMinters { minters, .. } => set_minters(deps, env, minters),
     };
 
     pad_response(response)
@@ -185,8 +184,8 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
     match msg {
         QueryMsg::TokenInfo {} => query_token_info(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(),
-        QueryMsg::Swap { nonce, .. } => query_swap(&deps, nonce),
         QueryMsg::Allowance { owner, spender, .. } => try_check_allowance(deps, owner, spender),
+        QueryMsg::Minters { .. } => query_minters(deps),
         _ => authenticated_queries(deps, msg),
     }
 }
@@ -225,8 +224,7 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
             page_size,
             ..
         } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
-        // Other - Test
-        _ => unimplemented!(),
+        _ => panic!("This query type does not require authentication"),
     }
 }
 
@@ -257,15 +255,6 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     })
 }
 
-pub fn query_swap<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    nonce: u32,
-) -> StdResult<Binary> {
-    let swap = get_swap(&deps.storage, nonce)?;
-
-    Ok(to_binary(&QueryAnswer::Swap { result: swap })?)
-}
-
 pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     account: &HumanAddr,
@@ -291,6 +280,13 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
     to_binary(&response)
 }
 
+fn query_minters<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdResult<Binary> {
+    let minters = ReadonlyConfig::from_storage(&deps.storage).minters();
+
+    let response = QueryAnswer::Minters { minters };
+    to_binary(&response)
+}
+
 fn change_admin<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -298,42 +294,16 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    let msg_sender = &env.message.sender;
+    check_if_admin(&config, &env.message.sender)?;
+
     let mut consts = config.constants()?;
-    if &consts.admin != msg_sender {
-        return Err(StdError::generic_err(
-            "Admin commands can only be run from admin address",
-        ));
-    }
-
     consts.admin = address;
-
     config.set_constants(&consts)?;
 
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
         data: Some(to_binary(&HandleAnswer::ChangeAdmin { status: Success })?),
-    })
-}
-
-fn try_swap<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    amount: Uint128,
-    _network: String,
-    destination: String,
-) -> StdResult<HandleResponse> {
-    try_burn(deps, env, amount)?;
-    let nonce = store_swap(&mut deps.storage, destination, amount)?;
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: Some(to_binary(&HandleAnswer::Swap {
-            status: Success,
-            nonce,
-        })?),
     })
 }
 
@@ -345,10 +315,10 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    let msg_sender = &env.message.sender;
-    if &config.constants()?.admin != msg_sender {
+    let minters = config.minters();
+    if minters.contains(&env.message.sender) {
         return Err(StdError::generic_err(
-            "Admin commands can only be ran from admin address",
+            "Minting is allowed to minter accounts only",
         ));
     }
 
@@ -445,14 +415,7 @@ fn set_contract_status<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    // Check for admin privileges
-    let msg_sender = &env.message.sender;
-    let consts = config.constants()?;
-    if &consts.admin != msg_sender {
-        return Err(StdError::generic_err(
-            "This is an admin command. Admin commands can only be run from admin address",
-        ));
-    }
+    check_if_admin(&config, &env.message.sender)?;
 
     config.set_contract_status(status_level);
 
@@ -650,17 +613,17 @@ fn try_add_receiver_api_callback<S: ReadonlyStorage>(
     messages: &mut Vec<CosmosMsg>,
     storage: &S,
     recipient: &HumanAddr,
-    msg: Binary,
+    msg: Option<Binary>,
+    sender: HumanAddr,
+    amount: Uint128,
 ) -> StdResult<()> {
     let receiver_hash = get_receiver_hash(storage, recipient);
     if let Some(receiver_hash) = receiver_hash {
         let receiver_hash = receiver_hash?;
-        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            msg,
-            callback_code_hash: receiver_hash,
-            contract_addr: recipient.clone(),
-            send: vec![],
-        }));
+        let receiver_msg = Snip20ReceiveMsg::new(sender, amount, msg);
+        let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient.clone())?;
+
+        messages.push(callback_msg);
     }
     Ok(())
 }
@@ -672,12 +635,12 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
     amount: Uint128,
     msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
+    let sender = env.message.sender.clone();
     try_transfer_impl(deps, env, recipient, amount)?;
 
     let mut messages = vec![];
-    if let Some(msg) = msg {
-        try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg)?;
-    }
+
+    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, sender, amount)?;
 
     let res = HandleResponse {
         messages,
@@ -792,12 +755,12 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
     amount: Uint128,
     msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
+    let sender = env.message.sender.clone();
     try_transfer_from_impl(deps, env, owner, recipient, amount)?;
 
     let mut messages = vec![];
-    if let Some(msg) = msg {
-        try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg)?;
-    }
+
+    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, sender, amount)?;
 
     let res = HandleResponse {
         messages,
@@ -924,7 +887,7 @@ fn try_decrease_allowance<S: Storage, A: Api, Q: Querier>(
     let spender_address = deps.api.canonical_address(&spender)?;
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
-    allowance.amount = allowance.amount.saturating_add(amount.u128());
+    allowance.amount = allowance.amount.saturating_sub(amount.u128());
     if expiration.is_some() {
         allowance.expiration = expiration;
     }
@@ -946,6 +909,60 @@ fn try_decrease_allowance<S: Storage, A: Api, Q: Querier>(
         })?),
     };
     Ok(res)
+}
+
+fn add_minters<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minters_to_add: Vec<HumanAddr>,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    config.add_minters(minters_to_add)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::AddMinters { status: Success })?),
+    })
+}
+
+fn remove_minters<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minters_to_remove: Vec<HumanAddr>,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    config.remove_minters(minters_to_remove)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::RemoveMinters { status: Success })?),
+    })
+}
+
+fn set_minters<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minters_to_set: Vec<HumanAddr>,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    config.set_minters(minters_to_set)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::SetMinters { status: Success })?),
+    })
 }
 
 /// Burn tokens
@@ -1019,6 +1036,25 @@ fn perform_transfer<T: Storage>(
         StdError::generic_err("This tx will literally make them too rich. Try transferring less")
     })?;
     balances.set_account_balance(to, to_balance);
+
+    Ok(())
+}
+
+fn is_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<bool> {
+    let consts = config.constants()?;
+    if &consts.admin != account {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+fn check_if_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<()> {
+    if !is_admin(config, account)? {
+        return Err(StdError::generic_err(
+            "This is an admin command. Admin commands can only be run from admin address",
+        ));
+    }
 
     Ok(())
 }
