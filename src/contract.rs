@@ -185,11 +185,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         QueryMsg::ExchangeRate {} => query_exchange_rate(),
         QueryMsg::Allowance { owner, spender, .. } => try_check_allowance(deps, owner, spender),
         QueryMsg::Minters { .. } => query_minters(deps),
-
-        // Authenticated queries
-        QueryMsg::Balance { .. } | QueryMsg::TransferHistory { .. } => {
-            authenticated_queries(deps, msg)
-        }
+        _ => authenticated_queries(deps, msg),
     }
 }
 
@@ -227,7 +223,7 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
             page_size,
             ..
         } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
-        _ => panic!("Unknown Query type"),
+        _ => panic!("This query type does not require authentication"),
     }
 }
 
@@ -319,8 +315,7 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     let mut config = Config::from_storage(&mut deps.storage);
 
     let minters = config.minters();
-    let idx = minters.iter().position(|x| *x == env.message.sender);
-    if idx.is_none() {
+    if minters.contains(&env.message.sender) {
         return Err(StdError::generic_err(
             "Minting is allowed to minter accounts only",
         ));

@@ -251,7 +251,7 @@ impl QueryMsg {
         match self {
             Self::Balance { address, key } => (address, ViewingKey(key.clone())),
             Self::TransferHistory { address, key, .. } => (address, ViewingKey(key.clone())),
-            _ => panic!("This query type does not require authentication"), // Should never reach here
+            _ => panic!("This query type does not require authentication"),
         }
     }
 }
