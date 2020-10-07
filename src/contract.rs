@@ -927,7 +927,7 @@ fn try_decrease_allowance<S: Storage, A: Api, Q: Querier>(
     let spender_address = deps.api.canonical_address(&spender)?;
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
-    allowance.amount = allowance.amount.saturating_add(amount.u128());
+    allowance.amount = allowance.amount.saturating_sub(amount.u128());
     if expiration.is_some() {
         allowance.expiration = expiration;
     }
@@ -1049,6 +1049,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::msg::QueryMsg::Allowance;
     use crate::msg::{InitConfig, InitialBalance};
     use cosmwasm_std::testing::*;
     use cosmwasm_std::{from_binary, QueryResponse};
@@ -1149,6 +1150,240 @@ mod tests {
     }
 
     // Handle tests
+
+    #[test]
+    #[ignore]
+    fn test_transfer() {}
+
+    #[test]
+    #[ignore]
+    fn test_send() {}
+
+    #[test]
+    #[ignore]
+    fn test_register_receive() {}
+
+    #[test]
+    #[ignore]
+    fn test_create_viewing_key() {}
+
+    #[test]
+    #[ignore]
+    fn test_set_viewing_key() {}
+
+    #[test]
+    #[ignore]
+    fn test_transfer_from() {}
+
+    #[test]
+    #[ignore]
+    fn test_send_from() {}
+
+    #[test]
+    #[ignore]
+    fn test_burn_from() {}
+
+    #[test]
+    fn test_decrease_allowance() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::DecreaseAllowance {
+            spender: HumanAddr("alice".to_string()),
+            amount: Uint128(2000),
+            padding: None,
+            expiration: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let bob_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("bob".to_string()))
+            .unwrap();
+        let alice_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("alice".to_string()))
+            .unwrap();
+
+        let allowance = read_allowance(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        assert_eq!(
+            allowance,
+            crate::state::Allowance {
+                amount: 0,
+                expiration: None
+            }
+        );
+
+        let handle_msg = HandleMsg::IncreaseAllowance {
+            spender: HumanAddr("alice".to_string()),
+            amount: Uint128(2000),
+            padding: None,
+            expiration: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::DecreaseAllowance {
+            spender: HumanAddr("alice".to_string()),
+            amount: Uint128(50),
+            padding: None,
+            expiration: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let allowance = read_allowance(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        assert_eq!(
+            allowance,
+            crate::state::Allowance {
+                amount: 1950,
+                expiration: None
+            }
+        );
+    }
+
+    #[test]
+    fn test_increase_allowance() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::IncreaseAllowance {
+            spender: HumanAddr("alice".to_string()),
+            amount: Uint128(2000),
+            padding: None,
+            expiration: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let bob_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("bob".to_string()))
+            .unwrap();
+        let alice_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("alice".to_string()))
+            .unwrap();
+
+        let allowance = read_allowance(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        assert_eq!(
+            allowance,
+            crate::state::Allowance {
+                amount: 2000,
+                expiration: None
+            }
+        );
+
+        let handle_msg = HandleMsg::IncreaseAllowance {
+            spender: HumanAddr("alice".to_string()),
+            amount: Uint128(2000),
+            padding: None,
+            expiration: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let allowance = read_allowance(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        assert_eq!(
+            allowance,
+            crate::state::Allowance {
+                amount: 4000,
+                expiration: None
+            }
+        );
+    }
+
+    #[test]
+    fn test_change_admin() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::ChangeAdmin {
+            address: HumanAddr("bob".to_string()),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let admin = ReadonlyConfig::from_storage(&deps.storage)
+            .constants()
+            .unwrap()
+            .admin;
+        assert_eq!(admin, HumanAddr("bob".to_string()));
+    }
+
+    #[test]
+    fn test_set_contract_status() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("admin".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::SetContractStatus {
+            level: ContractStatusLevel::StopAll,
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let contract_status = ReadonlyConfig::from_storage(&deps.storage).contract_status();
+        assert!(matches!(contract_status, ContractStatusLevel::StopAll{..}));
+    }
 
     #[test]
     fn test_redeem() {
