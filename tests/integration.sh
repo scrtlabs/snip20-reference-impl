@@ -176,11 +176,25 @@ function data_of() {
     "$@" | jq -r '.output_data_as_string'
 }
 
+# Send a compute transaction and return the tx hash.
+# All arguments to this function are passed directly to `secretcli tx compute execute`.
+function compute_execute() {
+    tx_of secretcli tx compute execute "$@"
+}
+
+# Send a query to the contract.
+# If the query fails, the error is logged to stderr.
+# If the query succeeds, the response value is returned.
+function compute_query() {
+    log_if_err secretcli query compute query "$@"
+}
+
 function upload_code() {
+    local directory="$1"
     local tx_hash
     local code_id
 
-    tx_hash="$(tx_of secretcli tx compute store code/contract.wasm.gz ${FROM[a]} --gas 10000000)"
+    tx_hash="$(tx_of secretcli tx compute store "code/$directory/contract.wasm.gz" ${FROM[a]} --gas 10000000)"
     code_id="$(
         wait_for_tx "$tx_hash" 'waiting for contract upload' |
             jq -r '.logs[0].events[0].attributes[] | select(.key == "code_id") | .value'
@@ -193,17 +207,54 @@ function upload_code() {
 
 function instantiate() {
     local code_id="$1"
+    local init_msg="$2"
 
-    local prng_seed
-    prng_seed="$(xxd -ps <<<'enigma-rocks')"
-    local init_msg
-    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{}}'
     log 'sending init message:'
     log "${init_msg@Q}"
 
     local tx_hash
     tx_hash="$(tx_of secretcli tx compute instantiate "$code_id" "$init_msg" --label "$(label_by_id "$code_id")" ${FROM[a]} --gas 10000000)"
     wait_for_tx "$tx_hash" 'waiting for init to complete'
+}
+
+# This function uploads and instantiates a contract, and returns the new contract's address
+function create_contract() {
+    local dir="$1"
+    local init_msg="$2"
+
+    local code_id
+    code_id="$(upload_code "$dir")"
+
+    local init_result
+    init_result="$(instantiate "$code_id" "$init_msg")"
+    jq -r '.logs[0].events[0].attributes[] | select(.key == "contract_address") | .value' <<<"$init_result"
+}
+
+# Redeem some SCRT from an account
+# As you can see, verifying this is happening correctly requires a lot of code
+# so I separated it to its own function, because it's used several times.
+function redeem() {
+    local contract_addr="$1"
+    local key="$2"
+    local amount="$3"
+
+    local redeem_message
+    local redeem_tx
+    local transfer_attributes
+    local redeem_response
+
+    log "redeeming \"$key\""
+    redeem_message='{"redeem":{"amount":"'"$amount"'"}}'
+    tx_hash="$(compute_execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 150000)"
+    redeem_tx="$(wait_for_tx "$tx_hash" $"waiting for redeem from \"$key\" to process")"
+    transfer_attributes="$(jq -r '.logs[0].events[] | select(.type == "transfer") | .attributes' <<<"$redeem_tx")"
+    assert_eq "$(jq -r '.[] | select(.key == "recipient") | .value' <<<"$transfer_attributes")" "${ADDRESS[$key]}"
+    assert_eq "$(jq -r '.[] | select(.key == "amount") | .value' <<<"$transfer_attributes")" "${amount}uscrt"
+    log "redeem response for \"$key\" returned ${amount}uscrt"
+
+    redeem_response="$(data_of check_tx "$tx_hash")"
+    assert_eq "$redeem_response" "$(pad_space '{"redeem":{"status":"success"}}')"
+    log "redeemed ${amount} from \"$key\" successfully"
 }
 
 function log_test_header() {
@@ -227,7 +278,7 @@ function test_viewing_key() {
     for key in "${KEY[@]}"; do
         log $"querying balance for \"$key\" with wrong viewing key"
         balance_query='{"balance":{"address":"'"${ADDRESS[$key]}"'","key":"'"$wrong_key"'"}}'
-        result="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query")"
+        result="$(compute_query "$contract_addr" "$balance_query")"
         assert_eq "$result" "$expected_error"
     done
 
@@ -236,7 +287,7 @@ function test_viewing_key() {
     local deposit_response
     for key in "${KEY[@]}"; do
         log $"creating viewing key for \"$key\""
-        tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$create_viewing_key_message" ${FROM[$key]} --gas 1400000)"
+        tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[$key]} --gas 1400000)"
         deposit_response="$(data_of wait_for_compute_tx "$tx_hash" $"waiting for viewing key for \"$key\" to be created")"
         VK[$key]="$(jq -er '.create_viewing_key.key' <<<"$deposit_response")"
         log $"viewing key for \"$key\" set to ${VK[$key]}"
@@ -258,7 +309,7 @@ function test_viewing_key() {
     for key in "${KEY[@]}"; do
         balance_query='{"balance":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'"}}'
         log $"querying balance for \"$key\" with correct viewing key"
-        result="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query")"
+        result="$(compute_query "$contract_addr" "$balance_query")"
         if ! jq -e '.balance.amount | tonumber' <<<"$result" >/dev/null 2>&1; then
             log "Balance query returned unexpected response: ${result@Q}"
             return 1
@@ -269,7 +320,7 @@ function test_viewing_key() {
     local vk2_a
 
     log 'creating new viewing key for "a"'
-    tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$create_viewing_key_message" ${FROM[a]} --gas 1400000)"
+    tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[a]} --gas 1400000)"
     deposit_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be created')"
     vk2_a="$(jq -er '.create_viewing_key.key' <<<"$deposit_response")"
     log $"viewing key for \"a\" set to $vk2_a"
@@ -278,13 +329,13 @@ function test_viewing_key() {
     # query balance with old keys. Should fail.
     log 'querying balance for "a" with old viewing key'
     local balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
-    result="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_a")"
+    result="$(compute_query "$contract_addr" "$balance_query_a")"
     assert_eq "$result" "$expected_error"
 
     # query balance with new keys. Should succeed.
     log 'querying balance for "a" with new viewing key'
     balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"$vk2_a"'"}}'
-    result="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_a")"
+    result="$(compute_query "$contract_addr" "$balance_query_a")"
     if ! jq -e '.balance.amount | tonumber' <<<"$result" >/dev/null 2>&1; then
         log "Balance query returned unexpected response: ${result@Q}"
         return 1
@@ -293,20 +344,20 @@ function test_viewing_key() {
     # Set the vk for "a" to the original vk
     log 'setting the viewing key for "a" back to the first one'
     local set_viewing_key_message='{"set_viewing_key":{"key":"'"${VK[a]}"'"}}'
-    tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$set_viewing_key_message" ${FROM[a]} --gas 1400000)"
+    tx_hash="$(compute_execute "$contract_addr" "$set_viewing_key_message" ${FROM[a]} --gas 1400000)"
     deposit_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be set')"
     assert_eq "$deposit_response" "$(pad_space '{"set_viewing_key":{"status":"success"}}')"
 
     # try to use the new key - should fail
     log 'querying balance for "a" with new viewing key'
     balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"$vk2_a"'"}}'
-    result="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_a")"
+    result="$(compute_query "$contract_addr" "$balance_query_a")"
     assert_eq "$result" "$expected_error"
 
     # try to use the old key - should succeed
     log 'querying balance for "a" with old viewing key'
     balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
-    result="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_a")"
+    result="$(compute_query "$contract_addr" "$balance_query_a")"
     if ! jq -e '.balance.amount | tonumber' <<<"$result" >/dev/null 2>&1; then
         log "Balance query returned unexpected response: ${result@Q}"
         return 1
@@ -324,7 +375,7 @@ function test_deposit() {
     local deposit_response
     local -A deposits=([a]='1000000' [b]='2000000' [c]='3000000' [d]='4000000')
     for key in "${KEY[@]}"; do
-        tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$deposit_message" --amount "${deposits[$key]}uscrt" ${FROM[$key]} --gas 150000)"
+        tx_hash="$(compute_execute "$contract_addr" "$deposit_message" --amount "${deposits[$key]}uscrt" ${FROM[$key]} --gas 150000)"
         deposit_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for deposit to \"$key\" to process")"
         assert_eq "$deposit_response" "$(pad_space '{"deposit":{"status":"success"}}')"
         log "deposited ${deposits[$key]}uscrt to \"$key\" successfully"
@@ -336,7 +387,7 @@ function test_deposit() {
     for key in "${KEY[@]}"; do
         balance_query[$key]='{"balance":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'"}}'
         log $"querying balance for \"$key\""
-        balance_response="$(log_if_err secretcli query compute query "$contract_addr" "${balance_query[$key]}")"
+        balance_response="$(compute_query "$contract_addr" "${balance_query[$key]}")"
         log "balance response was: $balance_response"
         assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" "${deposits[$key]}"
     done
@@ -348,7 +399,7 @@ function test_deposit() {
     for key in "${KEY[@]}"; do
         overdraft="$((deposits[$key] + 1))"
         redeem_message='{"redeem":{"amount":"'"$overdraft"'"}}'
-        tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 150000)"
+        tx_hash="$(compute_execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 150000)"
         # Notice the `!` before the command - it is EXPECTED to fail.
         ! redeem_response="$(wait_for_compute_tx "$tx_hash" $"waiting for overdraft from \"$key\" to process")"
         log "trying to overdraft from \"$key\" was rejected"
@@ -358,27 +409,14 @@ function test_deposit() {
     done
 
     # Withdraw Everything
-    local redeem_message
-    local redeem_tx
-    local transfer_attributes
-    local redeem_response
     for key in "${KEY[@]}"; do
-        redeem_message='{"redeem":{"amount":"'"${deposits[$key]}"'"}}'
-        tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 150000)"
-        redeem_tx="$(wait_for_tx "$tx_hash" $"waiting for redeem from \"$key\" to process")"
-        transfer_attributes="$(jq -r '.logs[0].events[] | select(.type == "transfer") | .attributes' <<<"$redeem_tx")"
-        assert_eq "$(jq -r '.[] | select(.key == "recipient") | .value' <<<"$transfer_attributes")" "${ADDRESS[$key]}"
-        assert_eq "$(jq -r '.[] | select(.key == "amount") | .value' <<<"$transfer_attributes")" "${deposits[$key]}uscrt"
-        log "redeem response for \"$key\" returned ${deposits[$key]}uscrt"
-        redeem_response="$(data_of check_tx "$tx_hash")"
-        assert_eq "$redeem_response" "$(pad_space '{"redeem":{"status":"success"}}')"
-        log "redeemed ${deposits[$key]} from \"$key\" successfully"
+        redeem "$contract_addr" "$key" "${deposits[$key]}"
     done
 
     # Check the balances again. They should all be empty
     for key in "${KEY[@]}"; do
         log $"querying balance for \"$key\""
-        balance_response="$(log_if_err secretcli query compute query "$contract_addr" "${balance_query[$key]}")"
+        balance_response="$(compute_query "$contract_addr" "${balance_query[$key]}")"
         log "balance response was: $balance_response"
         assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
     done
@@ -395,7 +433,7 @@ function test_transfer() {
     log 'querying balance for "a"'
     local balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
     local balance_response
-    balance_response="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_a")"
+    balance_response="$(compute_query "$contract_addr" "$balance_query_a")"
     log "balance response was: $balance_response"
     assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
 
@@ -403,14 +441,14 @@ function test_transfer() {
     log 'querying balance for "b"'
     local balance_query_b='{"balance":{"address":"'"${ADDRESS[b]}"'","key":"'"${VK[b]}"'"}}'
     local balance_response
-    balance_response="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_b")"
+    balance_response="$(compute_query "$contract_addr" "$balance_query_b")"
     log "balance response was: $balance_response"
     assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
 
     # Deposit to "a"
     local deposit_message='{"deposit":{"padding":":::::::::::::::::"}}'
     local deposit_response
-    tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$deposit_message" --amount '1000000uscrt' ${FROM[a]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$deposit_message" --amount '1000000uscrt' ${FROM[a]} --gas 150000)"
     deposit_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for deposit to "a" to process')"
     assert_eq "$deposit_response" "$(pad_space '{"deposit":{"status":"success"}}')"
     log 'deposited 1000000uscrt to "a" successfully'
@@ -419,7 +457,7 @@ function test_transfer() {
     log 'sending funds from "a" to "b", but more than "a" has'
     local transfer_message='{"transfer":{"recipient":"'"${ADDRESS[b]}"'","amount":"1000001"}}'
     local transfer_response
-    tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
     log "trying to overdraft from \"a\" to send to \"b\" was rejected"
@@ -431,27 +469,45 @@ function test_transfer() {
     log 'sending funds from "a" to "b"'
     local transfer_message='{"transfer":{"recipient":"'"${ADDRESS[b]}"'","amount":"400000"}}'
     local transfer_response
-    tx_hash="$(tx_of secretcli tx compute execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
     assert_eq "$transfer_response" "$(pad_space '{"transfer":{"status":"success"}}')"
 
     # Check that "a" has fewer funds
     log 'querying balance for "a"'
-    balance_response="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_a")"
+    balance_response="$(compute_query "$contract_addr" "$balance_query_a")"
     log "balance response was: $balance_response"
     assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '600000'
 
     # Check that "b" has the funds that "a" deposited
     log 'querying balance for "b"'
-    balance_response="$(log_if_err secretcli query compute query "$contract_addr" "$balance_query_b")"
+    balance_response="$(compute_query "$contract_addr" "$balance_query_b")"
     log "balance response was: $balance_response"
     assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '400000'
+
+    # Redeem both accounts
+    redeem "$contract_addr" a '600000'
+    redeem "$contract_addr" b '400000'
+}
+
+function create_receiver_contract() {
+    local init_msg
+    local contract_addr
+
+    init_msg='{"count":0}'
+    contract_addr="$(create_contract 'tests/example-receiver' "$init_msg")"
+
+    log "uploaded receiver contract to $contract_addr"
+    echo "$contract_addr"
 }
 
 function test_send() {
     local contract_addr="$1"
 
     log_test_header
+
+    local contract_addr
+    contract_addr="$(create_receiver_contract)"
 
     # Deploy C2
     # Deposit to "a"
@@ -462,24 +518,22 @@ function test_send() {
 }
 
 function main() {
-    log '####-####-####-#### Starting integration tests ####-####-####-####'
+    log '              <####> Starting integration tests <####>'
     log "secretcli version in the docker image is: $(secretcli version)"
 
-    local code_id
-    code_id="$(upload_code)"
-
-    local init_result
-    init_result="$(instantiate "$code_id")"
-    local contract_addr
-    contract_addr="$(jq -r '.logs[0].events[0].attributes[] | select(.key == "contract_address") | .value' <<<"$init_result")"
+    local prng_seed
+    prng_seed="$(xxd -ps <<<'enigma-rocks')"
+    local init_msg
+    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{}}'
+    contract_addr="$(create_contract '.' "$init_msg")"
 
     # To make testing faster, check the logs and try to reuse the deployed contract and VKs from previous runs.
     # Remember to comment out the contract deployment and `test_viewing_key` if you do.
-#    local contract_addr='secret10fjathdjlchsvp92x2k5xh5pstth4j9eexfrwf'
-#    VK[a]='api_key_7n1fPbZAoTvsjFmlUynqLP3lrYp4wg8BRW3vD0BWbRM='
-#    VK[b]='api_key_XEx/ON1gGs1DJ6aps05gl6nKJPhfukk81MglAHSEsXs='
-#    VK[c]='api_key_x1+iofn7sggNeUVwSZuNnVwQhpW52rel81TT2wxUqrM='
-#    VK[d]='api_key_0l3MyzqvSjD9XlxMi7PV4drSNBb/phDCJUxT6ipxIWI='
+#    local contract_addr='secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg'
+#    VK[a]='api_key_vcipODMLbckCJpjuPXEzId0u2dvN1DaXG/Qxzj+GG7c='
+#    VK[b]='api_key_Yg0giN1v3mB+j/+7qssxPqZ1fCKDcbrwZILQvb6xyok='
+#    VK[c]='api_key_BpGAyiNpB2xZQQQXD0K0ScYY6o12b1TzoF9dIRnIfgM='
+#    VK[d]='api_key_Zs0LqlZ4AtYJ/kulyB6WDy2K3sW181/sLSMk1LmLJq8='
 
     log "contract address: $contract_addr"
 
@@ -487,7 +541,7 @@ function main() {
     test_viewing_key "$contract_addr"
     test_deposit "$contract_addr"
     test_transfer "$contract_addr"
-    test_send "$contract_addr"
+#    test_send "$contract_addr"
 
     log 'Tests completed successfully'
 
