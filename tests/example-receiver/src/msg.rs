@@ -40,6 +40,7 @@ pub struct CountResponse {
 
 // Messages sent to SNIP-20 contracts
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum Snip20Msg {
     RegisterReceive {
         code_hash: String,

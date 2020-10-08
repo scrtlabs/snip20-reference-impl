@@ -1,7 +1,7 @@
 use cosmwasm_std::{
-    to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern, HandleResponse,
-    HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError, StdResult, Storage,
-    Uint128,
+    log, to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern,
+    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
+    StdResult, Storage, Uint128,
 };
 
 use crate::msg::{
@@ -658,7 +658,7 @@ fn try_register_receive<S: Storage, A: Api, Q: Querier>(
     set_receiver_hash(&mut deps.storage, &env.message.sender, code_hash);
     let res = HandleResponse {
         messages: vec![],
-        log: vec![],
+        log: vec![log("register_status", "success")],
         data: Some(to_binary(&HandleAnswer::RegisterReceive {
             status: Success,
         })?),
