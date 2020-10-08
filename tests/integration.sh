@@ -93,12 +93,21 @@ function wait_for_tx() {
     local tx_hash="$1"
     local message="$2"
 
+    local result
+
     log "waiting on tx: $tx_hash"
     # secretcli will only print to stdout when it succeeds
-    until secretcli query tx "$tx_hash" 2>/dev/null; do
+    until result="$(secretcli query tx "$tx_hash" 2>/dev/null)"; do
         log "$message"
         sleep 1
     done
+
+    # log out-of-gas events
+    if jq -e '.raw_log | startswith("execute contract failed: Out of gas: ")' <<<"$result" >/dev/null; then
+        log "$(jq -r '.raw_log' <<<"$result")"
+    fi
+
+    echo "$result"
 }
 
 # This is a wrapper around `wait_for_tx` that also decrypts the response,
