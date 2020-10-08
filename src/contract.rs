@@ -653,12 +653,13 @@ fn try_add_receiver_api_callback<S: ReadonlyStorage>(
     recipient: &HumanAddr,
     msg: Option<Binary>,
     sender: HumanAddr,
+    from: HumanAddr,
     amount: Uint128,
 ) -> StdResult<()> {
     let receiver_hash = get_receiver_hash(storage, recipient);
     if let Some(receiver_hash) = receiver_hash {
         let receiver_hash = receiver_hash?;
-        let receiver_msg = Snip20ReceiveMsg::new(sender, amount, msg);
+        let receiver_msg = Snip20ReceiveMsg::new(sender, from, amount, msg);
         let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient.clone())?;
 
         messages.push(callback_msg);
@@ -678,7 +679,15 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
 
     let mut messages = vec![];
 
-    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, sender, amount)?;
+    try_add_receiver_api_callback(
+        &mut messages,
+        &deps.storage,
+        recipient,
+        msg,
+        sender.clone(),
+        sender,
+        amount,
+    )?;
 
     let res = HandleResponse {
         messages,
@@ -793,6 +802,7 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
     amount: Uint128,
     msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
+    let sender = env.message.sender.clone();
     try_transfer_from_impl(deps, env, owner, recipient, amount)?;
 
     let mut messages = vec![];
@@ -802,6 +812,7 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
         &deps.storage,
         recipient,
         msg,
+        sender,
         owner.clone(),
         amount,
     )?;

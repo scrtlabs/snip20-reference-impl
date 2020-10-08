@@ -8,14 +8,16 @@ use cosmwasm_std::{to_binary, Binary, CosmosMsg, HumanAddr, StdResult, Uint128, 
 #[serde(rename_all = "snake_case")]
 pub struct Snip20ReceiveMsg {
     pub sender: HumanAddr,
+    pub from: HumanAddr,
     pub amount: Uint128,
     pub msg: Option<Binary>,
 }
 
 impl Snip20ReceiveMsg {
-    pub fn new(sender: HumanAddr, amount: Uint128, msg: Option<Binary>) -> Self {
+    pub fn new(sender: HumanAddr, from: HumanAddr, amount: Uint128, msg: Option<Binary>) -> Self {
         Self {
             sender,
+            from,
             amount,
             msg,
         }
