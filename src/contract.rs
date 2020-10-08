@@ -6,7 +6,7 @@ use cosmwasm_std::{
 
 use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
-    ResponseStatus::{Failure, Success},
+    ResponseStatus::Success,
 };
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
@@ -400,14 +400,6 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
     key: String,
 ) -> StdResult<HandleResponse> {
     let vk = ViewingKey(key);
-
-    if !vk.is_valid() {
-        return Ok(HandleResponse {
-            messages: vec![],
-            log: vec![],
-            data: Some(to_binary(&HandleAnswer::SetViewingKey { status: Failure })?),
-        });
-    }
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
     write_viewing_key(&mut deps.storage, &message_sender, &vk);
