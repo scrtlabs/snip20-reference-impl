@@ -15,7 +15,7 @@ use crate::state::{
     set_receiver_hash, store_swap, store_transfer, write_allowance, write_viewing_key, Balances,
     Config, Constants, ReadonlyBalances, ReadonlyConfig,
 };
-use crate::viewing_key::ViewingKey;
+use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -187,7 +187,6 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         QueryMsg::TokenInfo {} => query_token_info(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(),
         QueryMsg::Swap { nonce, .. } => query_swap(&deps, nonce),
-        QueryMsg::Allowance { owner, spender, .. } => try_check_allowance(deps, owner, spender),
         _ => authenticated_queries(deps, msg),
     }
 }
@@ -196,39 +195,42 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     msg: QueryMsg,
 ) -> QueryResult {
-    let (address, key) = msg.get_validation_params();
+    let (addresses, key) = msg.get_validation_params();
 
-    let canonical_addr = deps.api.canonical_address(address)?;
+    for address in addresses {
+        let canonical_addr = deps.api.canonical_address(address)?;
 
-    let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
+        let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
 
-    if expected_key.is_none() {
-        // Checking the key will take significant time. We don't want to exit immediately if it isn't set
-        // in a way which will allow to time the command and determine if a viewing key doesn't exist
-        key.check_viewing_key(&[0u8; 24]);
-        return Ok(to_binary(&QueryAnswer::ViewingKeyError {
-            msg: "Wrong viewing key for this address or viewing key not set".to_string(),
-        })?);
+        if expected_key.is_none() {
+            // Checking the key will take significant time. We don't want to exit immediately if it isn't set
+            // in a way which will allow to time the command and determine if a viewing key doesn't exist
+            key.check_viewing_key(&[0u8; VIEWING_KEY_SIZE]);
+            continue;
+        }
+
+        if key.check_viewing_key(expected_key.unwrap().as_slice()) {
+            return match msg {
+                // Base
+                QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
+                QueryMsg::TransferHistory {
+                    address,
+                    page,
+                    page_size,
+                    ..
+                } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
+                QueryMsg::Allowance { owner, spender, .. } => {
+                    try_check_allowance(deps, owner, spender)
+                }
+                // Other - Test
+                _ => unimplemented!(),
+            };
+        }
     }
 
-    if !key.check_viewing_key(expected_key.unwrap().as_slice()) {
-        return Ok(to_binary(&QueryAnswer::ViewingKeyError {
-            msg: "Wrong viewing key for this address or viewing key not set".to_string(),
-        })?);
-    }
-
-    match msg {
-        // Base
-        QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
-        QueryMsg::TransferHistory {
-            address,
-            page,
-            page_size,
-            ..
-        } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
-        // Other - Test
-        _ => unimplemented!(),
-    }
+    Ok(to_binary(&QueryAnswer::ViewingKeyError {
+        msg: "Wrong viewing key for this address or viewing key not set".to_string(),
+    })?)
 }
 
 /// This function just returns a constant 1:1 rate to uscrt, since that's the purpose of this

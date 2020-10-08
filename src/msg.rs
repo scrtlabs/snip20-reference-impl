@@ -225,6 +225,7 @@ pub enum QueryMsg {
     Allowance {
         owner: HumanAddr,
         spender: HumanAddr,
+        key: String,
         padding: Option<String>,
     },
     Balance {
@@ -241,11 +242,17 @@ pub enum QueryMsg {
 }
 
 impl QueryMsg {
-    pub fn get_validation_params(&self) -> (&HumanAddr, ViewingKey) {
+    pub fn get_validation_params(&self) -> (Vec<&HumanAddr>, ViewingKey) {
         match self {
-            Self::Balance { address, key } => (address, ViewingKey(key.clone())),
-            Self::TransferHistory { address, key, .. } => (address, ViewingKey(key.clone())),
-            _ => (panic!("lol")),
+            Self::Balance { address, key } => (vec![address], ViewingKey(key.clone())),
+            Self::TransferHistory { address, key, .. } => (vec![address], ViewingKey(key.clone())),
+            Self::Allowance {
+                owner,
+                spender,
+                key,
+                ..
+            } => (vec![owner, spender], ViewingKey(key.clone())),
+            _ => panic!("lol"),
         }
     }
 }
