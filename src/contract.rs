@@ -1049,7 +1049,8 @@ fn is_valid_symbol(symbol: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::msg::QueryMsg::Allowance;
+    use crate::msg::QueryMsg::{Allowance, Balance};
+    use crate::msg::ResponseStatus;
     use crate::msg::{InitConfig, InitialBalance};
     use crate::viewing_key::VIEWING_KEY_LENGTH;
     use cosmwasm_std::testing::*;
@@ -1094,6 +1095,29 @@ mod tests {
                 StdError::GenericErr { msg, .. } => msg,
                 _ => panic!("Unexpected result from init"),
             },
+        }
+    }
+
+    fn ensure_success(handle_result: HandleResponse) -> bool {
+        let handle_result: HandleAnswer = from_binary(&handle_result.data.unwrap()).unwrap();
+
+        match handle_result {
+            HandleAnswer::Deposit { status }
+            | HandleAnswer::Redeem { status }
+            | HandleAnswer::Transfer { status }
+            | HandleAnswer::Send { status }
+            | HandleAnswer::Burn { status }
+            | HandleAnswer::RegisterReceive { status }
+            | HandleAnswer::SetViewingKey { status }
+            | HandleAnswer::TransferFrom { status }
+            | HandleAnswer::SendFrom { status }
+            | HandleAnswer::BurnFrom { status }
+            | HandleAnswer::Mint { status }
+            | HandleAnswer::ChangeAdmin { status }
+            | HandleAnswer::SetContractStatus { status } => {
+                matches!(status, ResponseStatus::Success {..})
+            }
+            _ => panic!("Not supported for success"),
         }
     }
 
@@ -1154,19 +1178,119 @@ mod tests {
     // Handle tests
 
     #[test]
-    #[ignore]
-    fn test_transfer() {}
+    fn test_transfer() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::Transfer {
+            recipient: HumanAddr("alice".to_string()),
+            amount: Uint128(1000),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+        let bob_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("bob".to_string()))
+            .unwrap();
+        let alice_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("alice".to_string()))
+            .unwrap();
+        let balances = ReadonlyBalances::from_storage(&deps.storage);
+        assert_eq!(5000 - 1000, balances.account_amount(&bob_canonical));
+        assert_eq!(1000, balances.account_amount(&alice_canonical));
+
+        let handle_msg = HandleMsg::Transfer {
+            recipient: HumanAddr("alice".to_string()),
+            amount: Uint128(10000),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert_eq!(
+            handle_result.err().unwrap(),
+            StdError::generic_err("Insufficient funds: balance=4000, required=10000"),
+        );
+    }
 
     #[test]
-    #[ignore]
-    fn test_send() {}
+    fn test_send() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::RegisterReceive {
+            code_hash: "this_is_a_hash_of_a_code".to_string(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("contract", &[]), handle_msg);
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        let handle_msg = HandleMsg::Send {
+            recipient: HumanAddr("contract".to_string()),
+            amount: Uint128(100),
+            padding: None,
+            msg: Some(to_binary("hey hey you you").unwrap()),
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result.clone()));
+        assert!(result.messages.contains(&CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: HumanAddr("contract".to_string()),
+            callback_code_hash: "this_is_a_hash_of_a_code".to_string(),
+            msg: Snip20ReceiveMsg::new(
+                HumanAddr("bob".to_string()),
+                Uint128(100),
+                Some(to_binary("hey hey you you").unwrap())
+            )
+            .into_binary()
+            .unwrap(),
+            send: vec![]
+        })));
+    }
 
     #[test]
-    #[ignore]
-    fn test_register_receive() {}
+    fn test_register_receive() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::RegisterReceive {
+            code_hash: "this_is_a_hash_of_a_code".to_string(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("contract", &[]), handle_msg);
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        let hash = get_receiver_hash(&deps.storage, &HumanAddr("contract".to_string()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(hash, "this_is_a_hash_of_a_code".to_string());
+    }
 
     #[test]
-    #[ignore]
     fn test_create_viewing_key() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
@@ -1188,6 +1312,18 @@ mod tests {
             "handle() failed: {}",
             handle_result.err().unwrap()
         );
+        let answer: HandleAnswer = from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
+
+        let key = match answer {
+            HandleAnswer::CreateViewingKey { key } => key,
+            _ => panic!("NOPE"),
+        };
+        let bob_canonical = deps
+            .api
+            .canonical_address(&HumanAddr("bob".to_string()))
+            .unwrap();
+        let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
+        assert!(key.check_viewing_key(saved_vk.as_slice()));
     }
 
     #[test]
