@@ -1,6 +1,7 @@
 use cosmwasm_std::{
-    from_binary, to_binary, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
-    InitResponse, Querier, StdError, StdResult, Storage, Uint128, WasmMsg,
+    from_binary, to_binary, Api, BankMsg, Binary, Coin, Context, CosmosMsg, Env, Extern,
+    HandleResponse, HumanAddr, InitResponse, Querier, StdError, StdResult, Storage, Uint128,
+    WasmMsg,
 };
 
 use crate::msg::{CountResponse, HandleMsg, InitMsg, QueryMsg, Snip20Msg};
@@ -34,8 +35,14 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::Receive {
             sender,
             amount,
-            internal_msg,
-        } => try_receive(deps, env, sender, amount, internal_msg),
+            msg,
+        } => try_receive(deps, env, sender, amount, msg),
+        HandleMsg::Redeem {
+            addr,
+            hash,
+            to,
+            amount,
+        } => try_redeem(deps, env, addr, hash, to, amount),
     }
 }
 
@@ -43,12 +50,17 @@ pub fn try_increment<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     _env: Env,
 ) -> StdResult<HandleResponse> {
+    let mut count = 0;
     config(&mut deps.storage).update(|mut state| {
         state.count += 1;
+        count = state.count;
         Ok(state)
     })?;
 
-    Ok(HandleResponse::default())
+    let mut context = Context::new();
+    context.add_log("count", count.to_string());
+
+    Ok(context.into())
 }
 
 pub fn try_reset<S: Storage, A: Api, Q: Querier>(
@@ -120,6 +132,42 @@ pub fn try_receive<S: Storage, A: Api, Q: Querier>(
 
     /* use sender & amount */
     handle(deps, env, msg)
+}
+
+fn try_redeem<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    addr: HumanAddr,
+    hash: String,
+    to: HumanAddr,
+    amount: Uint128,
+) -> StdResult<HandleResponse> {
+    let state = config_read(&deps.storage).load()?;
+    if !state.known_snip_20.contains(&addr) {
+        return Err(StdError::generic_err(format!(
+            "{} is not a known SNIP-20 coin that this contract registered to",
+            addr
+        )));
+    }
+
+    let msg = to_binary(&Snip20Msg::redeem(amount))?;
+    let secret_redeem = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: addr,
+        callback_code_hash: hash,
+        msg,
+        send: vec![],
+    });
+    let redeem = CosmosMsg::Bank(BankMsg::Send {
+        amount: vec![Coin::new(amount.u128(), "uscrt")],
+        from_address: env.contract.address.clone(),
+        to_address: to,
+    });
+
+    Ok(HandleResponse {
+        messages: vec![secret_redeem, redeem],
+        log: vec![],
+        data: None,
+    })
 }
 
 pub fn query<S: Storage, A: Api, Q: Querier>(

@@ -471,6 +471,8 @@ function test_transfer() {
     # Redeem both accounts
     redeem "$contract_addr" a '600000'
     redeem "$contract_addr" b '400000'
+    # Send the funds back
+    secretcli tx send b "${ADDRESS[a]}" 400000uscrt -y -b block >/dev/null
 }
 
 function create_receiver_contract() {
@@ -484,20 +486,140 @@ function create_receiver_contract() {
     echo "$contract_addr"
 }
 
+# This function exists so that we can reset the state as much as possible between different tests
+function redeem_receiver() {
+    local receiver_addr="$1"
+    local snip20_addr="$2"
+    local to_addr="$3"
+    local amount="$4"
+
+    local tx_hash
+    local redeem_tx
+    local transfer_attributes
+
+    log 'fetching snip20 hash'
+    local snip20_hash
+    snip20_hash="$(secretcli query compute contract-hash "$snip20_addr")"
+
+    local redeem_message='{"redeem":{"addr":"'"$snip20_addr"'","hash":"'"${snip20_hash:2}"'","to":"'"$to_addr"'","amount":"'"$amount"'"}}'
+    tx_hash="$(compute_execute "$receiver_addr" "$redeem_message" ${FROM[a]} --gas 300000)"
+    redeem_tx="$(wait_for_tx "$tx_hash" "waiting for redeem from receiver at \"$receiver_addr\" to process")"
+    log "$redeem_tx"
+    transfer_attributes="$(jq -r '.logs[0].events[] | select(.type == "transfer") | .attributes' <<<"$redeem_tx")"
+    assert_eq "$(jq -r '.[] | select(.key == "recipient") | .value' <<<"$transfer_attributes")" "$receiver_addr"$'\n'"$to_addr"
+    assert_eq "$(jq -r '.[] | select(.key == "amount") | .value' <<<"$transfer_attributes")" "${amount}uscrt"$'\n'"${amount}uscrt"
+    log "redeem response for \"$receiver_addr\" returned ${amount}uscrt"
+}
+
+function register_receiver() {
+    local receiver_addr="$1"
+    local snip20_addr="$2"
+
+    local tx_hash
+
+    log 'fetching snip20 hash'
+    local snip20_hash
+    snip20_hash="$(secretcli query compute contract-hash "$snip20_addr")"
+
+    log 'registering with snip20'
+    local register_message='{"register":{"reg_addr":"'"$snip20_addr"'","reg_hash":"'"${snip20_hash:2}"'"}}'
+    tx_hash="$(compute_execute "$receiver_addr" "$register_message" ${FROM[a]} --gas 200000)"
+    # we throw away the output since we know it's empty
+    local register_tx
+    register_tx="$(wait_for_compute_tx "$tx_hash" 'Waiting for receiver registration')"
+    assert_eq \
+        "$(jq -r '.output_log[] | select(.type == "wasm") | .attributes[] | select(.key == "register_status") | .value' <<<"$register_tx")" \
+        'success'
+    log 'receiver registered successfully'
+}
+
 function test_send() {
     local contract_addr="$1"
 
     log_test_header
 
-    local contract_addr
-    contract_addr="$(create_receiver_contract)"
+    local receiver_addr
+    receiver_addr="$(create_receiver_contract)"
+#    receiver_addr='secret17k8qt6aqd7eee3fawmtvy4vu6teqx8d7mdm49x'
+    register_receiver "$receiver_addr" "$contract_addr"
 
-    # Deploy C2
-    # Deposit to "a"
+    local tx_hash
+
+    # Check "a" doesn't have any funds
+    log 'querying balance for "a"'
+    local balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
+    local balance_response
+    balance_response="$(compute_query "$contract_addr" "$balance_query_a")"
+    log "balance response was: $balance_response"
+    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
+
     # Check "b" doesn't have any funds
-    # Transfer from "a" to "b" and sent to C2
-    # Check that "b" has the funds that "a" deposited
-    # Check that C2 received the message
+    log 'querying balance for "b"'
+    local balance_query_b='{"balance":{"address":"'"${ADDRESS[b]}"'","key":"'"${VK[b]}"'"}}'
+    local balance_response
+    balance_response="$(compute_query "$contract_addr" "$balance_query_b")"
+    log "balance response was: $balance_response"
+    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
+
+    # Deposit to "a"
+    local deposit_message='{"deposit":{"padding":":::::::::::::::::"}}'
+    local deposit_response
+    tx_hash="$(compute_execute "$contract_addr" "$deposit_message" --amount '1000000uscrt' ${FROM[a]} --gas 150000)"
+    deposit_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for deposit to "a" to process')"
+    assert_eq "$deposit_response" "$(pad_space '{"deposit":{"status":"success"}}')"
+    log 'deposited 1000000uscrt to "a" successfully'
+
+    # Try to send more than "a" has
+    log 'sending funds from "a" to "b", but more than "a" has'
+    local send_message='{"send":{"recipient":"'"${ADDRESS[b]}"'","amount":"1000001"}}'
+    local send_response
+    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 150000)"
+    # Notice the `!` before the command - it is EXPECTED to fail.
+    ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
+    log "trying to overdraft from \"a\" to send to \"b\" was rejected"
+    assert_eq \
+        "$(jq -r '.output_error.generic_err.msg' <<<"$send_response")" \
+        "insufficient funds: balance=1000000, required=1000001"
+
+    # Query receiver state before Send
+    local receiver_state
+    local receiver_state_query='{"get_count":{}}'
+    receiver_state="$(compute_query "$receiver_addr" "$receiver_state_query")"
+    local original_count
+    original_count="$(jq -r '.count' <<<"$receiver_state")"
+
+    # Send from "a" to the receiver with message to the Receiver
+    log 'sending funds from "a" to "b", with message to the Receiver'
+    local receiver_msg='{"increment":{}}'
+    receiver_msg="$(base64 <<<"$receiver_msg")"
+    local send_message='{"send":{"recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
+    local send_response
+    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 300000)"
+    send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
+    assert_eq \
+        "$(jq -r '.output_log[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
+        "$((original_count + 1))"
+    log 'received send response'
+
+    # Check that the receiver got the message
+    log 'checking whether state was updated in the receiver'
+    receiver_state_query='{"get_count":{}}'
+    receiver_state="$(compute_query "$receiver_addr" "$receiver_state_query")"
+    local new_count
+    new_count="$(jq -r '.count' <<<"$receiver_state")"
+    assert_eq "$((original_count + 1))" "$new_count"
+    log 'receiver contract received the message'
+
+    # Check that "a" has fewer funds
+    log 'querying balance for "a"'
+    balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
+    balance_response="$(compute_query "$contract_addr" "$balance_query_a")"
+    log "balance response was: $balance_response"
+    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '600000'
+
+    # redeem both accounts
+    redeem "$contract_addr" 'a' '600000'
+    redeem_receiver "$receiver_addr" "$contract_addr" "${ADDRESS[a]}" '400000'
 }
 
 function main() {
@@ -524,7 +646,7 @@ function main() {
     test_viewing_key "$contract_addr"
     test_deposit "$contract_addr"
     test_transfer "$contract_addr"
-#    test_send "$contract_addr"
+    test_send "$contract_addr"
 
     log 'Tests completed successfully'
 

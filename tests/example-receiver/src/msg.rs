@@ -21,7 +21,13 @@ pub enum HandleMsg {
     Receive {
         sender: HumanAddr,
         amount: Uint128,
-        internal_msg: Binary,
+        msg: Binary,
+    },
+    Redeem {
+        addr: HumanAddr,
+        hash: String,
+        to: HumanAddr,
+        amount: Uint128,
     },
 }
 
@@ -46,12 +52,23 @@ pub enum Snip20Msg {
         code_hash: String,
         padding: Option<String>,
     },
+    Redeem {
+        amount: Uint128,
+        padding: Option<String>,
+    },
 }
 
 impl Snip20Msg {
     pub fn register_receive(code_hash: String) -> Self {
         Snip20Msg::RegisterReceive {
             code_hash,
+            padding: None, // TODO add padding calculation
+        }
+    }
+
+    pub fn redeem(amount: Uint128) -> Self {
+        Snip20Msg::Redeem {
+            amount,
             padding: None, // TODO add padding calculation
         }
     }
