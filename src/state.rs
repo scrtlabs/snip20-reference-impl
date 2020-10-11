@@ -31,6 +31,7 @@ pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub struct Tx {
+    pub from: HumanAddr,
     pub sender: HumanAddr,
     pub receiver: HumanAddr,
     pub coins: Coin,
@@ -39,6 +40,7 @@ pub struct Tx {
 impl Tx {
     pub fn into_stored<A: Api>(self, api: &A) -> StdResult<StoredTx> {
         let tx = StoredTx {
+            from: api.canonical_address(&self.from)?,
             sender: api.canonical_address(&self.sender)?,
             receiver: api.canonical_address(&self.receiver)?,
             coins: self.coins,
@@ -49,6 +51,7 @@ impl Tx {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StoredTx {
+    pub from: CanonicalAddr,
     pub sender: CanonicalAddr,
     pub receiver: CanonicalAddr,
     pub coins: Coin,
@@ -57,6 +60,7 @@ pub struct StoredTx {
 impl StoredTx {
     pub fn into_humanized<A: Api>(self, api: &A) -> StdResult<Tx> {
         let tx = Tx {
+            from: api.human_address(&self.from)?,
             sender: api.human_address(&self.sender)?,
             receiver: api.human_address(&self.receiver)?,
             coins: self.coins,
@@ -69,6 +73,7 @@ impl StoredTx {
 impl Default for Tx {
     fn default() -> Self {
         Self {
+            from: Default::default(),
             sender: Default::default(),
             receiver: Default::default(),
             coins: Coin {
@@ -81,6 +86,7 @@ impl Default for Tx {
 
 pub fn store_transfer<S: Storage>(
     store: &mut S,
+    owner: &CanonicalAddr,
     sender: &CanonicalAddr,
     receiver: &CanonicalAddr,
     amount: Uint128,
@@ -88,11 +94,15 @@ pub fn store_transfer<S: Storage>(
 ) -> StdResult<()> {
     let coins = Coin { denom, amount };
     let tx = StoredTx {
+        from: owner.clone(),
         sender: sender.clone(),
         receiver: receiver.clone(),
         coins,
     };
 
+    if owner != sender {
+        append_tx(store, tx.clone(), &owner)?;
+    }
     append_tx(store, tx.clone(), &sender)?;
     append_tx(store, tx, &receiver)?;
 

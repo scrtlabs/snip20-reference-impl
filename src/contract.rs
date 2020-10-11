@@ -581,6 +581,7 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
     store_transfer(
         &mut deps.storage,
         &sender_address,
+        &sender_address,
         &recipient_address,
         amount,
         symbol,
@@ -727,6 +728,7 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
     store_transfer(
         &mut deps.storage,
         &owner_address,
+        &spender_address,
         &recipient_address,
         amount,
         symbol,
