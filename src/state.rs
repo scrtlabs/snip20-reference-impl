@@ -22,6 +22,7 @@ pub const KEY_CONSTANTS: &[u8] = b"constants";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
 pub const KEY_CONTRACT_STATUS: &[u8] = b"contract_status";
 pub const KEY_MINTERS: &[u8] = b"minters";
+pub const KEY_TX_COUNT: &[u8] = b"tx-count";
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
@@ -29,8 +30,13 @@ pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 
+// Note that id is a globally incrementing counter.
+// Since it's 64 bits long, even at 50 tx/s it would take
+// over 11 billion years for it to rollback. I'm pretty sure
+// we'll have bigger issues by then.
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub struct Tx {
+    pub id: u64,
     pub from: HumanAddr,
     pub sender: HumanAddr,
     pub receiver: HumanAddr,
@@ -40,6 +46,7 @@ pub struct Tx {
 impl Tx {
     pub fn into_stored<A: Api>(self, api: &A) -> StdResult<StoredTx> {
         let tx = StoredTx {
+            id: self.id,
             from: api.canonical_address(&self.from)?,
             sender: api.canonical_address(&self.sender)?,
             receiver: api.canonical_address(&self.receiver)?,
@@ -51,6 +58,7 @@ impl Tx {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StoredTx {
+    pub id: u64,
     pub from: CanonicalAddr,
     pub sender: CanonicalAddr,
     pub receiver: CanonicalAddr,
@@ -60,27 +68,13 @@ pub struct StoredTx {
 impl StoredTx {
     pub fn into_humanized<A: Api>(self, api: &A) -> StdResult<Tx> {
         let tx = Tx {
+            id: self.id,
             from: api.human_address(&self.from)?,
             sender: api.human_address(&self.sender)?,
             receiver: api.human_address(&self.receiver)?,
             coins: self.coins,
         };
         Ok(tx)
-    }
-}
-
-// This is here so we can create constant length transactions if we want to return this on-chain instead of a query
-impl Default for Tx {
-    fn default() -> Self {
-        Self {
-            from: Default::default(),
-            sender: Default::default(),
-            receiver: Default::default(),
-            coins: Coin {
-                denom: "EMPT".to_string(),
-                amount: Uint128::zero(),
-            },
-        }
     }
 }
 
@@ -92,8 +86,13 @@ pub fn store_transfer<S: Storage>(
     amount: Uint128,
     denom: String,
 ) -> StdResult<()> {
+    let mut config = Config::from_storage(store);
+    let id = config.tx_count() + 1;
+    config.set_tx_count(id)?;
+
     let coins = Coin { denom, amount };
     let tx = StoredTx {
+        id,
         from: owner.clone(),
         sender: sender.clone(),
         receiver: receiver.clone(),
@@ -193,6 +192,10 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfig<'a, S> {
     pub fn minters(&self) -> Vec<HumanAddr> {
         self.as_readonly().minters()
     }
+
+    pub fn tx_count(&self) -> u64 {
+        self.as_readonly().tx_count()
+    }
 }
 
 fn set_bin_data<T: Serialize, S: Storage>(storage: &mut S, key: &[u8], data: &T) -> StdResult<()> {
@@ -255,9 +258,7 @@ impl<'a, S: Storage> Config<'a, S> {
     }
 
     pub fn set_minters(&mut self, minters_to_set: Vec<HumanAddr>) -> StdResult<()> {
-        set_bin_data(&mut self.storage, KEY_MINTERS, &minters_to_set)?;
-
-        Ok(())
+        set_bin_data(&mut self.storage, KEY_MINTERS, &minters_to_set)
     }
 
     pub fn add_minters(&mut self, minters_to_add: Vec<HumanAddr>) -> StdResult<()> {
@@ -279,6 +280,14 @@ impl<'a, S: Storage> Config<'a, S> {
 
     pub fn minters(&mut self) -> Vec<HumanAddr> {
         self.as_readonly().minters()
+    }
+
+    pub fn tx_count(&self) -> u64 {
+        self.as_readonly().tx_count()
+    }
+
+    pub fn set_tx_count(&mut self, count: u64) -> StdResult<()> {
+        set_bin_data(&mut self.storage, KEY_TX_COUNT, &count)
     }
 }
 
@@ -321,6 +330,10 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfigImpl<'a, S> {
 
     fn minters(&self) -> Vec<HumanAddr> {
         get_bin_data(self.0, KEY_MINTERS).unwrap()
+    }
+
+    pub fn tx_count(&self) -> u64 {
+        get_bin_data(self.0, KEY_TX_COUNT).unwrap_or_default()
     }
 }
 
