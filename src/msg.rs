@@ -26,7 +26,8 @@ pub struct InitMsg {
 /// This type represents optional configuration values which can be overridden.
 /// All values are optional and have defaults which are more private by default,
 /// but can be overridden if necessary
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Default)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Default, Debug)]
+#[serde(rename_all = "snake_case")]
 pub struct InitConfig {
     /// Indicates whether the total supply is public or should be kept secret.
     /// default: False
@@ -237,7 +238,6 @@ pub enum QueryMsg {
         page: Option<u32>,
         page_size: u32,
     },
-    Test {},
 }
 
 impl QueryMsg {
@@ -357,5 +357,11 @@ mod tests {
             obj
         );
         Ok(())
+    }
+
+    pub fn get_public_total_supply_true() -> InitConfig {
+        InitConfig {
+            public_total_supply: Some(true),
+        }
     }
 }

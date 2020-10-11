@@ -1082,6 +1082,31 @@ mod tests {
         (init(&mut deps, env, init_msg), deps)
     }
 
+    /// Will return a ViewingKey only for the first account in `initial_balances`
+    fn auth_query_helper(
+        initial_balances: Vec<InitialBalance>,
+    ) -> (ViewingKey, Extern<MockStorage, MockApi, MockQuerier>) {
+        let (init_result, mut deps) = init_helper(initial_balances.clone());
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let account = initial_balances[0].address.clone();
+        let create_vk_msg = HandleMsg::CreateViewingKey {
+            entropy: "42".to_string(),
+            padding: None,
+        };
+        let handle_response = handle(&mut deps, mock_env(account.0, &[]), create_vk_msg).unwrap();
+        let vk = match from_binary(&handle_response.data.unwrap()).unwrap() {
+            HandleAnswer::CreateViewingKey { key } => key,
+            _ => panic!("Unexpected result from handle"),
+        };
+
+        (vk, deps)
+    }
+
     fn extract_error_msg<T: Any>(error: StdResult<T>) -> String {
         match error {
             Ok(response) => {
@@ -1178,7 +1203,7 @@ mod tests {
     // Handle tests
 
     #[test]
-    fn test_transfer() {
+    fn test_handle_transfer() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
             amount: Uint128(5000),
@@ -1215,14 +1240,12 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::generic_err("Insufficient funds: balance=4000, required=10000"),
-        );
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Insufficient funds"));
     }
 
     #[test]
-    fn test_send() {
+    fn test_handle_send() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
             amount: Uint128(5000),
@@ -1265,7 +1288,7 @@ mod tests {
     }
 
     #[test]
-    fn test_register_receive() {
+    fn test_handle_register_receive() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
             amount: Uint128(5000),
@@ -1291,7 +1314,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_viewing_key() {
+    fn test_handle_create_viewing_key() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
             amount: Uint128(5000),
@@ -1327,7 +1350,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_viewing_key() {
+    fn test_handle_set_viewing_key() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
             amount: Uint128(5000),
@@ -1373,7 +1396,7 @@ mod tests {
     }
 
     #[test]
-    fn test_transfer_from() {
+    fn test_handle_transfer_from() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
             amount: Uint128(5000),
@@ -1392,10 +1415,8 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::generic_err("Insufficient allowance: allowance=0, required=2500"),
-        );
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Insufficient allowance"));
 
         // Transfer more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1417,10 +1438,8 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::generic_err("Insufficient allowance: allowance=2000, required=2500"),
-        );
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::TransferFrom {
@@ -1460,14 +1479,12 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::generic_err("Insufficient allowance: allowance=0, required=1"),
-        );
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Insufficient allowance"));
     }
 
     #[test]
-    fn test_send_from() {
+    fn test_handle_send_from() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
             amount: Uint128(5000),
@@ -1487,10 +1504,8 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::generic_err("Insufficient allowance: allowance=0, required=2500"),
-        );
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Insufficient allowance"));
 
         // Send more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1513,10 +1528,8 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::generic_err("Insufficient allowance: allowance=2000, required=2500"),
-        );
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::RegisterReceive {
@@ -1583,14 +1596,12 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::generic_err("Insufficient allowance: allowance=0, required=1"),
-        );
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Insufficient allowance"));
     }
 
     #[test]
-    fn test_burn_from() {
+    fn test_handle_burn_from() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
             amount: Uint128(5000),
@@ -1608,10 +1619,8 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::generic_err("Insufficient allowance: allowance=0, required=2500"),
-        );
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Insufficient allowance"));
 
         // Burn more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1632,10 +1641,8 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::generic_err("Insufficient allowance: allowance=2000, required=2500"),
-        );
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::BurnFrom {
@@ -1666,14 +1673,12 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
-        assert_eq!(
-            handle_result.err().unwrap(),
-            StdError::generic_err("Insufficient allowance: allowance=0, required=1"),
-        );
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Insufficient allowance"));
     }
 
     #[test]
-    fn test_decrease_allowance() {
+    fn test_handle_decrease_allowance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
             amount: Uint128(5000),
@@ -1752,7 +1757,7 @@ mod tests {
     }
 
     #[test]
-    fn test_increase_allowance() {
+    fn test_handle_increase_allowance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
             amount: Uint128(5000),
@@ -1818,7 +1823,7 @@ mod tests {
     }
 
     #[test]
-    fn test_change_admin() {
+    fn test_handle_change_admin() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("bob".to_string()),
             amount: Uint128(5000),
@@ -1848,7 +1853,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_contract_status() {
+    fn test_handle_set_contract_status() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("admin".to_string()),
             amount: Uint128(5000),
@@ -1875,7 +1880,7 @@ mod tests {
     }
 
     #[test]
-    fn test_redeem() {
+    fn test_handle_redeem() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("butler".to_string()),
             amount: Uint128(5000),
@@ -1906,7 +1911,7 @@ mod tests {
     }
 
     #[test]
-    fn test_balance() {
+    fn test_handle_balance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("butler".to_string()),
             amount: Uint128(5000),
@@ -1947,7 +1952,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deposit() {
+    fn test_handle_deposit() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("lebron".to_string()),
             amount: Uint128(5000),
@@ -1985,7 +1990,7 @@ mod tests {
     }
 
     #[test]
-    fn test_burn() {
+    fn test_handle_burn() {
         let initial_amount: u128 = 5000;
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("lebron".to_string()),
@@ -2015,7 +2020,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mint() {
+    fn test_handle_mint() {
         let initial_amount: u128 = 5000;
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("lebron".to_string()),
@@ -2046,7 +2051,7 @@ mod tests {
     }
 
     #[test]
-    fn test_admin_commands() {
+    fn test_handle_admin_commands() {
         let admin_err = "Admin commands can only be run from admin address".to_string();
 
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
@@ -2086,7 +2091,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pause_with_withdrawals() {
+    fn test_handle_pause_with_withdrawals() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("lebron".to_string()),
             amount: Uint128(5000),
@@ -2134,7 +2139,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pause_all() {
+    fn test_handle_pause_all() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("lebron".to_string()),
             amount: Uint128(5000),
@@ -2239,4 +2244,74 @@ mod tests {
             "Wrong viewing key for this address or viewing key not set".to_string()
         );
     }
+
+    #[test]
+    fn test_query_token_info() {
+        // let init_config = r#"{ "public_total_supply": true }"#;
+        // let a: InitConfig = from_binary(&Binary::from(init_config.as_bytes())).unwrap();
+        // println!("{:?}", a);
+        // assert!(true);
+        // assert_eq!(a, InitConfig::default());
+        // let mut a = InitConfig::default();
+        // a.public_total_supply = Some(true);
+        // assert_eq!(a.public_total_supply, 1);
+        // let name = "sec-sec".to_string();
+        // let symbol = "SECSEC".to_string();
+        // let decimals = 8;
+        // // let config = crate:: //InitConfig{ public_total_supply: None }
+        //
+        // let mut deps = mock_dependencies(20, &[]);
+        // let env = mock_env("instantiator", &[]);
+        //
+        // let init_msg = InitMsg {
+        //     name: "sec-sec".to_string(),
+        //     admin: HumanAddr("admin".to_string()),
+        //     symbol: "SECSEC".to_string(),
+        //     decimals: 8,
+        //     initial_balances,
+        //     prng_seed: hex::encode("lolz fun yay"),
+        //     config: Default::default(),
+        // };
+        // let init_result = init(&mut deps, env, init_msg);
+        // assert!(
+        //     init_result.is_ok(),
+        //     "Init failed: {}",
+        //     init_result.err().unwrap()
+        // );
+        //
+        // let query_msg = QueryMsg::TokenInfo {};
+        // let query_result = query(&deps, query_msg);
+        // assert!(
+        //     query_result.is_ok(),
+        //     "Init failed: {}",
+        //     query_result.err().unwrap()
+        // );
+        // let query_answer: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
+        // match query_answer {
+        //     QueryAnswer::TokenInfo {
+        //         name,
+        //         symbol,
+        //         decimals,
+        //         total_supply,
+        //     } => {
+        //         assert_eq!(name, "sec-sec".to_string());
+        //         assert_eq!(symbol, "SECSEC".to_string());
+        //         assert_eq!(decimals, 8;
+        //         assert_eq!(total_supply, None);
+        //     }
+        //     _ => panic!("unexpected"),
+        // }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_query_allowance() {}
+
+    #[test]
+    #[ignore]
+    fn test_query_balance() {}
+
+    #[test]
+    #[ignore]
+    fn test_query_transfer_history() {}
 }
