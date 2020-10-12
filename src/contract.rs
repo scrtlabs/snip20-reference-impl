@@ -2247,65 +2247,103 @@ mod tests {
 
     #[test]
     fn test_query_token_info() {
-        // let init_config = r#"{ "public_total_supply": true }"#;
-        // let a: InitConfig = from_binary(&Binary::from(init_config.as_bytes())).unwrap();
-        // println!("{:?}", a);
-        // assert!(true);
-        // assert_eq!(a, InitConfig::default());
-        // let mut a = InitConfig::default();
-        // a.public_total_supply = Some(true);
-        // assert_eq!(a.public_total_supply, 1);
-        // let name = "sec-sec".to_string();
-        // let symbol = "SECSEC".to_string();
-        // let decimals = 8;
-        // // let config = crate:: //InitConfig{ public_total_supply: None }
-        //
-        // let mut deps = mock_dependencies(20, &[]);
-        // let env = mock_env("instantiator", &[]);
-        //
-        // let init_msg = InitMsg {
-        //     name: "sec-sec".to_string(),
-        //     admin: HumanAddr("admin".to_string()),
-        //     symbol: "SECSEC".to_string(),
-        //     decimals: 8,
-        //     initial_balances,
-        //     prng_seed: hex::encode("lolz fun yay"),
-        //     config: Default::default(),
-        // };
-        // let init_result = init(&mut deps, env, init_msg);
+        let init_name = "sec-sec".to_string();
+        let init_admin = HumanAddr("admin".to_string());
+        let init_symbol = "SECSEC".to_string();
+        let init_decimals = 8;
+        let init_config: InitConfig = from_binary(&Binary::from(
+            r#"{ "public_total_supply": true }"#.as_bytes(),
+        ))
+        .unwrap();
+        let init_supply = Uint128(5000);
+
+        let mut deps = mock_dependencies(20, &[]);
+        let env = mock_env("instantiator", &[]);
+        let init_msg = InitMsg {
+            name: init_name.clone(),
+            admin: init_admin.clone(),
+            symbol: init_symbol.clone(),
+            decimals: init_decimals.clone(),
+            initial_balances: vec![InitialBalance {
+                address: HumanAddr("giannis".to_string()),
+                amount: init_supply,
+            }],
+            prng_seed: hex::encode("lolz fun yay"),
+            config: init_config,
+        };
+        let init_result = init(&mut deps, env, init_msg);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let query_msg = QueryMsg::TokenInfo {};
+        let query_result = query(&deps, query_msg);
+        assert!(
+            query_result.is_ok(),
+            "Init failed: {}",
+            query_result.err().unwrap()
+        );
+        let query_answer: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
+        match query_answer {
+            QueryAnswer::TokenInfo {
+                name,
+                symbol,
+                decimals,
+                total_supply,
+            } => {
+                assert_eq!(name, init_name);
+                assert_eq!(symbol, init_symbol);
+                assert_eq!(decimals, init_decimals);
+                assert_eq!(total_supply, Some(Uint128(5000)));
+            }
+            _ => panic!("unexpected"),
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_query_allowance() {
+        // let (init_result, mut deps) = init_helper(vec![InitialBalance {
+        //     address: HumanAddr("giannis".to_string()),
+        //     amount: Uint128(5000),
+        // }]);
         // assert!(
         //     init_result.is_ok(),
         //     "Init failed: {}",
         //     init_result.err().unwrap()
         // );
         //
-        // let query_msg = QueryMsg::TokenInfo {};
+        // let handle_msg = HandleMsg::IncreaseAllowance {
+        //     spender: HumanAddr("lebron".to_string()),
+        //     amount: Uint128(2000),
+        //     padding: None,
+        //     expiration: None,
+        // };
+        // let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        // assert!(
+        //     handle_result.is_ok(),
+        //     "handle() failed: {}",
+        //     handle_result.err().unwrap()
+        // );
+        //
+        // let query_msg = QueryMsg::Allowance {
+        //     owner: HumanAddr("lebron".to_string()),
+        //     spender: HumanAddr("giannis".to_string()),
+        //     padding: None,
+        // };
         // let query_result = query(&deps, query_msg);
         // assert!(
         //     query_result.is_ok(),
         //     "Init failed: {}",
         //     query_result.err().unwrap()
         // );
-        // let query_answer: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
-        // match query_answer {
-        //     QueryAnswer::TokenInfo {
-        //         name,
-        //         symbol,
-        //         decimals,
-        //         total_supply,
-        //     } => {
-        //         assert_eq!(name, "sec-sec".to_string());
-        //         assert_eq!(symbol, "SECSEC".to_string());
-        //         assert_eq!(decimals, 8;
-        //         assert_eq!(total_supply, None);
-        //     }
-        //     _ => panic!("unexpected"),
-        // }
+        // let a: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
+        // println!("{:?}", a);
+        // let error = extract_error_msg(query_result);
+        // println!("{}", error);
     }
-
-    #[test]
-    #[ignore]
-    fn test_query_allowance() {}
 
     #[test]
     #[ignore]
