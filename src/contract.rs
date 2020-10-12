@@ -318,7 +318,7 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     let mut config = Config::from_storage(&mut deps.storage);
 
     let minters = config.minters();
-    if minters.contains(&env.message.sender) {
+    if !minters.contains(&env.message.sender) {
         return Err(StdError::generic_err(
             "Minting is allowed to minter accounts only",
         ));
@@ -1096,7 +1096,6 @@ mod tests {
     use crate::msg::QueryMsg::{Allowance, Balance};
     use crate::msg::ResponseStatus;
     use crate::msg::{InitConfig, InitialBalance};
-    use crate::viewing_key::VIEWING_KEY_LENGTH;
     use cosmwasm_std::testing::*;
     use cosmwasm_std::{from_binary, Empty, QueryResponse, WasmMsg};
     use std::alloc::handle_alloc_error;
@@ -1322,6 +1321,7 @@ mod tests {
             callback_code_hash: "this_is_a_hash_of_a_code".to_string(),
             msg: Snip20ReceiveMsg::new(
                 HumanAddr("bob".to_string()),
+                HumanAddr("bob".to_string()),
                 Uint128(100),
                 Some(to_binary("hey hey you you").unwrap())
             )
@@ -1405,7 +1405,7 @@ mod tests {
             init_result.err().unwrap()
         );
 
-        // Set invalid VK
+        // Set VK
         let handle_msg = HandleMsg::SetViewingKey {
             key: "hi lol".to_string(),
             padding: None,
@@ -1415,11 +1415,14 @@ mod tests {
             from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
         assert_eq!(
             to_binary(&unwrapped_result).unwrap(),
-            to_binary(&HandleAnswer::SetViewingKey { status: Failure }).unwrap(),
+            to_binary(&HandleAnswer::SetViewingKey {
+                status: ResponseStatus::Success
+            })
+            .unwrap(),
         );
 
         // Set valid VK
-        let actual_vk = ViewingKey("x".to_string().repeat(VIEWING_KEY_LENGTH));
+        let actual_vk = ViewingKey("x".to_string().repeat(VIEWING_KEY_SIZE));
         let handle_msg = HandleMsg::SetViewingKey {
             key: actual_vk.0.clone(),
             padding: None,
@@ -1589,6 +1592,7 @@ mod tests {
         let send_msg = Binary::from(r#"{ "some_msg": { "some_key": "some_val" } }"#.as_bytes());
         let snip20_msg = Snip20ReceiveMsg::new(
             HumanAddr("alice".to_string()),
+            HumanAddr("bob".to_string()),
             Uint128(2000),
             Some(send_msg.clone()),
         );
@@ -2114,16 +2118,31 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("not_admin", &[]), pause_msg);
         let error = extract_error_msg(handle_result);
-        assert_eq!(error, admin_err.clone());
+        assert!(error.contains(&admin_err.clone()));
 
-        let mint_msg = HandleMsg::Mint {
-            amount: Uint128(1000),
-            address: HumanAddr("not_admin".to_string()),
+        let mint_msg = HandleMsg::AddMinters {
+            minters: vec![HumanAddr("not_admin".to_string())],
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("not_admin", &[]), mint_msg);
         let error = extract_error_msg(handle_result);
-        assert_eq!(error, admin_err.clone());
+        assert!(error.contains(&admin_err.clone()));
+
+        let mint_msg = HandleMsg::RemoveMinters {
+            minters: vec![HumanAddr("admin".to_string())],
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("not_admin", &[]), mint_msg);
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains(&admin_err.clone()));
+
+        let mint_msg = HandleMsg::SetMinters {
+            minters: vec![HumanAddr("not_admin".to_string())],
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("not_admin", &[]), mint_msg);
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains(&admin_err.clone()));
 
         let change_admin_msg = HandleMsg::ChangeAdmin {
             address: HumanAddr("not_admin".to_string()),
@@ -2131,7 +2150,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("not_admin", &[]), change_admin_msg);
         let error = extract_error_msg(handle_result);
-        assert_eq!(error, admin_err.clone());
+        assert!(error.contains(&admin_err.clone()));
     }
 
     #[test]
