@@ -29,7 +29,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let mut total_supply: u128 = 0;
     {
         let mut balances = Balances::from_storage(&mut deps.storage);
-        for balance in msg.initial_balances {
+        let initial_balances = msg.initial_balances.unwrap_or_default();
+        for balance in initial_balances {
             let balance_address = deps.api.canonical_address(&balance.address)?;
             let amount = balance.amount.u128();
             balances.set_account_balance(&balance_address, amount);

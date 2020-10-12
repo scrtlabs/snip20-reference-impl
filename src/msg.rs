@@ -18,7 +18,7 @@ pub struct InitMsg {
     pub admin: Option<HumanAddr>,
     pub symbol: String,
     pub decimals: u8,
-    pub initial_balances: Vec<InitialBalance>,
+    pub initial_balances: Option<Vec<InitialBalance>>,
     pub prng_seed: Binary,
     config: Option<InitConfig>,
 }
