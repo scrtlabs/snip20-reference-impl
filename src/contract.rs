@@ -186,7 +186,6 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
     match msg {
         QueryMsg::TokenInfo {} => query_token_info(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(),
-        QueryMsg::Allowance { owner, spender, .. } => try_check_allowance(deps, owner, spender),
         QueryMsg::Minters { .. } => query_minters(deps),
         _ => authenticated_queries(deps, msg),
     }
@@ -1097,7 +1096,9 @@ mod tests {
     use crate::msg::ResponseStatus;
     use crate::msg::{InitConfig, InitialBalance};
     use cosmwasm_std::testing::*;
-    use cosmwasm_std::{from_binary, Empty, QueryResponse, WasmMsg};
+    use cosmwasm_std::{
+        from_binary, BlockInfo, ContractInfo, Empty, MessageInfo, QueryResponse, WasmMsg,
+    };
     use std::alloc::handle_alloc_error;
     use std::any::Any;
 
@@ -1182,10 +1183,13 @@ mod tests {
             | HandleAnswer::BurnFrom { status }
             | HandleAnswer::Mint { status }
             | HandleAnswer::ChangeAdmin { status }
-            | HandleAnswer::SetContractStatus { status } => {
+            | HandleAnswer::SetContractStatus { status }
+            | HandleAnswer::SetMinters { status }
+            | HandleAnswer::AddMinters { status }
+            | HandleAnswer::RemoveMinters { status } => {
                 matches!(status, ResponseStatus::Success {..})
             }
-            _ => panic!("Not supported for success"),
+            _ => panic!("HandleAnswer not supported for success extraction"),
         }
     }
 
@@ -1470,7 +1474,7 @@ mod tests {
             spender: HumanAddr("alice".to_string()),
             amount: Uint128(2000),
             padding: None,
-            expiration: None,
+            expiration: Some(1_571_797_420),
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
         assert!(
@@ -1485,6 +1489,36 @@ mod tests {
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Insufficient allowance"));
+
+        // Transfer after allowance expired
+        let handle_msg = HandleMsg::TransferFrom {
+            owner: HumanAddr("bob".to_string()),
+            recipient: HumanAddr("alice".to_string()),
+            amount: Uint128(2000),
+            padding: None,
+        };
+        let handle_result = handle(
+            &mut deps,
+            Env {
+                block: BlockInfo {
+                    height: 12_345,
+                    time: 1_571_797_420,
+                    chain_id: "cosmos-testnet-14002".to_string(),
+                },
+                message: MessageInfo {
+                    sender: HumanAddr("bob".to_string()),
+                    sent_funds: vec![],
+                },
+                contract: ContractInfo {
+                    address: HumanAddr::from(MOCK_CONTRACT_ADDR),
+                },
+                contract_key: Some("".to_string()),
+                contract_code_hash: "".to_string(),
+            },
+            handle_msg,
+        );
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Insufficient allowance"));
 
@@ -2249,6 +2283,167 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_handle_set_minters() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::SetMinters {
+            minters: vec![HumanAddr("bob".to_string())],
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Admin commands can only be run from admin address"));
+
+        let handle_msg = HandleMsg::SetMinters {
+            minters: vec![HumanAddr("bob".to_string())],
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = HandleMsg::Mint {
+            amount: Uint128(100),
+            padding: None,
+            address: HumanAddr("bob".to_string()),
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = HandleMsg::Mint {
+            amount: Uint128(100),
+            padding: None,
+            address: HumanAddr("bob".to_string()),
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("allowed to minter accounts only"));
+    }
+
+    #[test]
+    fn test_handle_add_minters() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::AddMinters {
+            minters: vec![HumanAddr("bob".to_string())],
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Admin commands can only be run from admin address"));
+
+        let handle_msg = HandleMsg::AddMinters {
+            minters: vec![HumanAddr("bob".to_string())],
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = HandleMsg::Mint {
+            amount: Uint128(100),
+            padding: None,
+            address: HumanAddr("bob".to_string()),
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = HandleMsg::Mint {
+            amount: Uint128(100),
+            padding: None,
+            address: HumanAddr("bob".to_string()),
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+    }
+
+    #[test]
+    fn test_handle_remove_minters() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::RemoveMinters {
+            minters: vec![HumanAddr("admin".to_string())],
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("Admin commands can only be run from admin address"));
+
+        let handle_msg = HandleMsg::RemoveMinters {
+            minters: vec![HumanAddr("admin".to_string())],
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = HandleMsg::Mint {
+            amount: Uint128(100),
+            padding: None,
+            address: HumanAddr("bob".to_string()),
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("allowed to minter accounts only"));
+
+        let handle_msg = HandleMsg::Mint {
+            amount: Uint128(100),
+            padding: None,
+            address: HumanAddr("bob".to_string()),
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("allowed to minter accounts only"));
+
+        // Removing another extra time to ensure nothing funky happens
+        let handle_msg = HandleMsg::RemoveMinters {
+            minters: vec![HumanAddr("admin".to_string())],
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = HandleMsg::Mint {
+            amount: Uint128(100),
+            padding: None,
+            address: HumanAddr("bob".to_string()),
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("allowed to minter accounts only"));
+
+        let handle_msg = HandleMsg::Mint {
+            amount: Uint128(100),
+            padding: None,
+            address: HumanAddr("bob".to_string()),
+        };
+        let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
+        let error = extract_error_msg(handle_result);
+        assert!(error.contains("allowed to minter accounts only"));
+    }
+
     // Query tests
 
     #[test]
@@ -2366,53 +2561,248 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_query_allowance() {
-        // let (init_result, mut deps) = init_helper(vec![InitialBalance {
-        //     address: HumanAddr("giannis".to_string()),
-        //     amount: Uint128(5000),
-        // }]);
-        // assert!(
-        //     init_result.is_ok(),
-        //     "Init failed: {}",
-        //     init_result.err().unwrap()
-        // );
-        //
-        // let handle_msg = HandleMsg::IncreaseAllowance {
-        //     spender: HumanAddr("lebron".to_string()),
-        //     amount: Uint128(2000),
-        //     padding: None,
-        //     expiration: None,
-        // };
-        // let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
-        // assert!(
-        //     handle_result.is_ok(),
-        //     "handle() failed: {}",
-        //     handle_result.err().unwrap()
-        // );
-        //
-        // let query_msg = QueryMsg::Allowance {
-        //     owner: HumanAddr("lebron".to_string()),
-        //     spender: HumanAddr("giannis".to_string()),
-        //     padding: None,
-        // };
-        // let query_result = query(&deps, query_msg);
-        // assert!(
-        //     query_result.is_ok(),
-        //     "Init failed: {}",
-        //     query_result.err().unwrap()
-        // );
-        // let a: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
-        // println!("{:?}", a);
-        // let error = extract_error_msg(query_result);
-        // println!("{}", error);
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("giannis".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::IncreaseAllowance {
+            spender: HumanAddr("lebron".to_string()),
+            amount: Uint128(2000),
+            padding: None,
+            expiration: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("giannis", &[]), handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let vk1 = ViewingKey("key1".to_string());
+        let vk2 = ViewingKey("key2".to_string());
+
+        let query_msg = QueryMsg::Allowance {
+            owner: HumanAddr("giannis".to_string()),
+            spender: HumanAddr("lebron".to_string()),
+            key: vk1.0.clone(),
+            padding: None,
+        };
+        let query_result = query(&deps, query_msg);
+        assert!(
+            query_result.is_ok(),
+            "Query failed: {}",
+            query_result.err().unwrap()
+        );
+        let error = extract_error_msg(query_result);
+        assert!(error.contains("Wrong viewing key"));
+
+        let handle_msg = HandleMsg::SetViewingKey {
+            key: vk1.0.clone(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("lebron", &[]), handle_msg);
+        let unwrapped_result: HandleAnswer =
+            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&unwrapped_result).unwrap(),
+            to_binary(&HandleAnswer::SetViewingKey {
+                status: ResponseStatus::Success
+            })
+            .unwrap(),
+        );
+
+        let handle_msg = HandleMsg::SetViewingKey {
+            key: vk2.0.clone(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("giannis", &[]), handle_msg);
+        let unwrapped_result: HandleAnswer =
+            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&unwrapped_result).unwrap(),
+            to_binary(&HandleAnswer::SetViewingKey {
+                status: ResponseStatus::Success
+            })
+            .unwrap(),
+        );
+
+        let query_msg = QueryMsg::Allowance {
+            owner: HumanAddr("giannis".to_string()),
+            spender: HumanAddr("lebron".to_string()),
+            key: vk1.0.clone(),
+            padding: None,
+        };
+        let query_result = query(&deps, query_msg);
+        let allowance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Allowance { allowance, .. } => allowance,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(allowance, Uint128(2000));
+
+        let query_msg = QueryMsg::Allowance {
+            owner: HumanAddr("giannis".to_string()),
+            spender: HumanAddr("lebron".to_string()),
+            key: vk2.0.clone(),
+            padding: None,
+        };
+        let query_result = query(&deps, query_msg);
+        let allowance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Allowance { allowance, .. } => allowance,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(allowance, Uint128(2000));
+
+        let query_msg = QueryMsg::Allowance {
+            owner: HumanAddr("lebron".to_string()),
+            spender: HumanAddr("giannis".to_string()),
+            key: vk2.0.clone(),
+            padding: None,
+        };
+        let query_result = query(&deps, query_msg);
+        let allowance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Allowance { allowance, .. } => allowance,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(allowance, Uint128(0));
     }
 
     #[test]
-    #[ignore]
-    fn test_query_balance() {}
+    fn test_query_balance() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::SetViewingKey {
+            key: "key".to_string(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let unwrapped_result: HandleAnswer =
+            from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
+        assert_eq!(
+            to_binary(&unwrapped_result).unwrap(),
+            to_binary(&HandleAnswer::SetViewingKey {
+                status: ResponseStatus::Success
+            })
+            .unwrap(),
+        );
+
+        let query_msg = QueryMsg::Balance {
+            address: HumanAddr("bob".to_string()),
+            key: "wrong_key".to_string(),
+        };
+        let query_result = query(&deps, query_msg);
+        let error = extract_error_msg(query_result);
+        assert!(error.contains("Wrong viewing key"));
+
+        let query_msg = QueryMsg::Balance {
+            address: HumanAddr("bob".to_string()),
+            key: "key".to_string(),
+        };
+        let query_result = query(&deps, query_msg);
+        let balance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(balance, Uint128(5000));
+    }
 
     #[test]
-    #[ignore]
-    fn test_query_transfer_history() {}
+    fn test_query_transfer_history() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: HumanAddr("bob".to_string()),
+            amount: Uint128(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = HandleMsg::SetViewingKey {
+            key: "key".to_string(),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = HandleMsg::Transfer {
+            recipient: HumanAddr("alice".to_string()),
+            amount: Uint128(1000),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+        let handle_msg = HandleMsg::Transfer {
+            recipient: HumanAddr("banana".to_string()),
+            amount: Uint128(500),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+        let handle_msg = HandleMsg::Transfer {
+            recipient: HumanAddr("mango".to_string()),
+            amount: Uint128(2500),
+            padding: None,
+        };
+        let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: HumanAddr("bob".to_string()),
+            key: "key".to_string(),
+            page: None,
+            page_size: 0,
+        };
+        let query_result = query(&deps, query_msg);
+        // let a: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
+        // println!("{:?}", a);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert!(transfers.is_empty());
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: HumanAddr("bob".to_string()),
+            key: "key".to_string(),
+            page: None,
+            page_size: 10,
+        };
+        let query_result = query(&deps, query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 3);
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: HumanAddr("bob".to_string()),
+            key: "key".to_string(),
+            page: None,
+            page_size: 2,
+        };
+        let query_result = query(&deps, query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 2);
+    }
 }
