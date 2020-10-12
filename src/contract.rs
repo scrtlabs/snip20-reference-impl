@@ -8,16 +8,16 @@ use cosmwasm_std::{
 
 use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
-    ResponseStatus::{Failure, Success},
+    ResponseStatus::Success,
 };
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    get_receiver_hash, get_swap, get_transfers, read_allowance, read_viewing_key,
-    set_receiver_hash, store_swap, store_transfer, write_allowance, write_viewing_key, Balances,
-    Config, Constants, ReadonlyBalances, ReadonlyConfig,
+    get_receiver_hash, get_transfers, read_allowance, read_viewing_key, set_receiver_hash,
+    store_transfer, write_allowance, write_viewing_key, Balances, Config, Constants,
+    ReadonlyBalances, ReadonlyConfig,
 };
-use crate::viewing_key::ViewingKey;
+use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -77,6 +77,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     })?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
+    config.set_minters(Vec::from([msg.admin]))?;
 
     Ok(InitResponse::default())
 }
@@ -171,14 +172,11 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         } => try_mint(deps, env, address, amount),
 
         // Other
-        HandleMsg::Swap {
-            amount,
-            network,
-            destination,
-            ..
-        } => try_swap(deps, env, amount, network, destination),
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
         HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
+        HandleMsg::AddMinters { minters, .. } => add_minters(deps, env, minters),
+        HandleMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
+        HandleMsg::SetMinters { minters, .. } => set_minters(deps, env, minters),
     };
 
     pad_response(response)
@@ -188,8 +186,8 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
     match msg {
         QueryMsg::TokenInfo {} => query_token_info(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(),
-        QueryMsg::Swap { nonce, .. } => query_swap(&deps, nonce),
         QueryMsg::Allowance { owner, spender, .. } => try_check_allowance(deps, owner, spender),
+        QueryMsg::Minters { .. } => query_minters(deps),
         _ => authenticated_queries(deps, msg),
     }
 }
@@ -198,39 +196,38 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     msg: QueryMsg,
 ) -> QueryResult {
-    let (address, key) = msg.get_validation_params();
+    let (addresses, key) = msg.get_validation_params();
 
-    let canonical_addr = deps.api.canonical_address(address)?;
+    for address in addresses {
+        let canonical_addr = deps.api.canonical_address(address)?;
 
-    let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
+        let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
 
-    if expected_key.is_none() {
-        // Checking the key will take significant time. We don't want to exit immediately if it isn't set
-        // in a way which will allow to time the command and determine if a viewing key doesn't exist
-        key.check_viewing_key(&[0u8; 24]);
-        return Ok(to_binary(&QueryAnswer::ViewingKeyError {
-            msg: "Wrong viewing key for this address or viewing key not set".to_string(),
-        })?);
+        if expected_key.is_none() {
+            // Checking the key will take significant time. We don't want to exit immediately if it isn't set
+            // in a way which will allow to time the command and determine if a viewing key doesn't exist
+            key.check_viewing_key(&[0u8; VIEWING_KEY_SIZE]);
+        } else if key.check_viewing_key(expected_key.unwrap().as_slice()) {
+            return match msg {
+                // Base
+                QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
+                QueryMsg::TransferHistory {
+                    address,
+                    page,
+                    page_size,
+                    ..
+                } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
+                QueryMsg::Allowance { owner, spender, .. } => {
+                    try_check_allowance(deps, owner, spender)
+                }
+                _ => panic!("This query type does not require authentication"),
+            };
+        }
     }
 
-    if !key.check_viewing_key(expected_key.unwrap().as_slice()) {
-        return Ok(to_binary(&QueryAnswer::ViewingKeyError {
-            msg: "Wrong viewing key for this address or viewing key not set".to_string(),
-        })?);
-    }
-
-    match msg {
-        // Base
-        QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
-        QueryMsg::TransferHistory {
-            address,
-            page,
-            page_size,
-            ..
-        } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
-        // Other - Test
-        _ => unimplemented!(),
-    }
+    Ok(to_binary(&QueryAnswer::ViewingKeyError {
+        msg: "Wrong viewing key for this address or viewing key not set".to_string(),
+    })?)
 }
 
 /// This function just returns a constant 1:1 rate to uscrt, since that's the purpose of this
@@ -260,15 +257,6 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     })
 }
 
-pub fn query_swap<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    nonce: u32,
-) -> StdResult<Binary> {
-    let swap = get_swap(&deps.storage, nonce)?;
-
-    Ok(to_binary(&QueryAnswer::Swap { result: swap })?)
-}
-
 pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     account: &HumanAddr,
@@ -294,6 +282,13 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
     to_binary(&response)
 }
 
+fn query_minters<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdResult<Binary> {
+    let minters = ReadonlyConfig::from_storage(&deps.storage).minters();
+
+    let response = QueryAnswer::Minters { minters };
+    to_binary(&response)
+}
+
 fn change_admin<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -301,42 +296,16 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    let msg_sender = &env.message.sender;
+    check_if_admin(&config, &env.message.sender)?;
+
     let mut consts = config.constants()?;
-    if &consts.admin != msg_sender {
-        return Err(StdError::generic_err(
-            "Admin commands can only be run from admin address",
-        ));
-    }
-
     consts.admin = address;
-
     config.set_constants(&consts)?;
 
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
         data: Some(to_binary(&HandleAnswer::ChangeAdmin { status: Success })?),
-    })
-}
-
-fn try_swap<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    amount: Uint128,
-    _network: String,
-    destination: String,
-) -> StdResult<HandleResponse> {
-    try_burn(deps, env, amount)?;
-    let nonce = store_swap(&mut deps.storage, destination, amount)?;
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: Some(to_binary(&HandleAnswer::Swap {
-            status: Success,
-            nonce,
-        })?),
     })
 }
 
@@ -348,10 +317,10 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    let msg_sender = &env.message.sender;
-    if &config.constants()?.admin != msg_sender {
+    let minters = config.minters();
+    if minters.contains(&env.message.sender) {
         return Err(StdError::generic_err(
-            "Admin commands can only be run from admin address",
+            "Minting is allowed to minter accounts only",
         ));
     }
 
@@ -403,15 +372,6 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let vk = ViewingKey(key);
 
-    // TODO: Is this check needed? do we want to enforce 52-byte long passphrases?
-    if !vk.is_valid() {
-        return Ok(HandleResponse {
-            messages: vec![],
-            log: vec![],
-            data: Some(to_binary(&HandleAnswer::SetViewingKey { status: Failure })?),
-        });
-    }
-
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
     write_viewing_key(&mut deps.storage, &message_sender, &vk);
 
@@ -449,13 +409,7 @@ fn set_contract_status<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
 
-    // Check for admin privileges
-    let msg_sender = &env.message.sender;
-    if &config.constants()?.admin != msg_sender {
-        return Err(StdError::generic_err(
-            "Admin commands can only be run from admin address",
-        ));
-    }
+    check_if_admin(&config, &env.message.sender)?;
 
     config.set_contract_status(status_level);
 
@@ -655,12 +609,13 @@ fn try_add_receiver_api_callback<S: ReadonlyStorage>(
     recipient: &HumanAddr,
     msg: Option<Binary>,
     sender: HumanAddr,
+    from: HumanAddr,
     amount: Uint128,
 ) -> StdResult<()> {
     let receiver_hash = get_receiver_hash(storage, recipient);
     if let Some(receiver_hash) = receiver_hash {
         let receiver_hash = receiver_hash?;
-        let receiver_msg = Snip20ReceiveMsg::new(sender, amount, msg);
+        let receiver_msg = Snip20ReceiveMsg::new(sender, from, amount, msg);
         let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient.clone())?;
 
         messages.push(callback_msg);
@@ -680,7 +635,15 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
 
     let mut messages = vec![];
 
-    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, sender, amount)?;
+    try_add_receiver_api_callback(
+        &mut messages,
+        &deps.storage,
+        recipient,
+        msg,
+        sender.clone(),
+        sender,
+        amount,
+    )?;
 
     let res = HandleResponse {
         messages,
@@ -800,7 +763,15 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
 
     let mut messages = vec![];
 
-    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, sender, amount)?;
+    try_add_receiver_api_callback(
+        &mut messages,
+        &deps.storage,
+        recipient,
+        msg,
+        sender,
+        owner.clone(),
+        amount,
+    )?;
 
     let res = HandleResponse {
         messages,
@@ -951,6 +922,60 @@ fn try_decrease_allowance<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
+fn add_minters<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minters_to_add: Vec<HumanAddr>,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    config.add_minters(minters_to_add)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::AddMinters { status: Success })?),
+    })
+}
+
+fn remove_minters<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minters_to_remove: Vec<HumanAddr>,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    config.remove_minters(minters_to_remove)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::RemoveMinters { status: Success })?),
+    })
+}
+
+fn set_minters<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minters_to_set: Vec<HumanAddr>,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    config.set_minters(minters_to_set)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::SetMinters { status: Success })?),
+    })
+}
+
 /// Burn tokens
 ///
 /// Remove `amount` tokens from the system irreversibly, from signer account
@@ -1022,6 +1047,25 @@ fn perform_transfer<T: Storage>(
         StdError::generic_err("This tx will literally make them too rich. Try transferring less")
     })?;
     balances.set_account_balance(to, to_balance);
+
+    Ok(())
+}
+
+fn is_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<bool> {
+    let consts = config.constants()?;
+    if &consts.admin != account {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+fn check_if_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<()> {
+    if !is_admin(config, account)? {
+        return Err(StdError::generic_err(
+            "This is an admin command. Admin commands can only be run from admin address",
+        ));
+    }
 
     Ok(())
 }
