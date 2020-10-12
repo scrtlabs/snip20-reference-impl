@@ -25,6 +25,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     _env: Env,
     msg: InitMsg,
 ) -> StdResult<InitResponse> {
+    let init_config = msg.config();
     let mut total_supply: u128 = 0;
     {
         let mut balances = Balances::from_storage(&mut deps.storage);
@@ -68,7 +69,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         decimals: msg.decimals,
         admin,
         prng_seed: prng_seed_hashed.to_vec(),
-        total_supply_is_public: msg.config.public_total_supply(),
+        total_supply_is_public: init_config.public_total_supply(),
     })?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);

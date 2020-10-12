@@ -20,7 +20,13 @@ pub struct InitMsg {
     pub decimals: u8,
     pub initial_balances: Vec<InitialBalance>,
     pub prng_seed: Binary,
-    pub config: InitConfig,
+    config: Option<InitConfig>,
+}
+
+impl InitMsg {
+    pub fn config(&self) -> InitConfig {
+        self.config.clone().unwrap_or_default()
+    }
 }
 
 /// This type represents optional configuration values which can be overridden.
