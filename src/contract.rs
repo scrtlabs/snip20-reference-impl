@@ -205,10 +205,7 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
             // Checking the key will take significant time. We don't want to exit immediately if it isn't set
             // in a way which will allow to time the command and determine if a viewing key doesn't exist
             key.check_viewing_key(&[0u8; VIEWING_KEY_SIZE]);
-            continue;
-        }
-
-        if key.check_viewing_key(expected_key.unwrap().as_slice()) {
+        } else if key.check_viewing_key(expected_key.unwrap().as_slice()) {
             return match msg {
                 // Base
                 QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
@@ -221,7 +218,6 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
                 QueryMsg::Allowance { owner, spender, .. } => {
                     try_check_allowance(deps, owner, spender)
                 }
-                // Other - Test
                 _ => panic!("This query type does not require authentication"),
             };
         }
