@@ -18,17 +18,19 @@ use crate::state::{
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
-const RESPONSE_BLOCK_SIZE: usize = 256;
+pub const RESPONSE_BLOCK_SIZE: usize = 256;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    _env: Env,
+    env: Env,
     msg: InitMsg,
 ) -> StdResult<InitResponse> {
+    let init_config = msg.config();
     let mut total_supply: u128 = 0;
     {
         let mut balances = Balances::from_storage(&mut deps.storage);
-        for balance in msg.initial_balances {
+        let initial_balances = msg.initial_balances.unwrap_or_default();
+        for balance in initial_balances {
             let balance_address = deps.api.canonical_address(&balance.address)?;
             let amount = balance.amount.u128();
             balances.set_account_balance(&balance_address, amount);
@@ -57,25 +59,22 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Decimals must not exceed 18"));
     }
 
-    let admin = msg.admin.clone();
+    let admin = msg.admin.unwrap_or_else(|| env.message.sender);
 
-    let prng_seed = hex::decode(msg.prng_seed).map_err(|e| {
-        StdError::generic_err(format!("PRNG seed must be a hexadecimal string: {}", e,))
-    })?;
-    let prng_seed_hashed = sha_256(&prng_seed);
+    let prng_seed_hashed = sha_256(&msg.prng_seed.0);
 
     let mut config = Config::from_storage(&mut deps.storage);
     config.set_constants(&Constants {
         name: msg.name,
         symbol: msg.symbol,
         decimals: msg.decimals,
-        admin,
+        admin: admin.clone(),
         prng_seed: prng_seed_hashed.to_vec(),
-        total_supply_is_public: msg.config.public_total_supply(),
+        total_supply_is_public: init_config.public_total_supply(),
     })?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
-    config.set_minters(Vec::from([msg.admin]))?;
+    config.set_minters(Vec::from([admin]))?;
 
     Ok(InitResponse::default())
 }
@@ -576,6 +575,7 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
     store_transfer(
         &mut deps.storage,
         &sender_address,
+        &sender_address,
         &recipient_address,
         amount,
         symbol,
@@ -722,6 +722,7 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
     store_transfer(
         &mut deps.storage,
         &owner_address,
+        &spender_address,
         &recipient_address,
         amount,
         symbol,
