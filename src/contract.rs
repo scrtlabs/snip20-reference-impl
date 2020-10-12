@@ -6,7 +6,7 @@ use cosmwasm_std::{
 
 use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
-    ResponseStatus::{Failure, Success},
+    ResponseStatus::Success,
 };
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
@@ -15,7 +15,7 @@ use crate::state::{
     store_transfer, write_allowance, write_viewing_key, Balances, Config, Constants,
     ReadonlyBalances, ReadonlyConfig,
 };
-use crate::viewing_key::ViewingKey;
+use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -194,38 +194,38 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     msg: QueryMsg,
 ) -> QueryResult {
-    let (address, key) = msg.get_validation_params();
+    let (addresses, key) = msg.get_validation_params();
 
-    let canonical_addr = deps.api.canonical_address(address)?;
+    for address in addresses {
+        let canonical_addr = deps.api.canonical_address(address)?;
 
-    let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
+        let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
 
-    if expected_key.is_none() {
-        // Checking the key will take significant time. We don't want to exit immediately if it isn't set
-        // in a way which will allow to time the command and determine if a viewing key doesn't exist
-        key.check_viewing_key(&[0u8; 24]);
-        return Ok(to_binary(&QueryAnswer::ViewingKeyError {
-            msg: "Wrong viewing key for this address or viewing key not set".to_string(),
-        })?);
+        if expected_key.is_none() {
+            // Checking the key will take significant time. We don't want to exit immediately if it isn't set
+            // in a way which will allow to time the command and determine if a viewing key doesn't exist
+            key.check_viewing_key(&[0u8; VIEWING_KEY_SIZE]);
+        } else if key.check_viewing_key(expected_key.unwrap().as_slice()) {
+            return match msg {
+                // Base
+                QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
+                QueryMsg::TransferHistory {
+                    address,
+                    page,
+                    page_size,
+                    ..
+                } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
+                QueryMsg::Allowance { owner, spender, .. } => {
+                    try_check_allowance(deps, owner, spender)
+                }
+                _ => panic!("This query type does not require authentication"),
+            };
+        }
     }
 
-    if !key.check_viewing_key(expected_key.unwrap().as_slice()) {
-        return Ok(to_binary(&QueryAnswer::ViewingKeyError {
-            msg: "Wrong viewing key for this address or viewing key not set".to_string(),
-        })?);
-    }
-
-    match msg {
-        // Base
-        QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
-        QueryMsg::TransferHistory {
-            address,
-            page,
-            page_size,
-            ..
-        } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
-        _ => panic!("This query type does not require authentication"),
-    }
+    Ok(to_binary(&QueryAnswer::ViewingKeyError {
+        msg: "Wrong viewing key for this address or viewing key not set".to_string(),
+    })?)
 }
 
 /// This function just returns a constant 1:1 rate to uscrt, since that's the purpose of this
@@ -369,14 +369,6 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
     key: String,
 ) -> StdResult<HandleResponse> {
     let vk = ViewingKey(key);
-
-    if !vk.is_valid() {
-        return Ok(HandleResponse {
-            messages: vec![],
-            log: vec![],
-            data: Some(to_binary(&HandleAnswer::SetViewingKey { status: Failure })?),
-        });
-    }
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
     write_viewing_key(&mut deps.storage, &message_sender, &vk);
@@ -615,12 +607,13 @@ fn try_add_receiver_api_callback<S: ReadonlyStorage>(
     recipient: &HumanAddr,
     msg: Option<Binary>,
     sender: HumanAddr,
+    from: HumanAddr,
     amount: Uint128,
 ) -> StdResult<()> {
     let receiver_hash = get_receiver_hash(storage, recipient);
     if let Some(receiver_hash) = receiver_hash {
         let receiver_hash = receiver_hash?;
-        let receiver_msg = Snip20ReceiveMsg::new(sender, amount, msg);
+        let receiver_msg = Snip20ReceiveMsg::new(sender, from, amount, msg);
         let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient.clone())?;
 
         messages.push(callback_msg);
@@ -640,7 +633,15 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
 
     let mut messages = vec![];
 
-    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, sender, amount)?;
+    try_add_receiver_api_callback(
+        &mut messages,
+        &deps.storage,
+        recipient,
+        msg,
+        sender.clone(),
+        sender,
+        amount,
+    )?;
 
     let res = HandleResponse {
         messages,
@@ -760,7 +761,15 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
 
     let mut messages = vec![];
 
-    try_add_receiver_api_callback(&mut messages, &deps.storage, recipient, msg, sender, amount)?;
+    try_add_receiver_api_callback(
+        &mut messages,
+        &deps.storage,
+        recipient,
+        msg,
+        sender,
+        owner.clone(),
+        amount,
+    )?;
 
     let res = HandleResponse {
         messages,
