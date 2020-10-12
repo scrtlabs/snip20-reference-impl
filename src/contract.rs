@@ -316,7 +316,7 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     let mut config = Config::from_storage(&mut deps.storage);
 
     let minters = config.minters();
-    if minters.contains(&env.message.sender) {
+    if !minters.contains(&env.message.sender) {
         return Err(StdError::generic_err(
             "Minting is allowed to minter accounts only",
         ));
