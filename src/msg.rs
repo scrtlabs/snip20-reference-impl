@@ -15,7 +15,7 @@ pub struct InitialBalance {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
     pub name: String,
-    pub admin: HumanAddr,
+    pub admin: Option<HumanAddr>,
     pub symbol: String,
     pub decimals: u8,
     pub initial_balances: Vec<InitialBalance>,

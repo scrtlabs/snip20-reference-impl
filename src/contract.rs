@@ -22,7 +22,7 @@ const RESPONSE_BLOCK_SIZE: usize = 256;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    _env: Env,
+    env: Env,
     msg: InitMsg,
 ) -> StdResult<InitResponse> {
     let init_config = msg.config();
@@ -58,7 +58,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Decimals must not exceed 18"));
     }
 
-    let admin = msg.admin.clone();
+    let admin = msg.admin.unwrap_or_else(|| env.message.sender);
 
     let prng_seed_hashed = sha_256(&msg.prng_seed.0);
 
@@ -67,13 +67,13 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         name: msg.name,
         symbol: msg.symbol,
         decimals: msg.decimals,
-        admin,
+        admin: admin.clone(),
         prng_seed: prng_seed_hashed.to_vec(),
         total_supply_is_public: init_config.public_total_supply(),
     })?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
-    config.set_minters(Vec::from([msg.admin]))?;
+    config.set_minters(Vec::from([admin]))?;
 
     Ok(InitResponse::default())
 }
