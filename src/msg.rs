@@ -20,7 +20,7 @@ pub struct InitMsg {
     pub decimals: u8,
     pub initial_balances: Option<Vec<InitialBalance>>,
     pub prng_seed: Binary,
-    config: Option<InitConfig>,
+    pub config: Option<InitConfig>,
 }
 
 impl InitMsg {

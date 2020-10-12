@@ -1093,14 +1093,10 @@ fn is_valid_symbol(symbol: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::msg::QueryMsg::{Allowance, Balance};
     use crate::msg::ResponseStatus;
     use crate::msg::{InitConfig, InitialBalance};
     use cosmwasm_std::testing::*;
-    use cosmwasm_std::{
-        from_binary, BlockInfo, ContractInfo, Empty, MessageInfo, QueryResponse, WasmMsg,
-    };
-    use std::alloc::handle_alloc_error;
+    use cosmwasm_std::{from_binary, BlockInfo, ContractInfo, MessageInfo, WasmMsg};
     use std::any::Any;
 
     // Helper functions
@@ -1116,12 +1112,12 @@ mod tests {
 
         let init_msg = InitMsg {
             name: "sec-sec".to_string(),
-            admin: HumanAddr("admin".to_string()),
+            admin: Some(HumanAddr("admin".to_string())),
             symbol: "SECSEC".to_string(),
             decimals: 8,
-            initial_balances,
-            prng_seed: hex::encode("lolz fun yay"),
-            config: Default::default(),
+            initial_balances: Some(initial_balances),
+            prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            config: None,
         };
 
         (init(&mut deps, env, init_msg), deps)
@@ -1198,7 +1194,7 @@ mod tests {
 
     #[test]
     fn test_init_sanity() {
-        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+        let (init_result, deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("lebron".to_string()),
             amount: Uint128(5000),
         }]);
@@ -1221,7 +1217,7 @@ mod tests {
 
     #[test]
     fn test_total_supply_overflow() {
-        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+        let (init_result, _deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("lebron".to_string()),
             amount: Uint128(u128::max_value()),
         }]);
@@ -1231,7 +1227,7 @@ mod tests {
             init_result.err().unwrap()
         );
 
-        let (init_result, mut deps) = init_helper(vec![
+        let (init_result, _deps) = init_helper(vec![
             InitialBalance {
                 address: HumanAddr("lebron".to_string()),
                 amount: Uint128(u128::max_value()),
@@ -1653,10 +1649,6 @@ mod tests {
             .api
             .canonical_address(&HumanAddr("bob".to_string()))
             .unwrap();
-        let alice_canonical = deps
-            .api
-            .canonical_address(&HumanAddr("alice".to_string()))
-            .unwrap();
         let contract_canonical = deps
             .api
             .canonical_address(&HumanAddr("contract".to_string()))
@@ -2023,7 +2015,7 @@ mod tests {
             amount: Uint128(1000),
             padding: None,
         };
-        let handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
+        let _handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
 
         let handle_msg = HandleMsg::Balance { padding: None };
         let handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
@@ -2520,15 +2512,15 @@ mod tests {
         let env = mock_env("instantiator", &[]);
         let init_msg = InitMsg {
             name: init_name.clone(),
-            admin: init_admin.clone(),
+            admin: Some(init_admin.clone()),
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
-            initial_balances: vec![InitialBalance {
+            initial_balances: Some(vec![InitialBalance {
                 address: HumanAddr("giannis".to_string()),
                 amount: init_supply,
-            }],
-            prng_seed: hex::encode("lolz fun yay"),
-            config: init_config,
+            }]),
+            prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            config: Some(init_config),
         };
         let init_result = init(&mut deps, env, init_msg);
         assert!(
