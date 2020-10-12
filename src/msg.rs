@@ -19,7 +19,7 @@ pub struct InitMsg {
     pub symbol: String,
     pub decimals: u8,
     pub initial_balances: Vec<InitialBalance>,
-    pub prng_seed: String,
+    pub prng_seed: Binary,
     pub config: InitConfig,
 }
 

@@ -59,10 +59,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 
     let admin = msg.admin.clone();
 
-    let prng_seed = hex::decode(msg.prng_seed).map_err(|e| {
-        StdError::generic_err(format!("PRNG seed must be a hexadecimal string: {}", e,))
-    })?;
-    let prng_seed_hashed = sha_256(&prng_seed);
+    let prng_seed_hashed = sha_256(&msg.prng_seed.0);
 
     let mut config = Config::from_storage(&mut deps.storage);
     config.set_constants(&Constants {
