@@ -15,12 +15,18 @@ pub struct InitialBalance {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
     pub name: String,
-    pub admin: HumanAddr,
+    pub admin: Option<HumanAddr>,
     pub symbol: String,
     pub decimals: u8,
-    pub initial_balances: Vec<InitialBalance>,
-    pub prng_seed: String,
-    pub config: InitConfig,
+    pub initial_balances: Option<Vec<InitialBalance>>,
+    pub prng_seed: Binary,
+    config: Option<InitConfig>,
+}
+
+impl InitMsg {
+    pub fn config(&self) -> InitConfig {
+        self.config.clone().unwrap_or_default()
+    }
 }
 
 /// This type represents optional configuration values which can be overridden.
