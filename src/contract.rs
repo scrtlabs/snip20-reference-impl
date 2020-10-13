@@ -1285,7 +1285,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient funds"));
+        assert!(error.contains("insufficient funds"));
     }
 
     #[test]
@@ -1464,7 +1464,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Transfer more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1487,7 +1487,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Transfer after allowance expired
         let handle_msg = HandleMsg::TransferFrom {
@@ -1517,7 +1517,7 @@ mod tests {
             handle_msg,
         );
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::TransferFrom {
@@ -1558,7 +1558,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
     }
 
     #[test]
@@ -1583,7 +1583,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Send more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1607,7 +1607,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::RegisterReceive {
@@ -1672,7 +1672,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
     }
 
     #[test]
@@ -1695,7 +1695,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Burn more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1717,7 +1717,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::BurnFrom {
@@ -1749,7 +1749,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
     }
 
     #[test]
