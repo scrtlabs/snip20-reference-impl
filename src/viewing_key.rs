@@ -8,10 +8,10 @@ use cosmwasm_std::Env;
 use crate::rand::{sha_256, Prng};
 use crate::utils::{create_hashed_password, ct_slice_compare};
 
+pub const VIEWING_KEY_SIZE: usize = 32;
 pub const VIEWING_KEY_PREFIX: &str = "api_key_";
-pub const VIEWING_KEY_LENGTH: usize = 44 + VIEWING_KEY_PREFIX.len(); // 44 is the length of base64 encoded 32 bytes
 
-#[derive(Serialize, Deserialize, JsonSchema, Clone)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub struct ViewingKey(pub String);
 
 impl ViewingKey {
@@ -39,16 +39,12 @@ impl ViewingKey {
         Self(VIEWING_KEY_PREFIX.to_string() + &base64::encode(key))
     }
 
-    pub fn to_hashed(&self) -> [u8; 24] {
+    pub fn to_hashed(&self) -> [u8; VIEWING_KEY_SIZE] {
         create_hashed_password(&self.0)
     }
 
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()
-    }
-
-    pub fn is_valid(&self) -> bool {
-        self.0.len() == VIEWING_KEY_LENGTH
     }
 }
 
