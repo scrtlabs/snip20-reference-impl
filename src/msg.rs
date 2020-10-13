@@ -372,10 +372,4 @@ mod tests {
         );
         Ok(())
     }
-
-    pub fn get_public_total_supply_true() -> InitConfig {
-        InitConfig {
-            public_total_supply: Some(true),
-        }
-    }
 }
