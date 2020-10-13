@@ -1,9 +1,9 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern, HandleResponse,
-    HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError, StdResult, Storage,
-    Uint128,
+    log, to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern,
+    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
+    StdResult, Storage, Uint128,
 };
 
 use crate::msg::{
@@ -99,11 +99,11 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     let contract_status = ReadonlyConfig::from_storage(&deps.storage).contract_status();
 
     match contract_status {
-        ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButWithdrawals => {
+        ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
             let response = match msg {
                 HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
                 HandleMsg::Redeem { amount, .. }
-                    if contract_status == ContractStatusLevel::StopAllButWithdrawals =>
+                    if contract_status == ContractStatusLevel::StopAllButRedeems =>
                 {
                     try_redeem(deps, env, amount)
                 }
@@ -120,7 +120,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // Native
         HandleMsg::Deposit { .. } => try_deposit(deps, env),
         HandleMsg::Redeem { amount, .. } => try_redeem(deps, env, amount),
-        HandleMsg::Balance { .. } => try_balance(deps, env),
 
         // Base
         HandleMsg::Transfer {
@@ -274,9 +273,8 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account)?;
 
-    let response = QueryAnswer::Balance {
-        amount: Uint128(get_balance(&deps.storage, &address)),
-    };
+    let amount = Uint128(ReadonlyBalances::from_storage(&deps.storage).account_amount(&address));
+    let response = QueryAnswer::Balance { amount };
     to_binary(&response)
 }
 
@@ -439,26 +437,6 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
     to_binary(&response)
 }
 
-pub fn try_balance<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-) -> StdResult<HandleResponse> {
-    let sender_address = deps.api.canonical_address(&env.message.sender)?;
-    let account_balance = get_balance(&deps.storage, &sender_address);
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: Some(to_binary(&HandleAnswer::Balance {
-            amount: Uint128(account_balance),
-        })?),
-    })
-}
-
-fn get_balance<S: Storage>(storage: &S, account: &CanonicalAddr) -> u128 {
-    ReadonlyBalances::from_storage(storage).account_amount(account)
-}
-
 fn try_deposit<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -523,7 +501,7 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
         balances.set_account_balance(&sender_address, account_balance);
     } else {
         return Err(StdError::generic_err(format!(
-            "insufficient funds to burn: balance={}, required={}",
+            "insufficient funds to redeem: balance={}, required={}",
             account_balance, amount_raw
         )));
     }
@@ -660,7 +638,7 @@ fn try_register_receive<S: Storage, A: Api, Q: Querier>(
     set_receiver_hash(&mut deps.storage, &env.message.sender, code_hash);
     let res = HandleResponse {
         messages: vec![],
-        log: vec![],
+        log: vec![log("register_status", "success")],
         data: Some(to_binary(&HandleAnswer::RegisterReceive {
             status: Success,
         })?),
@@ -670,7 +648,7 @@ fn try_register_receive<S: Storage, A: Api, Q: Querier>(
 
 fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
     StdError::generic_err(format!(
-        "Insufficient allowance: allowance={}, required={}",
+        "insufficient allowance: allowance={}, required={}",
         allowance, required
     ))
 }
@@ -1036,7 +1014,7 @@ fn perform_transfer<T: Storage>(
         from_balance = new_from_balance;
     } else {
         return Err(StdError::generic_err(format!(
-            "Insufficient funds: balance={}, required={}",
+            "insufficient funds: balance={}, required={}",
             from_balance, amount
         )));
     }
@@ -1285,7 +1263,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient funds"));
+        assert!(error.contains("insufficient funds"));
     }
 
     #[test]
@@ -1464,7 +1442,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Transfer more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1487,7 +1465,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Transfer after allowance expired
         let handle_msg = HandleMsg::TransferFrom {
@@ -1517,7 +1495,7 @@ mod tests {
             handle_msg,
         );
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::TransferFrom {
@@ -1558,7 +1536,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
     }
 
     #[test]
@@ -1583,7 +1561,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Send more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1607,7 +1585,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::RegisterReceive {
@@ -1672,7 +1650,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
     }
 
     #[test]
@@ -1695,7 +1673,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Burn more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1717,7 +1695,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::BurnFrom {
@@ -1749,7 +1727,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
     }
 
     #[test]
@@ -1986,47 +1964,6 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_balance() {
-        let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: HumanAddr("butler".to_string()),
-            amount: Uint128(5000),
-        }]);
-        assert!(
-            init_result.is_ok(),
-            "Init failed: {}",
-            init_result.err().unwrap()
-        );
-
-        let handle_msg = HandleMsg::Balance { padding: None };
-        let handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
-        assert!(
-            handle_result.is_ok(),
-            "handle() failed: {}",
-            handle_result.err().unwrap()
-        );
-
-        let balance: HandleAnswer = from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
-        match balance {
-            HandleAnswer::Balance { amount } => assert_eq!(amount, Uint128(5000)),
-            _ => panic!("NOT GONNA HAPPEN"),
-        }
-
-        let handle_msg = HandleMsg::Redeem {
-            amount: Uint128(1000),
-            padding: None,
-        };
-        let _handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
-
-        let handle_msg = HandleMsg::Balance { padding: None };
-        let handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
-        let balance: HandleAnswer = from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
-        match balance {
-            HandleAnswer::Balance { amount } => assert_eq!(amount, Uint128(4000)),
-            _ => panic!("NOT GONNA HAPPEN"),
-        }
-    }
-
-    #[test]
     fn test_handle_deposit() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("lebron".to_string()),
@@ -2140,7 +2077,7 @@ mod tests {
         );
 
         let pause_msg = HandleMsg::SetContractStatus {
-            level: ContractStatusLevel::StopAllButWithdrawals,
+            level: ContractStatusLevel::StopAllButRedeems,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("not_admin", &[]), pause_msg);
@@ -2193,7 +2130,7 @@ mod tests {
         );
 
         let pause_msg = HandleMsg::SetContractStatus {
-            level: ContractStatusLevel::StopAllButWithdrawals,
+            level: ContractStatusLevel::StopAllButRedeems,
             padding: None,
         };
 
