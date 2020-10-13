@@ -99,11 +99,11 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     let contract_status = ReadonlyConfig::from_storage(&deps.storage).contract_status();
 
     match contract_status {
-        ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButWithdrawals => {
+        ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
             let response = match msg {
                 HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
                 HandleMsg::Redeem { amount, .. }
-                    if contract_status == ContractStatusLevel::StopAllButWithdrawals =>
+                    if contract_status == ContractStatusLevel::StopAllButRedeems =>
                 {
                     try_redeem(deps, env, amount)
                 }
@@ -2077,7 +2077,7 @@ mod tests {
         );
 
         let pause_msg = HandleMsg::SetContractStatus {
-            level: ContractStatusLevel::StopAllButWithdrawals,
+            level: ContractStatusLevel::StopAllButRedeems,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("not_admin", &[]), pause_msg);
@@ -2130,7 +2130,7 @@ mod tests {
         );
 
         let pause_msg = HandleMsg::SetContractStatus {
-            level: ContractStatusLevel::StopAllButWithdrawals,
+            level: ContractStatusLevel::StopAllButRedeems,
             padding: None,
         };
 
