@@ -1,9 +1,9 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern, HandleResponse,
-    HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError, StdResult, Storage,
-    Uint128,
+    log, to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern,
+    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
+    StdResult, Storage, Uint128,
 };
 
 use crate::msg::{
@@ -501,7 +501,7 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
         balances.set_account_balance(&sender_address, account_balance);
     } else {
         return Err(StdError::generic_err(format!(
-            "insufficient funds to burn: balance={}, required={}",
+            "insufficient funds to redeem: balance={}, required={}",
             account_balance, amount_raw
         )));
     }
@@ -638,7 +638,7 @@ fn try_register_receive<S: Storage, A: Api, Q: Querier>(
     set_receiver_hash(&mut deps.storage, &env.message.sender, code_hash);
     let res = HandleResponse {
         messages: vec![],
-        log: vec![],
+        log: vec![log("register_status", "success")],
         data: Some(to_binary(&HandleAnswer::RegisterReceive {
             status: Success,
         })?),
@@ -648,7 +648,7 @@ fn try_register_receive<S: Storage, A: Api, Q: Querier>(
 
 fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
     StdError::generic_err(format!(
-        "Insufficient allowance: allowance={}, required={}",
+        "insufficient allowance: allowance={}, required={}",
         allowance, required
     ))
 }
@@ -1014,7 +1014,7 @@ fn perform_transfer<T: Storage>(
         from_balance = new_from_balance;
     } else {
         return Err(StdError::generic_err(format!(
-            "Insufficient funds: balance={}, required={}",
+            "insufficient funds: balance={}, required={}",
             from_balance, amount
         )));
     }
@@ -1263,7 +1263,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient funds"));
+        assert!(error.contains("insufficient funds"));
     }
 
     #[test]
@@ -1442,7 +1442,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Transfer more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1465,7 +1465,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Transfer after allowance expired
         let handle_msg = HandleMsg::TransferFrom {
@@ -1495,7 +1495,7 @@ mod tests {
             handle_msg,
         );
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::TransferFrom {
@@ -1536,7 +1536,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
     }
 
     #[test]
@@ -1561,7 +1561,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Send more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1585,7 +1585,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::RegisterReceive {
@@ -1650,7 +1650,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
     }
 
     #[test]
@@ -1673,7 +1673,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Burn more than allowance
         let handle_msg = HandleMsg::IncreaseAllowance {
@@ -1695,7 +1695,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
 
         // Sanity check
         let handle_msg = HandleMsg::BurnFrom {
@@ -1727,7 +1727,7 @@ mod tests {
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Insufficient allowance"));
+        assert!(error.contains("insufficient allowance"));
     }
 
     #[test]
