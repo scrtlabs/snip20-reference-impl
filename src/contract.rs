@@ -1964,47 +1964,6 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_balance() {
-        let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: HumanAddr("butler".to_string()),
-            amount: Uint128(5000),
-        }]);
-        assert!(
-            init_result.is_ok(),
-            "Init failed: {}",
-            init_result.err().unwrap()
-        );
-
-        let handle_msg = HandleMsg::Balance { padding: None };
-        let handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
-        assert!(
-            handle_result.is_ok(),
-            "handle() failed: {}",
-            handle_result.err().unwrap()
-        );
-
-        let balance: HandleAnswer = from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
-        match balance {
-            HandleAnswer::Balance { amount } => assert_eq!(amount, Uint128(5000)),
-            _ => panic!("NOT GONNA HAPPEN"),
-        }
-
-        let handle_msg = HandleMsg::Redeem {
-            amount: Uint128(1000),
-            padding: None,
-        };
-        let _handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
-
-        let handle_msg = HandleMsg::Balance { padding: None };
-        let handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
-        let balance: HandleAnswer = from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
-        match balance {
-            HandleAnswer::Balance { amount } => assert_eq!(amount, Uint128(4000)),
-            _ => panic!("NOT GONNA HAPPEN"),
-        }
-    }
-
-    #[test]
     fn test_handle_deposit() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("lebron".to_string()),
