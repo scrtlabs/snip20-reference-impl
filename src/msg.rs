@@ -159,9 +159,6 @@ pub enum HandleAnswer {
     Redeem {
         status: ResponseStatus,
     },
-    Balance {
-        amount: Uint128,
-    },
 
     // Base
     Transfer {
