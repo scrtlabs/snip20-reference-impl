@@ -57,9 +57,6 @@ pub enum HandleMsg {
     Deposit {
         padding: Option<String>,
     },
-    Balance {
-        padding: Option<String>,
-    },
 
     // Base ERC-20 stuff
     Transfer {

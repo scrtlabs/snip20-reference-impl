@@ -120,7 +120,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // Native
         HandleMsg::Deposit { .. } => try_deposit(deps, env),
         HandleMsg::Redeem { amount, .. } => try_redeem(deps, env, amount),
-        HandleMsg::Balance { .. } => try_balance(deps, env),
 
         // Base
         HandleMsg::Transfer {
@@ -274,9 +273,8 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account)?;
 
-    let response = QueryAnswer::Balance {
-        amount: Uint128(get_balance(&deps.storage, &address)),
-    };
+    let amount = Uint128(ReadonlyBalances::from_storage(&deps.storage).account_amount(&address));
+    let response = QueryAnswer::Balance { amount };
     to_binary(&response)
 }
 
@@ -437,26 +435,6 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
         expiration: allowance.expiration,
     };
     to_binary(&response)
-}
-
-pub fn try_balance<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-) -> StdResult<HandleResponse> {
-    let sender_address = deps.api.canonical_address(&env.message.sender)?;
-    let account_balance = get_balance(&deps.storage, &sender_address);
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: Some(to_binary(&HandleAnswer::Balance {
-            amount: Uint128(account_balance),
-        })?),
-    })
-}
-
-fn get_balance<S: Storage>(storage: &S, account: &CanonicalAddr) -> u128 {
-    ReadonlyBalances::from_storage(storage).account_amount(account)
 }
 
 fn try_deposit<S: Storage, A: Api, Q: Querier>(
