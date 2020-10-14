@@ -36,13 +36,13 @@ function assert_eq() {
     local right="$2"
     local message
 
-    if [ -z ${3+x} ]; then
-        message="assertion failed - both sides differ. left: ${left@Q}, right: ${right@Q}"
-    else
-        message="$3"
-    fi
-
     if [[ "$left" != "$right" ]]; then
+        if [ -z ${3+x} ]; then
+            local lineno="${BASH_LINENO[0]}"
+            message="assertion failed on line $lineno - both sides differ. left: ${left@Q}, right: ${right@Q}"
+        else
+            message="$3"
+        fi
         log "$message"
         return 1
     fi
@@ -55,13 +55,14 @@ function assert_ne() {
     local right="$2"
     local message
 
-    if [ -z ${3+x} ]; then
-        message="assertion failed - both sides are equal. left: ${left@Q}, right: ${right@Q}"
-    else
-        message="$3"
-    fi
-
     if [[ "$left" == "$right" ]]; then
+        if [ -z ${3+x} ]; then
+            local lineno="${BASH_LINENO[0]}"
+            message="assertion failed on line $lineno - both sides are equal. left: ${left@Q}, right: ${right@Q}"
+        else
+            message="$3"
+        fi
+
         log "$message"
         return 1
     fi
@@ -157,6 +158,10 @@ function tx_of() {
 # Extract the output_data_as_string from the output of the command
 function data_of() {
     "$@" | jq -r '.output_data_as_string'
+}
+
+function get_generic_err() {
+    jq -r '.output_error.generic_err.msg' <<<"$1"
 }
 
 # Send a compute transaction and return the tx hash.
@@ -393,7 +398,7 @@ function test_deposit() {
         ! redeem_response="$(wait_for_compute_tx "$tx_hash" "waiting for overdraft from \"$key\" to process")"
         log "trying to overdraft from \"$key\" was rejected"
         assert_eq \
-            "$(jq -r '.output_error.generic_err.msg' <<<"$redeem_response")" \
+            "$(get_generic_err "$redeem_response")" \
             "insufficient funds to redeem: balance=${deposits[$key]}, required=$overdraft"
     done
 
@@ -450,9 +455,22 @@ function test_transfer() {
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     log "trying to overdraft from \"a\" to transfer to \"b\" was rejected"
-    assert_eq \
-        "$(jq -r '.output_error.generic_err.msg' <<<"$transfer_response")" \
-        "insufficient funds: balance=1000000, required=1000001"
+    assert_eq "$(get_generic_err "$transfer_response")" "insufficient funds: balance=1000000, required=1000001"
+
+    # Check both a and b, that their last transaction is not for 1000001 uscrt
+    local transfer_history_query
+    local transfer_history_response
+    local txs
+    for key in a b; do
+        log "querying the transfer history of \"$key\""
+        transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
+        transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
+        txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
+        jq -e 'length <= 1' <<<"$txs" >/dev/null 2>&1 # just make sure we're not getting a weird response
+        if jq -e 'length == 1' <<<"$txs" >/dev/null 2>&1; then
+            assert_ne "$(jq -r '.[0].coins.amount' <<<"$txs")" '1000001'
+        fi
+    done
 
     # Transfer from "a" to "b"
     log 'transferring funds from "a" to "b"'
@@ -461,6 +479,27 @@ function test_transfer() {
     tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 160000)"
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     assert_eq "$transfer_response" "$(pad_space '{"transfer":{"status":"success"}}')"
+
+    # Check for both "a" and "b" that they recorded the transfer
+    local tx
+    local -A tx_ids
+    for key in a b; do
+        log "querying the transfer history of \"$key\""
+        transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
+        transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
+        txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
+        jq -e 'length == 1' <<<"$txs" >/dev/null 2>&1 # just make sure we're not getting a weird response
+        tx="$(jq -r '.[0]' <<<"$txs")"
+        assert_eq "$(jq -r '.from' <<<"$tx")" "${ADDRESS[a]}"
+        assert_eq "$(jq -r '.sender' <<<"$tx")" "${ADDRESS[a]}"
+        assert_eq "$(jq -r '.receiver' <<<"$tx")" "${ADDRESS[b]}"
+        assert_eq "$(jq -r '.coins.amount' <<<"$tx")" '400000'
+        assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
+        tx_ids[$key]="$(jq -r '.id' <<<"$tx")"
+    done
+
+    assert_eq "${tx_ids[a]}" "${tx_ids[b]}"
+    log 'The transfer was recorded correctly in the transaction history'
 
     # Check that "a" has fewer funds
     log 'querying balance for "a"'
@@ -510,7 +549,7 @@ function redeem_receiver() {
     local redeem_message='{"redeem":{"addr":"'"$snip20_addr"'","hash":"'"${snip20_hash:2}"'","to":"'"$to_addr"'","amount":"'"$amount"'"}}'
     tx_hash="$(compute_execute "$receiver_addr" "$redeem_message" ${FROM[a]} --gas 300000)"
     redeem_tx="$(wait_for_tx "$tx_hash" "waiting for redeem from receiver at \"$receiver_addr\" to process")"
-    log "$redeem_tx"
+    # log "$redeem_tx"
     transfer_attributes="$(jq -r '.logs[0].events[] | select(.type == "transfer") | .attributes' <<<"$redeem_tx")"
     assert_eq "$(jq -r '.[] | select(.key == "recipient") | .value' <<<"$transfer_attributes")" "$receiver_addr"$'\n'"$to_addr"
     assert_eq "$(jq -r '.[] | select(.key == "amount") | .value' <<<"$transfer_attributes")" "${amount}uscrt"$'\n'"${amount}uscrt"
@@ -583,9 +622,22 @@ function test_send() {
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
     log "trying to overdraft from \"a\" to send to \"b\" was rejected"
-    assert_eq \
-        "$(jq -r '.output_error.generic_err.msg' <<<"$send_response")" \
-        "insufficient funds: balance=1000000, required=1000001"
+    assert_eq "$(get_generic_err "$send_response")" "insufficient funds: balance=1000000, required=1000001"
+
+    # Check both a and b, that their last transaction is not for 1000001 uscrt
+    local transfer_history_query
+    local transfer_history_response
+    local txs
+    for key in a b; do
+        log "querying the transfer history of \"$key\""
+        transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
+        transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
+        txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
+        jq -e 'length <= 1' <<<"$txs" >/dev/null 2>&1 # just make sure we're not getting a weird response
+        if jq -e 'length == 1' <<<"$txs" >/dev/null 2>&1; then
+            assert_ne "$(jq -r '.[0].coins.amount' <<<"$txs")" '1000001'
+        fi
+    done
 
     # Query receiver state before Send
     local receiver_state
@@ -616,6 +668,20 @@ function test_send() {
     assert_eq "$((original_count + 1))" "$new_count"
     log 'receiver contract received the message'
 
+    # Check that "a" recorded the transfer
+    local tx
+    log 'querying the transfer history of "a"'
+    transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'","page_size":1}}'
+    transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
+    txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
+    jq -e 'length == 1' <<<"$txs" >/dev/null 2>&1 # just make sure we're not getting a weird response
+    tx="$(jq -r '.[0]' <<<"$txs")"
+    assert_eq "$(jq -r '.from' <<<"$tx")" "${ADDRESS[a]}"
+    assert_eq "$(jq -r '.sender' <<<"$tx")" "${ADDRESS[a]}"
+    assert_eq "$(jq -r '.receiver' <<<"$tx")" "$receiver_addr"
+    assert_eq "$(jq -r '.coins.amount' <<<"$tx")" '400000'
+    assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
+
     # Check that "a" has fewer funds
     log 'querying balance for "a"'
     balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
@@ -632,24 +698,24 @@ function main() {
     log '              <####> Starting integration tests <####>'
     log "secretcli version in the docker image is: $(secretcli version)"
 
-    local prng_seed
-    prng_seed="$(base64 <<<'enigma-rocks')"
-    local init_msg
-    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{}}'
-    contract_addr="$(create_contract '.' "$init_msg")"
+#    local prng_seed
+#    prng_seed="$(base64 <<<'enigma-rocks')"
+#    local init_msg
+#    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{}}'
+#    contract_addr="$(create_contract '.' "$init_msg")"
 
     # To make testing faster, check the logs and try to reuse the deployed contract and VKs from previous runs.
     # Remember to comment out the contract deployment and `test_viewing_key` if you do.
-#    local contract_addr='secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg'
-#    VK[a]='api_key_vcipODMLbckCJpjuPXEzId0u2dvN1DaXG/Qxzj+GG7c='
-#    VK[b]='api_key_Yg0giN1v3mB+j/+7qssxPqZ1fCKDcbrwZILQvb6xyok='
-#    VK[c]='api_key_BpGAyiNpB2xZQQQXD0K0ScYY6o12b1TzoF9dIRnIfgM='
-#    VK[d]='api_key_Zs0LqlZ4AtYJ/kulyB6WDy2K3sW181/sLSMk1LmLJq8='
+    local contract_addr='secret1rgsafmz6jmq9ezq04v9gagu9sm08f4ht66lyfy'
+    VK[a]='api_key_UsLPYFXMml9Q9K01xdUY/zN7qLypLy96bWOQxe3dQp0='
+    VK[b]='api_key_w1D2hV0A3T9TssjQGWBCVh0+N/RgaBHsBx6fJxNIjss='
+    VK[c]='api_key_EzJg6mK6gXDXRlx6hsbUgfzhJytbaLvklvKKgw4GZ48='
+    VK[d]='api_key_IFGz4nFMTKc203uKaVaYrumPQEAtF2VdqC9lJllRDac='
 
     log "contract address: $contract_addr"
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
-    test_viewing_key "$contract_addr"
+#    test_viewing_key "$contract_addr"
     test_deposit "$contract_addr"
     test_transfer "$contract_addr"
     test_send "$contract_addr"
