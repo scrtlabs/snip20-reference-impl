@@ -717,26 +717,26 @@ function main() {
     log '              <####> Starting integration tests <####>'
     log "secretcli version in the docker image is: $(secretcli version)"
 
-#    local prng_seed
-#    prng_seed="$(base64 <<<'enigma-rocks')"
-#    local init_msg
-#    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{}}'
-#    contract_addr="$(create_contract '.' "$init_msg")"
+    local prng_seed
+    prng_seed="$(base64 <<<'enigma-rocks')"
+    local init_msg
+    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{}}'
+    contract_addr="$(create_contract '.' "$init_msg")"
 
     # To make testing faster, check the logs and try to reuse the deployed contract and VKs from previous runs.
     # Remember to comment out the contract deployment and `test_viewing_key` if you do.
-    local contract_addr='secret1rgsafmz6jmq9ezq04v9gagu9sm08f4ht66lyfy'
-    VK[a]='api_key_UsLPYFXMml9Q9K01xdUY/zN7qLypLy96bWOQxe3dQp0='
-    VK[b]='api_key_w1D2hV0A3T9TssjQGWBCVh0+N/RgaBHsBx6fJxNIjss='
-    VK[c]='api_key_EzJg6mK6gXDXRlx6hsbUgfzhJytbaLvklvKKgw4GZ48='
-    VK[d]='api_key_IFGz4nFMTKc203uKaVaYrumPQEAtF2VdqC9lJllRDac='
+#    local contract_addr='secret1rgsafmz6jmq9ezq04v9gagu9sm08f4ht66lyfy'
+#    VK[a]='api_key_UsLPYFXMml9Q9K01xdUY/zN7qLypLy96bWOQxe3dQp0='
+#    VK[b]='api_key_w1D2hV0A3T9TssjQGWBCVh0+N/RgaBHsBx6fJxNIjss='
+#    VK[c]='api_key_EzJg6mK6gXDXRlx6hsbUgfzhJytbaLvklvKKgw4GZ48='
+#    VK[d]='api_key_IFGz4nFMTKc203uKaVaYrumPQEAtF2VdqC9lJllRDac='
 
     log "contract address: $contract_addr"
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
-#    test_viewing_key "$contract_addr"
-#    test_deposit "$contract_addr"
-#    test_transfer "$contract_addr"
+    test_viewing_key "$contract_addr"
+    test_deposit "$contract_addr"
+    test_transfer "$contract_addr"
     test_send "$contract_addr"
 
     log 'Tests completed successfully'
