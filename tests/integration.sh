@@ -209,6 +209,12 @@ function create_contract() {
 
     local init_result
     init_result="$(instantiate "$code_id" "$init_msg")"
+
+    if jq -e '.logs == null' <<<"$init_result" >/dev/null; then
+        log "$(secretcli query compute tx "$(jq -r '.txhash' <<<"$init_result")")"
+        return 1
+    fi
+
     jq -r '.logs[0].events[0].attributes[] | select(.key == "contract_address") | .value' <<<"$init_result"
 }
 
@@ -452,7 +458,7 @@ function test_transfer() {
     log 'transferring funds from "a" to "b"'
     local transfer_message='{"transfer":{"recipient":"'"${ADDRESS[b]}"'","amount":"400000"}}'
     local transfer_response
-    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 160000)"
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     assert_eq "$transfer_response" "$(pad_space '{"transfer":{"status":"success"}}')"
 
@@ -627,7 +633,7 @@ function main() {
     log "secretcli version in the docker image is: $(secretcli version)"
 
     local prng_seed
-    prng_seed="$(xxd -ps <<<'enigma-rocks')"
+    prng_seed="$(base64 <<<'enigma-rocks')"
     local init_msg
     init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{}}'
     contract_addr="$(create_contract '.' "$init_msg")"
