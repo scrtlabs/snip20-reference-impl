@@ -99,11 +99,11 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     let contract_status = ReadonlyConfig::from_storage(&deps.storage).contract_status();
 
     match contract_status {
-        ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButWithdrawals => {
+        ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
             let response = match msg {
                 HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
                 HandleMsg::Redeem { amount, .. }
-                    if contract_status == ContractStatusLevel::StopAllButWithdrawals =>
+                    if contract_status == ContractStatusLevel::StopAllButRedeems =>
                 {
                     try_redeem(deps, env, amount)
                 }
@@ -120,7 +120,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // Native
         HandleMsg::Deposit { .. } => try_deposit(deps, env),
         HandleMsg::Redeem { amount, .. } => try_redeem(deps, env, amount),
-        HandleMsg::Balance { .. } => try_balance(deps, env),
 
         // Base
         HandleMsg::Transfer {
@@ -274,9 +273,8 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account)?;
 
-    let response = QueryAnswer::Balance {
-        amount: Uint128(get_balance(&deps.storage, &address)),
-    };
+    let amount = Uint128(ReadonlyBalances::from_storage(&deps.storage).account_amount(&address));
+    let response = QueryAnswer::Balance { amount };
     to_binary(&response)
 }
 
@@ -437,26 +435,6 @@ pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
         expiration: allowance.expiration,
     };
     to_binary(&response)
-}
-
-pub fn try_balance<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-) -> StdResult<HandleResponse> {
-    let sender_address = deps.api.canonical_address(&env.message.sender)?;
-    let account_balance = get_balance(&deps.storage, &sender_address);
-
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: Some(to_binary(&HandleAnswer::Balance {
-            amount: Uint128(account_balance),
-        })?),
-    })
-}
-
-fn get_balance<S: Storage>(storage: &S, account: &CanonicalAddr) -> u128 {
-    ReadonlyBalances::from_storage(storage).account_amount(account)
 }
 
 fn try_deposit<S: Storage, A: Api, Q: Querier>(
@@ -1986,47 +1964,6 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_balance() {
-        let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: HumanAddr("butler".to_string()),
-            amount: Uint128(5000),
-        }]);
-        assert!(
-            init_result.is_ok(),
-            "Init failed: {}",
-            init_result.err().unwrap()
-        );
-
-        let handle_msg = HandleMsg::Balance { padding: None };
-        let handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
-        assert!(
-            handle_result.is_ok(),
-            "handle() failed: {}",
-            handle_result.err().unwrap()
-        );
-
-        let balance: HandleAnswer = from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
-        match balance {
-            HandleAnswer::Balance { amount } => assert_eq!(amount, Uint128(5000)),
-            _ => panic!("NOT GONNA HAPPEN"),
-        }
-
-        let handle_msg = HandleMsg::Redeem {
-            amount: Uint128(1000),
-            padding: None,
-        };
-        let _handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
-
-        let handle_msg = HandleMsg::Balance { padding: None };
-        let handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
-        let balance: HandleAnswer = from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
-        match balance {
-            HandleAnswer::Balance { amount } => assert_eq!(amount, Uint128(4000)),
-            _ => panic!("NOT GONNA HAPPEN"),
-        }
-    }
-
-    #[test]
     fn test_handle_deposit() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: HumanAddr("lebron".to_string()),
@@ -2140,7 +2077,7 @@ mod tests {
         );
 
         let pause_msg = HandleMsg::SetContractStatus {
-            level: ContractStatusLevel::StopAllButWithdrawals,
+            level: ContractStatusLevel::StopAllButRedeems,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("not_admin", &[]), pause_msg);
@@ -2193,7 +2130,7 @@ mod tests {
         );
 
         let pause_msg = HandleMsg::SetContractStatus {
-            level: ContractStatusLevel::StopAllButWithdrawals,
+            level: ContractStatusLevel::StopAllButRedeems,
             padding: None,
         };
 
