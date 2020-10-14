@@ -689,6 +689,25 @@ function test_send() {
     log "balance response was: $balance_response"
     assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '600000'
 
+    # Test that send callback failure also denies the transfer
+    log 'sending funds from "a" to "b", with a "Fail" message to the Receiver'
+    receiver_msg='{"fail":{}}'
+    receiver_msg="$(base64 <<<"$receiver_msg")"
+    send_message='{"send":{"recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
+    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 300000)"
+    # Notice the `!` before the command - it is EXPECTED to fail.
+    ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
+    assert_eq "$(get_generic_err "$send_response")" 'intentional failure' # This comes from the receiver contract
+
+    # Check that "a" does not have fewer funds
+    log 'querying balance for "a"'
+    balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
+    balance_response="$(compute_query "$contract_addr" "$balance_query_a")"
+    log "balance response was: $balance_response"
+    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '600000' # This is the same balance as before
+
+    log 'a failure in the callback caused the transfer to roll back, as expected'
+
     # redeem both accounts
     redeem "$contract_addr" 'a' '600000'
     redeem_receiver "$receiver_addr" "$contract_addr" "${ADDRESS[a]}" '400000'
@@ -716,8 +735,8 @@ function main() {
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
 #    test_viewing_key "$contract_addr"
-    test_deposit "$contract_addr"
-    test_transfer "$contract_addr"
+#    test_deposit "$contract_addr"
+#    test_transfer "$contract_addr"
     test_send "$contract_addr"
 
     log 'Tests completed successfully'

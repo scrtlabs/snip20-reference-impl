@@ -43,6 +43,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             to,
             amount,
         } => try_redeem(deps, env, addr, hash, to, amount),
+        HandleMsg::Fail {} => try_fail(),
     }
 }
 
@@ -168,6 +169,10 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
         log: vec![],
         data: None,
     })
+}
+
+fn try_fail() -> StdResult<HandleResponse> {
+    Err(StdError::generic_err("intentional failure"))
 }
 
 pub fn query<S: Storage, A: Api, Q: Querier>(

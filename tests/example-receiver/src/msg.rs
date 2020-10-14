@@ -29,6 +29,7 @@ pub enum HandleMsg {
         to: HumanAddr,
         amount: Uint128,
     },
+    Fail {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
