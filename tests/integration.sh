@@ -26,6 +26,11 @@ function log() {
     echo "$@" >&2
 }
 
+# suppress all output to stdout and stderr for the command described in the arguments
+function silent() {
+    "$@" >/dev/null 2>&1
+}
+
 # Pad the string in the first argument to 256 bytes, using spaces
 function pad_space() {
     printf '%-256s' "$1"
@@ -223,6 +228,32 @@ function create_contract() {
     jq -r '.logs[0].events[0].attributes[] | select(.key == "contract_address") | .value' <<<"$init_result"
 }
 
+function deposit() {
+    local contract_addr="$1"
+    local key="$2"
+    local amount="$3"
+
+    local deposit_message='{"deposit":{"padding":":::::::::::::::::"}}'
+    local tx_hash
+    local deposit_response
+    tx_hash="$(compute_execute "$contract_addr" "$deposit_message" --amount "${amount}uscrt" ${FROM[$key]} --gas 150000)"
+    deposit_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for deposit to \"$key\" to process")"
+    assert_eq "$deposit_response" "$(pad_space '{"deposit":{"status":"success"}}')"
+    log "deposited ${amount}uscrt to \"$key\" successfully"
+}
+
+function get_balance() {
+    local contract_addr="$1"
+    local key="$2"
+
+    log "querying balance for \"$key\""
+    local balance_query='{"balance":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'"}}'
+    local balance_response
+    balance_response="$(compute_query "$contract_addr" "$balance_query")"
+    log "balance response was: $balance_response"
+    jq -r '.balance.amount' <<<"$balance_response"
+}
+
 # Redeem some SCRT from an account
 # As you can see, verifying this is happening correctly requires a lot of code
 # so I separated it to its own function, because it's used several times.
@@ -278,12 +309,12 @@ function test_viewing_key() {
 
     # Create viewing keys
     local create_viewing_key_message='{"create_viewing_key":{"entropy":"MyPassword123"}}'
-    local deposit_response
+    local viewing_key_response
     for key in "${KEY[@]}"; do
         log "creating viewing key for \"$key\""
         tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[$key]} --gas 1400000)"
-        deposit_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for viewing key for \"$key\" to be created")"
-        VK[$key]="$(jq -er '.create_viewing_key.key' <<<"$deposit_response")"
+        viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for viewing key for \"$key\" to be created")"
+        VK[$key]="$(jq -er '.create_viewing_key.key' <<<"$viewing_key_response")"
         log "viewing key for \"$key\" set to ${VK[$key]}"
         if [[ "${VK[$key]}" =~ ^api_key_ ]]; then
             log "viewing key \"$key\" seems valid"
@@ -304,7 +335,7 @@ function test_viewing_key() {
         balance_query='{"balance":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'"}}'
         log "querying balance for \"$key\" with correct viewing key"
         result="$(compute_query "$contract_addr" "$balance_query")"
-        if ! jq -e '.balance.amount | tonumber' <<<"$result" >/dev/null 2>&1; then
+        if ! silent jq -e '.balance.amount | tonumber' <<<"$result"; then
             log "Balance query returned unexpected response: ${result@Q}"
             return 1
         fi
@@ -315,8 +346,8 @@ function test_viewing_key() {
 
     log 'creating new viewing key for "a"'
     tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[a]} --gas 1400000)"
-    deposit_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be created')"
-    vk2_a="$(jq -er '.create_viewing_key.key' <<<"$deposit_response")"
+    viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be created')"
+    vk2_a="$(jq -er '.create_viewing_key.key' <<<"$viewing_key_response")"
     log "viewing key for \"a\" set to $vk2_a"
     assert_ne "${VK[a]}" "$vk2_a"
 
@@ -330,7 +361,7 @@ function test_viewing_key() {
     log 'querying balance for "a" with new viewing key'
     balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"$vk2_a"'"}}'
     result="$(compute_query "$contract_addr" "$balance_query_a")"
-    if ! jq -e '.balance.amount | tonumber' <<<"$result" >/dev/null 2>&1; then
+    if ! silent jq -e '.balance.amount | tonumber' <<<"$result"; then
         log "Balance query returned unexpected response: ${result@Q}"
         return 1
     fi
@@ -339,8 +370,8 @@ function test_viewing_key() {
     log 'setting the viewing key for "a" back to the first one'
     local set_viewing_key_message='{"set_viewing_key":{"key":"'"${VK[a]}"'"}}'
     tx_hash="$(compute_execute "$contract_addr" "$set_viewing_key_message" ${FROM[a]} --gas 1400000)"
-    deposit_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be set')"
-    assert_eq "$deposit_response" "$(pad_space '{"set_viewing_key":{"status":"success"}}')"
+    viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be set')"
+    assert_eq "$viewing_key_response" "$(pad_space '{"set_viewing_key":{"status":"success"}}')"
 
     # try to use the new key - should fail
     log 'querying balance for "a" with new viewing key'
@@ -352,7 +383,7 @@ function test_viewing_key() {
     log 'querying balance for "a" with old viewing key'
     balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
     result="$(compute_query "$contract_addr" "$balance_query_a")"
-    if ! jq -e '.balance.amount | tonumber' <<<"$result" >/dev/null 2>&1; then
+    if ! silent jq -e '.balance.amount | tonumber' <<<"$result"; then
         log "Balance query returned unexpected response: ${result@Q}"
         return 1
     fi
@@ -365,25 +396,14 @@ function test_deposit() {
 
     local tx_hash
 
-    local deposit_message='{"deposit":{"padding":":::::::::::::::::"}}'
-    local deposit_response
-    local -A deposits=([a]='1000000' [b]='2000000' [c]='3000000' [d]='4000000')
+    local -A deposits=([a]=1000000 [b]=2000000 [c]=3000000 [d]=4000000)
     for key in "${KEY[@]}"; do
-        tx_hash="$(compute_execute "$contract_addr" "$deposit_message" --amount "${deposits[$key]}uscrt" ${FROM[$key]} --gas 150000)"
-        deposit_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for deposit to \"$key\" to process")"
-        assert_eq "$deposit_response" "$(pad_space '{"deposit":{"status":"success"}}')"
-        log "deposited ${deposits[$key]}uscrt to \"$key\" successfully"
+        deposit "$contract_addr" "$key" "${deposits[$key]}"
     done
 
     # Query the balances of the accounts and make sure they have the right balances.
-    local -A balance_query
-    local balance_response
     for key in "${KEY[@]}"; do
-        balance_query[$key]='{"balance":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'"}}'
-        log "querying balance for \"$key\""
-        balance_response="$(compute_query "$contract_addr" "${balance_query[$key]}")"
-        log "balance response was: $balance_response"
-        assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" "${deposits[$key]}"
+        assert_eq "$(get_balance "$contract_addr" "$key")" "${deposits[$key]}"
     done
 
     # Try to overdraft
@@ -409,10 +429,7 @@ function test_deposit() {
 
     # Check the balances again. They should all be empty
     for key in "${KEY[@]}"; do
-        log "querying balance for \"$key\""
-        balance_response="$(compute_query "$contract_addr" "${balance_query[$key]}")"
-        log "balance response was: $balance_response"
-        assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
+        assert_eq "$(get_balance "$contract_addr" "$key")" 0
     done
 }
 
@@ -423,29 +440,12 @@ function test_transfer() {
 
     local tx_hash
 
-    # Check "a" doesn't have any funds
-    log 'querying balance for "a"'
-    local balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
-    local balance_response
-    balance_response="$(compute_query "$contract_addr" "$balance_query_a")"
-    log "balance response was: $balance_response"
-    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
-
-    # Check "b" doesn't have any funds
-    log 'querying balance for "b"'
-    local balance_query_b='{"balance":{"address":"'"${ADDRESS[b]}"'","key":"'"${VK[b]}"'"}}'
-    local balance_response
-    balance_response="$(compute_query "$contract_addr" "$balance_query_b")"
-    log "balance response was: $balance_response"
-    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
+    # Check "a" and "b" don't have any funds
+    assert_eq "$(get_balance "$contract_addr" 'a')" 0
+    assert_eq "$(get_balance "$contract_addr" 'b')" 0
 
     # Deposit to "a"
-    local deposit_message='{"deposit":{"padding":":::::::::::::::::"}}'
-    local deposit_response
-    tx_hash="$(compute_execute "$contract_addr" "$deposit_message" --amount '1000000uscrt' ${FROM[a]} --gas 150000)"
-    deposit_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for deposit to "a" to process')"
-    assert_eq "$deposit_response" "$(pad_space '{"deposit":{"status":"success"}}')"
-    log 'deposited 1000000uscrt to "a" successfully'
+    deposit "$contract_addr" 'a' 1000000
 
     # Try to transfer more than "a" has
     log 'transferring funds from "a" to "b", but more than "a" has'
@@ -466,9 +466,9 @@ function test_transfer() {
         transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
         transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
         txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
-        jq -e 'length <= 1' <<<"$txs" >/dev/null 2>&1 # just make sure we're not getting a weird response
-        if jq -e 'length == 1' <<<"$txs" >/dev/null 2>&1; then
-            assert_ne "$(jq -r '.[0].coins.amount' <<<"$txs")" '1000001'
+        silent jq -e 'length <= 1' <<<"$txs" # just make sure we're not getting a weird response
+        if silent jq -e 'length == 1' <<<"$txs"; then
+            assert_ne "$(jq -r '.[0].coins.amount' <<<"$txs")" 1000001
         fi
     done
 
@@ -488,12 +488,12 @@ function test_transfer() {
         transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
         transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
         txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
-        jq -e 'length == 1' <<<"$txs" >/dev/null 2>&1 # just make sure we're not getting a weird response
+        silent jq -e 'length == 1' <<<"$txs" # just make sure we're not getting a weird response
         tx="$(jq -r '.[0]' <<<"$txs")"
         assert_eq "$(jq -r '.from' <<<"$tx")" "${ADDRESS[a]}"
         assert_eq "$(jq -r '.sender' <<<"$tx")" "${ADDRESS[a]}"
         assert_eq "$(jq -r '.receiver' <<<"$tx")" "${ADDRESS[b]}"
-        assert_eq "$(jq -r '.coins.amount' <<<"$tx")" '400000'
+        assert_eq "$(jq -r '.coins.amount' <<<"$tx")" 400000
         assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
         tx_ids[$key]="$(jq -r '.id' <<<"$tx")"
     done
@@ -502,20 +502,14 @@ function test_transfer() {
     log 'The transfer was recorded correctly in the transaction history'
 
     # Check that "a" has fewer funds
-    log 'querying balance for "a"'
-    balance_response="$(compute_query "$contract_addr" "$balance_query_a")"
-    log "balance response was: $balance_response"
-    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '600000'
+    assert_eq "$(get_balance "$contract_addr" 'a')" 600000
 
     # Check that "b" has the funds that "a" deposited
-    log 'querying balance for "b"'
-    balance_response="$(compute_query "$contract_addr" "$balance_query_b")"
-    log "balance response was: $balance_response"
-    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '400000'
+    assert_eq "$(get_balance "$contract_addr" 'b')" 400000
 
     # Redeem both accounts
-    redeem "$contract_addr" a '600000'
-    redeem "$contract_addr" b '400000'
+    redeem "$contract_addr" a 600000
+    redeem "$contract_addr" b 400000
     # Send the funds back
     secretcli tx send b "${ADDRESS[a]}" 400000uscrt -y -b block >/dev/null
 }
@@ -590,29 +584,12 @@ function test_send() {
 
     local tx_hash
 
-    # Check "a" doesn't have any funds
-    log 'querying balance for "a"'
-    local balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
-    local balance_response
-    balance_response="$(compute_query "$contract_addr" "$balance_query_a")"
-    log "balance response was: $balance_response"
-    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
-
-    # Check "b" doesn't have any funds
-    log 'querying balance for "b"'
-    local balance_query_b='{"balance":{"address":"'"${ADDRESS[b]}"'","key":"'"${VK[b]}"'"}}'
-    local balance_response
-    balance_response="$(compute_query "$contract_addr" "$balance_query_b")"
-    log "balance response was: $balance_response"
-    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '0'
+    # Check "a" and "b" don't have any funds
+    assert_eq "$(get_balance "$contract_addr" 'a')" 0
+    assert_eq "$(get_balance "$contract_addr" 'b')" 0
 
     # Deposit to "a"
-    local deposit_message='{"deposit":{"padding":":::::::::::::::::"}}'
-    local deposit_response
-    tx_hash="$(compute_execute "$contract_addr" "$deposit_message" --amount '1000000uscrt' ${FROM[a]} --gas 150000)"
-    deposit_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for deposit to "a" to process')"
-    assert_eq "$deposit_response" "$(pad_space '{"deposit":{"status":"success"}}')"
-    log 'deposited 1000000uscrt to "a" successfully'
+    deposit "$contract_addr" 'a' 1000000
 
     # Try to send more than "a" has
     log 'sending funds from "a" to "b", but more than "a" has'
@@ -633,9 +610,9 @@ function test_send() {
         transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
         transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
         txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
-        jq -e 'length <= 1' <<<"$txs" >/dev/null 2>&1 # just make sure we're not getting a weird response
-        if jq -e 'length == 1' <<<"$txs" >/dev/null 2>&1; then
-            assert_ne "$(jq -r '.[0].coins.amount' <<<"$txs")" '1000001'
+        silent jq -e 'length <= 1' <<<"$txs" # just make sure we're not getting a weird response
+        if silent jq -e 'length == 1' <<<"$txs"; then
+            assert_ne "$(jq -r '.[0].coins.amount' <<<"$txs")" 1000001
         fi
     done
 
@@ -674,20 +651,16 @@ function test_send() {
     transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'","page_size":1}}'
     transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
     txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
-    jq -e 'length == 1' <<<"$txs" >/dev/null 2>&1 # just make sure we're not getting a weird response
+    silent jq -e 'length == 1' <<<"$txs" # just make sure we're not getting a weird response
     tx="$(jq -r '.[0]' <<<"$txs")"
     assert_eq "$(jq -r '.from' <<<"$tx")" "${ADDRESS[a]}"
     assert_eq "$(jq -r '.sender' <<<"$tx")" "${ADDRESS[a]}"
     assert_eq "$(jq -r '.receiver' <<<"$tx")" "$receiver_addr"
-    assert_eq "$(jq -r '.coins.amount' <<<"$tx")" '400000'
+    assert_eq "$(jq -r '.coins.amount' <<<"$tx")" 400000
     assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
 
     # Check that "a" has fewer funds
-    log 'querying balance for "a"'
-    balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
-    balance_response="$(compute_query "$contract_addr" "$balance_query_a")"
-    log "balance response was: $balance_response"
-    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '600000'
+    assert_eq "$(get_balance "$contract_addr" 'a')" 600000
 
     # Test that send callback failure also denies the transfer
     log 'sending funds from "a" to "b", with a "Fail" message to the Receiver'
@@ -700,17 +673,13 @@ function test_send() {
     assert_eq "$(get_generic_err "$send_response")" 'intentional failure' # This comes from the receiver contract
 
     # Check that "a" does not have fewer funds
-    log 'querying balance for "a"'
-    balance_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
-    balance_response="$(compute_query "$contract_addr" "$balance_query_a")"
-    log "balance response was: $balance_response"
-    assert_eq "$(jq -r '.balance.amount' <<<"$balance_response")" '600000' # This is the same balance as before
+    assert_eq "$(get_balance "$contract_addr" 'a')" 600000 # This is the same balance as before
 
     log 'a failure in the callback caused the transfer to roll back, as expected'
 
     # redeem both accounts
-    redeem "$contract_addr" 'a' '600000'
-    redeem_receiver "$receiver_addr" "$contract_addr" "${ADDRESS[a]}" '400000'
+    redeem "$contract_addr" 'a' 600000
+    redeem_receiver "$receiver_addr" "$contract_addr" "${ADDRESS[a]}" 400000
 }
 
 function main() {
