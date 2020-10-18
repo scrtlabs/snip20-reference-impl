@@ -130,7 +130,7 @@ function wait_for_compute_tx() {
     if jq -e '.logs == null' <<<"$result" >/dev/null; then
         return_value=1
     fi
-    decrypted="$(secretcli query compute tx "$tx_hash")"
+    decrypted="$(secretcli query compute tx "$tx_hash")" || return
     log "$decrypted"
     echo "$decrypted"
 
@@ -148,7 +148,7 @@ function check_tx() {
     if jq -e '.logs == null' <<<"$result" >/dev/null; then
         return_value=1
     fi
-    decrypted="$(secretcli query compute tx "$tx_hash")"
+    decrypted="$(secretcli query compute tx "$tx_hash")" || return
     log "$decrypted"
     echo "$decrypted"
 
@@ -242,6 +242,21 @@ function deposit() {
     log "deposited ${amount}uscrt to \"$key\" successfully"
 }
 
+function burn() {
+    local contract_addr="$1"
+    local key="$2"
+    local amount="$3"
+
+    local burn_message='{"burn":{"amount":"'"$amount"'"}}'
+    local tx_hash
+    local burn_response
+    tx_hash="$(compute_execute "$contract_addr" "$burn_message" ${FROM[$key]} --gas 150000)"
+    burn_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for burn for \"$key\" to process")"
+    echo "$burn_response"
+    assert_eq "$burn_response" "$(pad_space '{"burn":{"status":"success"}}')"
+    log "burned ${amount}uscrt for \"$key\" successfully"
+}
+
 function get_balance() {
     local contract_addr="$1"
     local key="$2"
@@ -280,6 +295,13 @@ function redeem() {
     redeem_response="$(data_of check_tx "$tx_hash")"
     assert_eq "$redeem_response" "$(pad_space '{"redeem":{"status":"success"}}')"
     log "redeemed ${amount} from \"$key\" successfully"
+}
+
+function get_token_info() {
+    local contract_addr="$1"
+
+    local token_info_query='{"token_info":{}}'
+    compute_query "$contract_addr" "$token_info_query"
 }
 
 function log_test_header() {
@@ -682,6 +704,54 @@ function test_send() {
     redeem_receiver "$receiver_addr" "$contract_addr" "${ADDRESS[a]}" 400000
 }
 
+# This test also tests TokenInfo
+function test_burn() {
+    local contract_addr="$1"
+
+    log_test_header
+
+    local token_info_response
+    local burn_response
+
+    # Deposit to "a"
+    deposit "$contract_addr" 'a' 1000000
+
+    # Check total supply
+    token_info_response="$(get_token_info "$contract_addr")"
+    log 'token info response was' "$token_info_response"
+    assert_eq "$(jq -r '.token_info.total_supply' <<<"$token_info_response")" 1000000
+
+    # Try to over-burn
+    local burn_message='{"burn":{"amount":"10000000"}}' # 110%
+    local tx_hash
+    local burn_response
+    tx_hash="$(compute_execute "$contract_addr" "$burn_message" ${FROM[a]} --gas 150000)"
+    ! burn_response="$(wait_for_compute_tx "$tx_hash" 'waiting for burn for "a" to process')"
+    assert_eq "$(get_generic_err "$burn_response")" 'insufficient funds to burn: balance=1000000, required=10000000'
+
+    # Check "a" balance - should not have changes
+    assert_eq "$(get_balance "$contract_addr" 'a')" 1000000
+
+    # Check total supply
+    token_info_response="$(get_token_info "$contract_addr")"
+    log 'token info response was' "$token_info_response"
+    assert_eq "$(jq -r '.token_info.total_supply' <<<"$token_info_response")" 1000000
+
+    # Try to burn
+    burn_response="$(burn "$contract_addr" 'a' 100000)" # 10%
+
+    # Check "a" balance
+    assert_eq "$(get_balance "$contract_addr" 'a')" 900000
+
+    # Check total supply
+    token_info_response="$(get_token_info "$contract_addr")"
+    log 'token info response was' "$token_info_response"
+    assert_eq "$(jq -r '.token_info.total_supply' <<<"$token_info_response")" 900000
+
+    # Redeem "a"
+    redeem "$contract_addr" 'a' 900000
+}
+
 function main() {
     log '              <####> Starting integration tests <####>'
     log "secretcli version in the docker image is: $(secretcli version)"
@@ -689,16 +759,16 @@ function main() {
     local prng_seed
     prng_seed="$(base64 <<<'enigma-rocks')"
     local init_msg
-    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{}}'
+    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{"public_total_supply":true}}'
     contract_addr="$(create_contract '.' "$init_msg")"
 
     # To make testing faster, check the logs and try to reuse the deployed contract and VKs from previous runs.
     # Remember to comment out the contract deployment and `test_viewing_key` if you do.
-#    local contract_addr='secret1rgsafmz6jmq9ezq04v9gagu9sm08f4ht66lyfy'
-#    VK[a]='api_key_UsLPYFXMml9Q9K01xdUY/zN7qLypLy96bWOQxe3dQp0='
-#    VK[b]='api_key_w1D2hV0A3T9TssjQGWBCVh0+N/RgaBHsBx6fJxNIjss='
-#    VK[c]='api_key_EzJg6mK6gXDXRlx6hsbUgfzhJytbaLvklvKKgw4GZ48='
-#    VK[d]='api_key_IFGz4nFMTKc203uKaVaYrumPQEAtF2VdqC9lJllRDac='
+#    local contract_addr='secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg'
+#    VK[a]='api_key_Ij3ZwkDOTqMPnmCLGn3F2uX0pMpETw2LTyCkQ0sDMv8='
+#    VK[b]='api_key_hV3SlzQMC4YK50GbDrpbjicGOMQpolfPI+O6pMp6oQY='
+#    VK[c]='api_key_7Bv00UvQCkZ7SltDn205R0GBugq/l8GnRX6N0JIBQuA='
+#    VK[d]='api_key_A3Y3mFe87d2fEq90kNlPSIUSmVgoao448ZpyDAJkB/4='
 
     log "contract address: $contract_addr"
 
@@ -707,6 +777,7 @@ function main() {
     test_deposit "$contract_addr"
     test_transfer "$contract_addr"
     test_send "$contract_addr"
+    test_burn "$contract_addr"
 
     log 'Tests completed successfully'
 
