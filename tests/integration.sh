@@ -1078,7 +1078,4 @@ function main() {
     return 0
 }
 
-#main "$@"
-
-create_receiver_contract
-create_receiver_contract
+main "$@"
