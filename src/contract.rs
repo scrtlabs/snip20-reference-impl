@@ -1074,7 +1074,7 @@ mod tests {
     use crate::msg::ResponseStatus;
     use crate::msg::{InitConfig, InitialBalance};
     use cosmwasm_std::testing::*;
-    use cosmwasm_std::{from_binary, BlockInfo, ContractInfo, MessageInfo, WasmMsg};
+    use cosmwasm_std::{from_binary, BlockInfo, ContractInfo, MessageInfo, QueryResponse, WasmMsg};
     use std::any::Any;
 
     // Helper functions
@@ -1130,7 +1130,7 @@ mod tests {
         match error {
             Ok(response) => {
                 let bin_err = (&response as &dyn Any)
-                    .downcast_ref::<Binary>()
+                    .downcast_ref::<QueryResponse>()
                     .expect("An error was expected, but no error could be extracted");
                 match from_binary(bin_err).unwrap() {
                     QueryAnswer::ViewingKeyError { msg } => msg,

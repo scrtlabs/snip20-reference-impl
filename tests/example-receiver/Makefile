@@ -1,5 +1,3 @@
-SECRETCLI = docker exec -it secretdev /usr/bin/secretcli
-
 .PHONY: all
 all: clippy test
 
@@ -7,39 +5,16 @@ all: clippy test
 check:
 	cargo check
 
-.PHONY: check-receiver
-check-receiver:
-	$(MAKE) -C tests/example-receiver check
-
 .PHONY: clippy
 clippy:
 	cargo clippy
 
-.PHONY: clippy-receiver
-clippy-receiver:
-	$(MAKE) -C tests/example-receiver clippy
-
 .PHONY: test
-test: unit-test unit-test-receiver integration-test
+test: unit-test
 
 .PHONY: unit-test
 unit-test:
 	cargo test
-
-.PHONY: unit-test-receiver
-unit-test-receiver:
-	$(MAKE) -C tests/example-receiver unit-test
-
-.PHONY: integration-test
-integration-test: compile-optimized compile-optimized-receiver
-	tests/integration.sh
-
-compile-optimized-receiver:
-	$(MAKE) -C tests/example-receiver compile-optimized
-
-.PHONY: list-code
-list-code:
-	$(SECRETCLI) query compute list-code
 
 .PHONY: compile _compile
 compile: _compile contract.wasm.gz
@@ -59,17 +34,10 @@ compile-optimized-reproducible:
 	docker run --rm -v "$$(pwd)":/contract \
 		--mount type=volume,source="$$(basename "$$(pwd)")_cache",target=/code/target \
 		--mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
-		enigmampc/secret-contract-optimizer:1.0.3
+		enigmampc/secret-contract-optimizer
 
 contract.wasm.gz: contract.wasm
 	cat ./contract.wasm | gzip -9 > ./contract.wasm.gz
-
-.PHONY: start-server
-start-server: # CTRL+C to stop
-	docker run -it --rm \
-		-p 26657:26657 -p 26656:26656 -p 1317:1317 \
-		-v $$(pwd):/root/code \
-		--name secretdev enigmampc/secret-network-sw-dev:v1.0.2
 
 .PHONY: schema
 schema:
@@ -79,4 +47,3 @@ schema:
 clean:
 	cargo clean
 	rm -f ./contract.wasm ./contract.wasm.gz
-	$(MAKE) -C tests/example-receiver clean
