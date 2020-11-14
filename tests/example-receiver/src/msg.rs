@@ -20,6 +20,7 @@ pub enum HandleMsg {
     },
     Receive {
         sender: HumanAddr,
+        from: HumanAddr,
         amount: Uint128,
         msg: Binary,
     },

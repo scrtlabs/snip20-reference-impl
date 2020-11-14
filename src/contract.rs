@@ -166,8 +166,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 
         // Mint
         HandleMsg::Mint {
-            amount, address, ..
-        } => try_mint(deps, env, address, amount),
+            recipient, amount, ..
+        } => try_mint(deps, env, recipient, amount),
 
         // Other
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
@@ -1948,6 +1948,7 @@ mod tests {
 
         let handle_msg = HandleMsg::Redeem {
             amount: Uint128(1000),
+            denom: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("butler", &[]), handle_msg);
@@ -2049,8 +2050,8 @@ mod tests {
         let supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
         let mint_amount: u128 = 100;
         let handle_msg = HandleMsg::Mint {
+            recipient: HumanAddr("lebron".to_string()),
             amount: Uint128(mint_amount),
-            address: HumanAddr("lebron".to_string()),
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
@@ -2157,6 +2158,7 @@ mod tests {
 
         let withdraw_msg = HandleMsg::Redeem {
             amount: Uint128(5000),
+            denom: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("lebron", &[]), withdraw_msg);
@@ -2205,6 +2207,7 @@ mod tests {
 
         let withdraw_msg = HandleMsg::Redeem {
             amount: Uint128(5000),
+            denom: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("lebron", &[]), withdraw_msg);
@@ -2243,17 +2246,17 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = HandleMsg::Mint {
+            recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
             padding: None,
-            address: HumanAddr("bob".to_string()),
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = HandleMsg::Mint {
+            recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
             padding: None,
-            address: HumanAddr("bob".to_string()),
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
@@ -2288,17 +2291,17 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = HandleMsg::Mint {
+            recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
             padding: None,
-            address: HumanAddr("bob".to_string()),
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = HandleMsg::Mint {
+            recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
             padding: None,
-            address: HumanAddr("bob".to_string()),
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
         assert!(ensure_success(handle_result.unwrap()));
@@ -2332,18 +2335,18 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = HandleMsg::Mint {
+            recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
             padding: None,
-            address: HumanAddr("bob".to_string()),
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
         assert!(error.contains("allowed to minter accounts only"));
 
         let handle_msg = HandleMsg::Mint {
+            recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
             padding: None,
-            address: HumanAddr("bob".to_string()),
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
@@ -2358,18 +2361,18 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = HandleMsg::Mint {
+            recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
             padding: None,
-            address: HumanAddr("bob".to_string()),
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
         assert!(error.contains("allowed to minter accounts only"));
 
         let handle_msg = HandleMsg::Mint {
+            recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
             padding: None,
-            address: HumanAddr("bob".to_string()),
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
@@ -2524,7 +2527,6 @@ mod tests {
             owner: HumanAddr("giannis".to_string()),
             spender: HumanAddr("lebron".to_string()),
             key: vk1.0.clone(),
-            padding: None,
         };
         let query_result = query(&deps, query_msg);
         assert!(
@@ -2569,7 +2571,6 @@ mod tests {
             owner: HumanAddr("giannis".to_string()),
             spender: HumanAddr("lebron".to_string()),
             key: vk1.0.clone(),
-            padding: None,
         };
         let query_result = query(&deps, query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {
@@ -2582,7 +2583,6 @@ mod tests {
             owner: HumanAddr("giannis".to_string()),
             spender: HumanAddr("lebron".to_string()),
             key: vk2.0.clone(),
-            padding: None,
         };
         let query_result = query(&deps, query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {
@@ -2595,7 +2595,6 @@ mod tests {
             owner: HumanAddr("lebron".to_string()),
             spender: HumanAddr("giannis".to_string()),
             key: vk2.0.clone(),
-            padding: None,
         };
         let query_result = query(&deps, query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {

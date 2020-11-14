@@ -34,9 +34,10 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::Register { reg_addr, reg_hash } => try_register(deps, env, reg_addr, reg_hash),
         HandleMsg::Receive {
             sender,
+            from,
             amount,
             msg,
-        } => try_receive(deps, env, sender, amount, msg),
+        } => try_receive(deps, env, sender, from, amount, msg),
         HandleMsg::Redeem {
             addr,
             hash,
@@ -112,6 +113,7 @@ pub fn try_receive<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     _sender: HumanAddr,
+    _from: HumanAddr,
     _amount: Uint128,
     msg: Binary,
 ) -> StdResult<HandleResponse> {
@@ -160,7 +162,7 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
     });
     let redeem = CosmosMsg::Bank(BankMsg::Send {
         amount: vec![Coin::new(amount.u128(), "uscrt")],
-        from_address: env.contract.address.clone(),
+        from_address: env.contract.address,
         to_address: to,
     });
 
