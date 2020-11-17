@@ -27,45 +27,22 @@
     {
       "type": "object",
       "required": [
-        "swap"
-      ],
-      "properties": {
-        "swap": {
-          "type": "object",
-          "required": [
-            "nonce"
-          ],
-          "properties": {
-            "nonce": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "allowance"
       ],
       "properties": {
         "allowance": {
           "type": "object",
           "required": [
+            "key",
             "owner",
             "spender"
           ],
           "properties": {
+            "key": {
+              "type": "string"
+            },
             "owner": {
               "$ref": "#/definitions/HumanAddr"
-            },
-            "padding": {
-              "type": [
-                "string",
-                "null"
-              ]
             },
             "spender": {
               "$ref": "#/definitions/HumanAddr"
@@ -137,10 +114,10 @@
     {
       "type": "object",
       "required": [
-        "test"
+        "minters"
       ],
       "properties": {
-        "test": {
+        "minters": {
           "type": "object"
         }
       }
