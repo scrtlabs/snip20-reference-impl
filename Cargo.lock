@@ -401,27 +401,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "secret-secret"
-version = "0.1.0"
-dependencies = [
- "base64 0.12.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "bincode2 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "cosmwasm-schema 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "cosmwasm-sgx-vm 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=v1.0.0)",
- "cosmwasm-std 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=v1.0.0)",
- "cosmwasm-storage 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=v1.0.0)",
- "hex 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "rand_chacha 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "rand_core 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "schemars 0.7.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "secret-toolkit 0.1.0 (git+https://github.com/enigmampc/secret-toolkit?rev=6aa670f)",
- "serde 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
- "sha2 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "snafu 0.6.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "subtle 2.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "secret-toolkit"
 version = "0.1.0"
 source = "git+https://github.com/enigmampc/secret-toolkit?rev=6aa670f#6aa670f680c4e6e5960beefe3221315cfd56f066"
@@ -541,6 +520,27 @@ dependencies = [
  "proc-macro2 1.0.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "quote 1.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 1.0.33 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "snip20-reference-impl"
+version = "0.1.0"
+dependencies = [
+ "base64 0.12.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bincode2 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cosmwasm-schema 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cosmwasm-sgx-vm 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=v1.0.0)",
+ "cosmwasm-std 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=v1.0.0)",
+ "cosmwasm-storage 0.10.0 (git+https://github.com/enigmampc/SecretNetwork?tag=v1.0.0)",
+ "hex 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand_chacha 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand_core 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "schemars 0.7.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "secret-toolkit 0.1.0 (git+https://github.com/enigmampc/secret-toolkit?rev=6aa670f)",
+ "serde 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sha2 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "snafu 0.6.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "subtle 2.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
