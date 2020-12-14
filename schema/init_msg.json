@@ -3,19 +3,31 @@
   "title": "InitMsg",
   "type": "object",
   "required": [
-    "admin",
-    "config",
     "decimals",
-    "initial_balances",
     "name",
+    "prng_seed",
     "symbol"
   ],
   "properties": {
     "admin": {
-      "$ref": "#/definitions/HumanAddr"
+      "anyOf": [
+        {
+          "$ref": "#/definitions/HumanAddr"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "config": {
-      "$ref": "#/definitions/InitConfig"
+      "anyOf": [
+        {
+          "$ref": "#/definitions/InitConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "decimals": {
       "type": "integer",
@@ -23,7 +35,10 @@
       "minimum": 0.0
     },
     "initial_balances": {
-      "type": "array",
+      "type": [
+        "array",
+        "null"
+      ],
       "items": {
         "$ref": "#/definitions/InitialBalance"
       }
@@ -31,11 +46,18 @@
     "name": {
       "type": "string"
     },
+    "prng_seed": {
+      "$ref": "#/definitions/Binary"
+    },
     "symbol": {
       "type": "string"
     }
   },
   "definitions": {
+    "Binary": {
+      "description": "Binary is a wrapper around Vec<u8> to add base64 de/serialization with serde. It also adds some helper methods to help encode inline.\n\nThis is only needed as serde-json-{core,wasm} has a horrible encoding for Vec<u8>",
+      "type": "string"
+    },
     "HumanAddr": {
       "type": "string"
     },

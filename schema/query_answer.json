@@ -28,12 +28,14 @@
               "type": "string"
             },
             "total_supply": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint128",
-              "minimum": 0.0
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         }
@@ -57,25 +59,6 @@
             },
             "rate": {
               "$ref": "#/definitions/Uint128"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "swap"
-      ],
-      "properties": {
-        "swap": {
-          "type": "object",
-          "required": [
-            "result"
-          ],
-          "properties": {
-            "result": {
-              "$ref": "#/definitions/Swap"
             }
           }
         }
@@ -175,6 +158,28 @@
           }
         }
       }
+    },
+    {
+      "type": "object",
+      "required": [
+        "minters"
+      ],
+      "properties": {
+        "minters": {
+          "type": "object",
+          "required": [
+            "minters"
+          ],
+          "properties": {
+            "minters": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/HumanAddr"
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "definitions": {
@@ -196,37 +201,26 @@
     "HumanAddr": {
       "type": "string"
     },
-    "Swap": {
-      "type": "object",
-      "required": [
-        "amount",
-        "destination",
-        "nonce"
-      ],
-      "properties": {
-        "amount": {
-          "$ref": "#/definitions/Uint128"
-        },
-        "destination": {
-          "type": "string"
-        },
-        "nonce": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0.0
-        }
-      }
-    },
     "Tx": {
       "type": "object",
       "required": [
         "coins",
+        "from",
+        "id",
         "receiver",
         "sender"
       ],
       "properties": {
         "coins": {
           "$ref": "#/definitions/Coin"
+        },
+        "from": {
+          "$ref": "#/definitions/HumanAddr"
+        },
+        "id": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "receiver": {
           "$ref": "#/definitions/HumanAddr"

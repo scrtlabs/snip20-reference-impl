@@ -1,5 +1,5 @@
 [package]
-name = "secret-secret"
+name = "snip20-reference-impl"
 version = "0.1.0"
 authors = ["Itzik <itzik@keytango.io>"]
 edition = "2018"

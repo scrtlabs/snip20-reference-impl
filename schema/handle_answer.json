@@ -43,25 +43,6 @@
     {
       "type": "object",
       "required": [
-        "balance"
-      ],
-      "properties": {
-        "balance": {
-          "type": "object",
-          "required": [
-            "amount"
-          ],
-          "properties": {
-            "amount": {
-              "$ref": "#/definitions/Uint128"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "transfer"
       ],
       "properties": {
@@ -306,21 +287,53 @@
     {
       "type": "object",
       "required": [
-        "swap"
+        "add_minters"
       ],
       "properties": {
-        "swap": {
+        "add_minters": {
           "type": "object",
           "required": [
-            "nonce",
             "status"
           ],
           "properties": {
-            "nonce": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            },
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "remove_minters"
+      ],
+      "properties": {
+        "remove_minters": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "set_minters"
+      ],
+      "properties": {
+        "set_minters": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
             "status": {
               "$ref": "#/definitions/ResponseStatus"
             }
@@ -335,6 +348,25 @@
       ],
       "properties": {
         "change_admin": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "set_contract_status"
+      ],
+      "properties": {
+        "set_contract_status": {
           "type": "object",
           "required": [
             "status"
