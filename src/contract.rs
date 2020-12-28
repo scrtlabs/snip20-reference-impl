@@ -244,7 +244,7 @@ fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     if constants.deposit_is_enabled || constants.redeem_is_enabled {
         let rate: Uint128;
         let denom: String;
-       // if token has more decimals than SCRT, you get magnitudes of SCRT per token
+        // if token has more decimals than SCRT, you get magnitudes of SCRT per token
         if constants.decimals >= 6 {
             rate = Uint128(10u128.checked_pow((constants.decimals - 6).into()).unwrap());
             denom = "SCRT".to_string();
@@ -255,7 +255,10 @@ fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> QueryResult {
         }
         return to_binary(&QueryAnswer::ExchangeRate { rate, denom });
     }
-    to_binary(&QueryAnswer::ExchangeRate { rate: Uint128(0), denom: "Neither deposit nor redeem is enabled for this token.".to_string() })
+    to_binary(&QueryAnswer::ExchangeRate {
+        rate: Uint128(0),
+        denom: "Neither deposit nor redeem is enabled for this token.".to_string(),
+    })
 }
 
 fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
@@ -3199,7 +3202,10 @@ mod tests {
         match query_answer {
             QueryAnswer::ExchangeRate { rate, denom } => {
                 assert_eq!(rate, Uint128(0));
-                assert_eq!(denom, "Neither deposit nor redeem is enabled for this token.");
+                assert_eq!(
+                    denom,
+                    "Neither deposit nor redeem is enabled for this token."
+                );
             }
             _ => panic!("unexpected"),
         }
