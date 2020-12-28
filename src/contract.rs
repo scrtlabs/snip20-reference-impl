@@ -240,19 +240,22 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
 fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     let config = ReadonlyConfig::from_storage(storage);
     let constants = config.constants()?;
-    let rate: Uint128;
-    let denom: String;
 
-    // if token has more decimals than SCRT, you get magnitudes of SCRT per token
-    if constants.decimals >= 6 {
-        rate = Uint128(10u128.checked_pow((constants.decimals - 6).into()).unwrap());
-        denom = "SCRT".to_string();
-    // if token has less decimals, you get magnitudes token for SCRT
-    } else {
-        rate = Uint128(10u128.checked_pow((6 - constants.decimals).into()).unwrap());
-        denom = constants.symbol;
+    if constants.deposit_is_enabled || constants.redeem_is_enabled {
+        let rate: Uint128;
+        let denom: String;
+       // if token has more decimals than SCRT, you get magnitudes of SCRT per token
+        if constants.decimals >= 6 {
+            rate = Uint128(10u128.checked_pow((constants.decimals - 6).into()).unwrap());
+            denom = "SCRT".to_string();
+        // if token has less decimals, you get magnitudes token for SCRT
+        } else {
+            rate = Uint128(10u128.checked_pow((6 - constants.decimals).into()).unwrap());
+            denom = constants.symbol;
+        }
+        return to_binary(&QueryAnswer::ExchangeRate { rate, denom });
     }
-    to_binary(&QueryAnswer::ExchangeRate { rate, denom })
+    to_binary(&QueryAnswer::ExchangeRate { rate: Uint128(0), denom: "Neither deposit nor redeem is enabled for this token.".to_string() })
 }
 
 fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
@@ -2995,6 +2998,18 @@ mod tests {
 
         let mut deps = mock_dependencies(20, &[]);
         let env = mock_env("instantiator", &[]);
+        let init_config: InitConfig = from_binary(&Binary::from(
+            format!(
+                "{{\"public_total_supply\":{},
+            \"enable_deposit\":{},
+            \"enable_redeem\":{},
+            \"enable_mint\":{},
+            \"enable_burn\":{}}}",
+                true, true, false, false, false
+            )
+            .as_bytes(),
+        ))
+        .unwrap();
         let init_msg = InitMsg {
             name: init_name.clone(),
             admin: Some(init_admin.clone()),
@@ -3005,7 +3020,7 @@ mod tests {
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
-            config: None,
+            config: Some(init_config),
         };
         let init_result = init(&mut deps, env, init_msg);
         assert!(
@@ -3040,6 +3055,18 @@ mod tests {
 
         let mut deps = mock_dependencies(20, &[]);
         let env = mock_env("instantiator", &[]);
+        let init_config: InitConfig = from_binary(&Binary::from(
+            format!(
+                "{{\"public_total_supply\":{},
+            \"enable_deposit\":{},
+            \"enable_redeem\":{},
+            \"enable_mint\":{},
+            \"enable_burn\":{}}}",
+                true, true, false, false, false
+            )
+            .as_bytes(),
+        ))
+        .unwrap();
         let init_msg = InitMsg {
             name: init_name.clone(),
             admin: Some(init_admin.clone()),
@@ -3050,7 +3077,7 @@ mod tests {
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
-            config: None,
+            config: Some(init_config),
         };
         let init_result = init(&mut deps, env, init_msg);
         assert!(
@@ -3076,6 +3103,63 @@ mod tests {
         }
 
         // test less decimal places than SCRT
+        let init_name = "sec-sec".to_string();
+        let init_admin = HumanAddr("admin".to_string());
+        let init_symbol = "SECSEC".to_string();
+        let init_decimals = 3;
+
+        let init_supply = Uint128(5000);
+
+        let mut deps = mock_dependencies(20, &[]);
+        let env = mock_env("instantiator", &[]);
+        let init_config: InitConfig = from_binary(&Binary::from(
+            format!(
+                "{{\"public_total_supply\":{},
+            \"enable_deposit\":{},
+            \"enable_redeem\":{},
+            \"enable_mint\":{},
+            \"enable_burn\":{}}}",
+                true, true, false, false, false
+            )
+            .as_bytes(),
+        ))
+        .unwrap();
+        let init_msg = InitMsg {
+            name: init_name.clone(),
+            admin: Some(init_admin.clone()),
+            symbol: init_symbol.clone(),
+            decimals: init_decimals.clone(),
+            initial_balances: Some(vec![InitialBalance {
+                address: HumanAddr("giannis".to_string()),
+                amount: init_supply,
+            }]),
+            prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            config: Some(init_config),
+        };
+        let init_result = init(&mut deps, env, init_msg);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let query_msg = QueryMsg::ExchangeRate {};
+        let query_result = query(&deps, query_msg);
+        assert!(
+            query_result.is_ok(),
+            "Init failed: {}",
+            query_result.err().unwrap()
+        );
+        let query_answer: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
+        match query_answer {
+            QueryAnswer::ExchangeRate { rate, denom } => {
+                assert_eq!(rate, Uint128(1000));
+                assert_eq!(denom, "SECSEC");
+            }
+            _ => panic!("unexpected"),
+        }
+
+        // test depost/redeem not enabled
         let init_name = "sec-sec".to_string();
         let init_admin = HumanAddr("admin".to_string());
         let init_symbol = "SECSEC".to_string();
@@ -3114,8 +3198,8 @@ mod tests {
         let query_answer: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
         match query_answer {
             QueryAnswer::ExchangeRate { rate, denom } => {
-                assert_eq!(rate, Uint128(1000));
-                assert_eq!(denom, "SECSEC");
+                assert_eq!(rate, Uint128(0));
+                assert_eq!(denom, "Neither deposit nor redeem is enabled for this token.");
             }
             _ => panic!("unexpected"),
         }
