@@ -16,6 +16,17 @@
     {
       "type": "object",
       "required": [
+        "token_config"
+      ],
+      "properties": {
+        "token_config": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "exchange_rate"
       ],
       "properties": {

@@ -44,6 +44,41 @@
     {
       "type": "object",
       "required": [
+        "token_config"
+      ],
+      "properties": {
+        "token_config": {
+          "type": "object",
+          "required": [
+            "burn_enabled",
+            "deposit_enabled",
+            "mint_enabled",
+            "public_total_supply",
+            "redeem_enabled"
+          ],
+          "properties": {
+            "burn_enabled": {
+              "type": "boolean"
+            },
+            "deposit_enabled": {
+              "type": "boolean"
+            },
+            "mint_enabled": {
+              "type": "boolean"
+            },
+            "public_total_supply": {
+              "type": "boolean"
+            },
+            "redeem_enabled": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "exchange_rate"
       ],
       "properties": {

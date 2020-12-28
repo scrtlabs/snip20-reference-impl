@@ -1,56 +1,54 @@
-# Secret-SCRT - Privacy coin backed by SCRT
+# SNIP-20 Reference Implementation
 
-This is a PoC of how to create a privacy token on the Secret Network backed by a native coin.
+This is an implementation of a SNIP-20 compliant token contract.  At the time of token creation you may configure:
+* Public Total Supply:  If you enable this, the token's total supply will be displayed whenever a TokenInfo query is performed.  DEFAULT: false
+* Enable Deposit: If you enable this, you will be able to convert from SCRT to the token.*  DEFAULT: false
+* Enable Redeem: If you enable this, you will be able to redeem your token for SCRT.*  It should be noted that if you have redeem enabled, but deposit disabled, all redeem attempts will fail unless someone has sent SCRT to the token contract.  DEFAULT: false
+* Enable Mint: If you enable this, any address in the list of minters will be able to mint new tokens.  The admin address is the default minter, but can use the set/add/remove_minters functions to change the list of approved minting addresses.  DEFAULT: false
+* Enable Burn: If you enable this, addresses will be able to burn tokens.  DEFAULT: false
 
-Usage is pretty simple - you deposit SCRT into the contract, and you get SSCRT (or Secret-SCRT), which you can then use with the ERC-20-like functionality that the contract provides including: sending/receiving/allowance and withdrawing back to SCRT. 
 
-In terms of privacy the deposit & withdrawals are public, as they are transactions on-chain. The rest of the functionality is private (so no one can see if you send SSCRT and to whom, and receiving SSCRT is also hidden). 
-
-The code was updated with a new mechanism, which I call viewing keys. This allows a user to generate a key that enables off-chain queries. This way you can perform balance and transaction history queries without waiting for a transaction on-chain. The tranaction to create a viewing key is expensive, to the tune of about 3M gas. This is intended to make queries take a long time to execute to be resistant to brute-force attacks.
-
-The usual disclaimer: Don't use this in production, I take no responsibility for anything anywhere anytime etc.
+\*:The conversion rate will be 1 uscrt for 1 minimum denomination of the token.  This means that if your token has 6 decimal places, it will convert 1:1 with SCRT.  If your token has 10 decimal places, it will have an exchange rate of 10000 SCRT for 1 token.  If your token has 3 decimal places, it will have an exchange rate of 1000 tokens for 1 SCRT.  You can use the exchange_rate query to view the exchange rate for the token.  The query response will display either how many tokens are worth 1 SCRT, or how many SCRT are worth 1 token.  That is, the response lists the symbol of the coin that has less value (either SCRT or the token), and the number of those coins that are worth 1 of the other.
 
 ## Usage examples:
 
+To create a new token:
+
+```secretcli tx compute instantiate <code-id> '{"name":"<your_token_name>","symbol":"<your_token_symbol>","admin":"<optional_admin_address_defaults_to_the_from_address>","decimals":<number_of_decimals>,"initial_balances":[{"address":"<address1>","amount":"<amount_for_address1>"}],"prng_seed":"<base64_encoded_string>","config":{"public_total_supply":<true_or_false>,"enable_deposit":<true_or_false>,"enable_redeem":<true_or_false>,"enable_mint":<true_or_false>,"enable_burn":<true_or_false>}}' --label <token_label> --from <account>```
+The `admin` field is optional and will default to the "--from" address if you do not specify it.  The `initial_balances` field is optional, and you can specify as many addresses/balances as you like.  The `config` field as well as every field in the `config` is optional.  Any `config` fields not specified will default to `false`.
+
 To deposit: ***(This is public)***
 
-```./secretcli tx compute execute <contract-address> '{"deposit": {}}' --amount 1000000uscrt --from <account>``` 
+```secretcli tx compute execute <contract-address> '{"deposit": {}}' --amount 1000000uscrt --from <account>``` 
 
-To send SSCRT: ***(Only you will be able to see the parameters you send here)***
+To send SSCRT:
 
-```./secretcli tx compute execute <contract-address> '{"transfer": {"recipient": "<destination_address>", "amount": "<amount_to_send>"}}' --from <account>```
-
-To check your balance: ***(Only you will be able to see the parameters you send here)***
-
-```./secretcli tx compute execute <contract-address> '{"balance": {}}' --from <account>```
-
-```./secretcli q compute tx <returned tx-hash> --trust-node```
-
-To withdraw: ***(This is public)***
-
-```./secretcli tx compute execute <contract-address> '{"withdraw": {"amount": "<amount in uscrt>"}}' --from <account>```
+```secretcli tx compute execute <contract-address> '{"transfer": {"recipient": "<destination_address>", "amount": "<amount_to_send>"}}' --from <account>```
 
 To set your viewing key: 
 
-```./secretcli tx compute execute <contract-address> '{"create_viewing_key": {"entropy": "<random_phrase>"}}' --from <account>```
+```secretcli tx compute execute <contract-address> '{"create_viewing_key": {"entropy": "<random_phrase>"}}' --from <account>```
 
-This transaction will be expensive, so set your gas limit to about 3M with `--gas 3000000`
+To check your balance:
 
-Make your random phrase as long as you want. At least 15 characters are recommended. You do not have to remember it - it will simply be used to randomize your generated viewing key. After this is done you can get your viewing key:
+```secretcli q compute query <contract-address> '{"balance": {"address":"<your_address>", "key":"your_viewing_key"}}'```
 
-```./secretcli q compute tx <returned tx-hash>```
+To view your transaction history:
 
-The key will start with the prefix `api_key_....`
+```secretcli q compute query <contract-address> '{"transfer_history": {"address": "<your_address>", "key": "<your_viewing_key>", "page": <optional_page_number>, "page_size": <number_of_transactions_to_return>}}'```
 
-To use your viewing key, you can query your balance or the transaction history:
+To withdraw: ***(This is public)***
 
-```./secretcli q compute query <contract-address> '{"balance": {"address": "<your_address>", "viewing_key": "<your_viewing_key>"}}'```
+```secretcli tx compute execute <contract-address> '{"redeem": {"amount": "<amount_in_smallest_denom_of_token>"}}' --from <account>```
 
-```./secretcli q compute query <contract-address> '{"transfers": {"address": "<your_address>", "viewing_key": "<your_viewing_key>"}}'```
+To view the token contract's configuration:
 
-## Play with it on testnet
+```secretcli q compute query <contract-address> '{"token_config": {}}'```
 
-The deployed SSCRT contract address on the testnet is `secret1umwqjum7f4zmp9alr2kpmq4y5j4hyxlam896r3` and label `sscrt`
+To view the deposit/redeem exchange rate:
+
+```secretcli q compute query <contract-address> '{"exchange_rate": {}}'```
+
 
 ## Troubleshooting 
 

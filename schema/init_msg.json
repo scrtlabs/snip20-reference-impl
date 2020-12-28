@@ -65,6 +65,34 @@
       "description": "This type represents optional configuration values which can be overridden. All values are optional and have defaults which are more private by default, but can be overridden if necessary",
       "type": "object",
       "properties": {
+        "enable_burn": {
+          "description": "Indicates whether burn functionality should be enabled default: False",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "enable_deposit": {
+          "description": "Indicates whether deposit functionality should be enabled default: False",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "enable_mint": {
+          "description": "Indicates whether mint functionality should be enabled default: False",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "enable_redeem": {
+          "description": "Indicates whether redeem functionality should be enabled default: False",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "public_total_supply": {
           "description": "Indicates whether the total supply is public or should be kept secret. default: False",
           "type": [
