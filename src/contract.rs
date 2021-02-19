@@ -512,11 +512,11 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
         config.set_total_supply(total_supply);
     } else {
         return Err(StdError::generic_err(
-            "You are tyring to redeem more tokens than what is available in the total supply",
+            "You are trying to redeem more tokens than what is available in the total supply",
         ));
     }
 
-    let withdrawl_coins: Vec<Coin> = vec![Coin {
+    let withdrawal_coins: Vec<Coin> = vec![Coin {
         denom: "uscrt".to_string(),
         amount,
     }];
@@ -525,7 +525,7 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
         messages: vec![CosmosMsg::Bank(BankMsg::Send {
             from_address: env.contract.address,
             to_address: env.message.sender,
-            amount: withdrawl_coins,
+            amount: withdrawal_coins,
         })],
         log: vec![],
         data: Some(to_binary(&HandleAnswer::Redeem { status: Success })?),
