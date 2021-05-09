@@ -559,6 +559,7 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
         &recipient_address,
         amount,
         symbol,
+        env.block.time,
     )?;
 
     Ok(())
@@ -706,6 +707,7 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
         &recipient_address,
         amount,
         symbol,
+        env.block.time,
     )?;
 
     Ok(())

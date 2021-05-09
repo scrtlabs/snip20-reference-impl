@@ -41,6 +41,7 @@ pub struct Tx {
     pub sender: HumanAddr,
     pub receiver: HumanAddr,
     pub coins: Coin,
+    pub timestamp: u64,
 }
 
 impl Tx {
@@ -51,6 +52,7 @@ impl Tx {
             sender: api.canonical_address(&self.sender)?,
             receiver: api.canonical_address(&self.receiver)?,
             coins: self.coins,
+            timestamp: self.timestamp,
         };
         Ok(tx)
     }
@@ -63,6 +65,7 @@ pub struct StoredTx {
     pub sender: CanonicalAddr,
     pub receiver: CanonicalAddr,
     pub coins: Coin,
+    pub timestamp: u64,
 }
 
 impl StoredTx {
@@ -73,6 +76,7 @@ impl StoredTx {
             sender: api.human_address(&self.sender)?,
             receiver: api.human_address(&self.receiver)?,
             coins: self.coins,
+            timestamp: self.timestamp,
         };
         Ok(tx)
     }
@@ -85,6 +89,7 @@ pub fn store_transfer<S: Storage>(
     receiver: &CanonicalAddr,
     amount: Uint128,
     denom: String,
+    timestamp: u64,
 ) -> StdResult<()> {
     let mut config = Config::from_storage(store);
     let id = config.tx_count() + 1;
@@ -97,6 +102,7 @@ pub fn store_transfer<S: Storage>(
         sender: sender.clone(),
         receiver: receiver.clone(),
         coins,
+        timestamp,
     };
 
     if owner != sender {
