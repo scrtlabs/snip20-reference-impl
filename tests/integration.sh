@@ -557,6 +557,8 @@ function test_transfer() {
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     assert_eq "$transfer_response" "$(pad_space '{"transfer":{"status":"success"}}')"
 
+    local timestamp="$(date -d "$(secretcli q tx $tx_hash | jq -r .timestamp)" +"%s")"
+
     # Check for both "a" and "b" that they recorded the transfer
     local tx
     local -A tx_ids
@@ -572,6 +574,7 @@ function test_transfer() {
         assert_eq "$(jq -r '.receiver' <<<"$tx")" "${ADDRESS[b]}"
         assert_eq "$(jq -r '.coins.amount' <<<"$tx")" 400000
         assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
+        assert_eq "$(jq -r '.timestamp' <<<"$tx")" "$timestamp"
         tx_ids[$key]="$(jq -r '.id' <<<"$tx")"
     done
 
@@ -743,6 +746,9 @@ function test_send() {
     assert_eq "$(jq -r '.coins.amount' <<<"$tx")" 400000
     assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
 
+    local timestamp="$(date -d "$(secretcli q tx $tx_hash | jq -r .timestamp)" +"%s")"
+    assert_eq "$(jq -r '.timestamp' <<<"$tx")" "$timestamp"
+
     # Check that "a" has fewer funds
     assert_eq "$(get_balance "$contract_addr" 'a')" 600000
 
@@ -868,6 +874,7 @@ function test_transfer_from() {
     tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[b]} --gas 200000)"
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "c" by "b" to process')"
     assert_eq "$transfer_response" "$(pad_space '{"transfer_from":{"status":"success"}}')"
+    local timestamp="$(date -d "$(secretcli q tx $tx_hash | jq -r .timestamp)" +"%s")"
 
     # Check for both "a", "b", and "c" that they recorded the transfer
     local tx
@@ -884,6 +891,7 @@ function test_transfer_from() {
         assert_eq "$(jq -r '.receiver' <<<"$tx")" "${ADDRESS[c]}"
         assert_eq "$(jq -r '.coins.amount' <<<"$tx")" 400000
         assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
+        assert_eq "$(jq -r '.timestamp' <<<"$tx")" "$timestamp"
         tx_ids[$key]="$(jq -r '.id' <<<"$tx")"
     done
 
@@ -982,6 +990,7 @@ function test_send_from() {
         "$(jq -r '.output_log[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
         "$((original_count + 1))"
     log 'received send response'
+    local timestamp="$(date -d "$(secretcli q tx $tx_hash | jq -r .timestamp)" +"%s")"
 
     # Check that the receiver got the message
     log 'checking whether state was updated in the receiver'
@@ -1007,6 +1016,7 @@ function test_send_from() {
         assert_eq "$(jq -r '.receiver' <<<"$tx")" "$receiver_addr"
         assert_eq "$(jq -r '.coins.amount' <<<"$tx")" 400000
         assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
+        assert_eq "$(jq -r '.timestamp' <<<"$tx")" "$timestamp"
         tx_ids[$key]="$(jq -r '.id' <<<"$tx")"
     done
 
