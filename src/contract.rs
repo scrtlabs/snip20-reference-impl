@@ -583,7 +583,7 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    let withdrawl_coins: Vec<Coin> = vec![Coin {
+    let withdrawal_coins: Vec<Coin> = vec![Coin {
         denom: "uscrt".to_string(),
         amount,
     }];
@@ -592,7 +592,7 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
         messages: vec![CosmosMsg::Bank(BankMsg::Send {
             from_address: env.contract.address,
             to_address: env.message.sender,
-            amount: withdrawl_coins,
+            amount: withdrawal_coins,
         })],
         log: vec![],
         data: Some(to_binary(&HandleAnswer::Redeem { status: Success })?),
@@ -626,6 +626,7 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
         &recipient_address,
         amount,
         symbol,
+        env.block.time,
     )?;
 
     Ok(())
@@ -773,6 +774,7 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
         &recipient_address,
         amount,
         symbol,
+        env.block.time,
     )?;
 
     Ok(())
@@ -1245,7 +1247,7 @@ mod tests {
     }
 
     /// Will return a ViewingKey only for the first account in `initial_balances`
-    fn auth_query_helper(
+    fn _auth_query_helper(
         initial_balances: Vec<InitialBalance>,
     ) -> (ViewingKey, Extern<MockStorage, MockApi, MockQuerier>) {
         let (init_result, mut deps) = init_helper(initial_balances.clone());

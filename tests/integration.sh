@@ -37,6 +37,7 @@ function pad_space() {
 }
 
 function assert_eq() {
+    set -e
     local left="$1"
     local right="$2"
     local message
@@ -56,6 +57,7 @@ function assert_eq() {
 }
 
 function assert_ne() {
+    set -e
     local left="$1"
     local right="$2"
     local message
@@ -182,6 +184,7 @@ function compute_query() {
 }
 
 function upload_code() {
+    set -e
     local directory="$1"
     local tx_hash
     local code_id
@@ -198,6 +201,7 @@ function upload_code() {
 }
 
 function instantiate() {
+    set -e
     local code_id="$1"
     local init_msg="$2"
 
@@ -211,6 +215,7 @@ function instantiate() {
 
 # This function uploads and instantiates a contract, and returns the new contract's address
 function create_contract() {
+    set -e
     local dir="$1"
     local init_msg="$2"
 
@@ -229,6 +234,7 @@ function create_contract() {
 }
 
 function deposit() {
+    set -e
     local contract_addr="$1"
     local key="$2"
     local amount="$3"
@@ -243,6 +249,7 @@ function deposit() {
 }
 
 function burn() {
+    set -e
     local contract_addr="$1"
     local key="$2"
     local amount="$3"
@@ -258,6 +265,7 @@ function burn() {
 }
 
 function get_balance() {
+    set -e
     local contract_addr="$1"
     local key="$2"
 
@@ -273,6 +281,7 @@ function get_balance() {
 # As you can see, verifying this is happening correctly requires a lot of code
 # so I separated it to its own function, because it's used several times.
 function redeem() {
+    set -e
     local contract_addr="$1"
     local key="$2"
     local amount="$3"
@@ -298,6 +307,7 @@ function redeem() {
 }
 
 function get_token_info() {
+    set -e
     local contract_addr="$1"
 
     local token_info_query='{"token_info":{}}'
@@ -305,6 +315,7 @@ function get_token_info() {
 }
 
 function increase_allowance() {
+    set -e
     local contract_addr="$1"
     local owner_key="$2"
     local spender_key="$3"
@@ -324,6 +335,7 @@ function increase_allowance() {
 }
 
 function decrease_allowance() {
+    set -e
     local contract_addr="$1"
     local owner_key="$2"
     local spender_key="$3"
@@ -343,6 +355,7 @@ function decrease_allowance() {
 }
 
 function get_allowance() {
+    set -e
     local contract_addr="$1"
     local owner_key="$2"
     local spender_key="$3"
@@ -364,6 +377,7 @@ function log_test_header() {
 }
 
 function test_viewing_key() {
+    set -e
     local contract_addr="$1"
 
     log_test_header
@@ -467,6 +481,7 @@ function test_viewing_key() {
 }
 
 function test_deposit() {
+    set -e
     local contract_addr="$1"
 
     log_test_header
@@ -510,7 +525,60 @@ function test_deposit() {
     done
 }
 
+function unix_time_of_tx() {
+    set -e
+    local tx_hash="$1"
+
+    date -d "$(secretcli q tx "$tx_hash" | jq -r '.timestamp')" '+%s'
+}
+
+function get_tx_history() {
+    set -e
+    local contract_addr="$1"
+    local account="$2"
+    local viewing_key="$3"
+    local page_size="$4"
+    local page="$5"
+
+    local transfer_history_query
+    local transfer_history_response
+    transfer_history_query='{"transfer_history":{"address":"'"$account"'","key":"'"$viewing_key"'","page_size":'"$page_size"',"page":'"$page"'}}'
+    transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
+    jq -r '.transfer_history.txs' <<<"$transfer_history_response"
+}
+
+# This function checks that the latest tx history for the account matches
+# the expected parameters.
+# The id of the tx is printed out.
+function check_latest_tx_history() {
+    set -e
+    local contract_addr="$1"
+    local account="$2"
+    local viewing_key="$3"
+    local sender="$4"
+    local from="$5"
+    local receiver="$6"
+    local amount="$7"
+    local timestamp="$8"
+
+    local txs
+    local tx
+
+    txs="$(get_tx_history "$contract_addr" "$account" "$viewing_key" 1 0)"
+    silent jq -e 'length == 1' <<<"$txs" # just make sure we're not getting a weird response
+    tx="$(jq -r '.[0]' <<<"$txs")"
+    assert_eq "$(jq -r '.sender' <<<"$tx")" "$sender"
+    assert_eq "$(jq -r '.from' <<<"$tx")" "$from"
+    assert_eq "$(jq -r '.receiver' <<<"$tx")" "$receiver"
+    assert_eq "$(jq -r '.coins.amount' <<<"$tx")" "$amount"
+    assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
+    assert_eq "$(jq -r '.timestamp' <<<"$tx")" "$timestamp"
+
+    jq -r '.id' <<<"$tx"
+}
+
 function test_transfer() {
+    set -e
     local contract_addr="$1"
 
     log_test_header
@@ -535,14 +603,10 @@ function test_transfer() {
     assert_eq "$(get_generic_err "$transfer_response")" "insufficient funds: balance=1000000, required=1000001"
 
     # Check both a and b, that their last transaction is not for 1000001 uscrt
-    local transfer_history_query
-    local transfer_history_response
     local txs
     for key in a b; do
         log "querying the transfer history of \"$key\""
-        transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
-        transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
-        txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
+        txs="$(get_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" 1 0)"
         silent jq -e 'length <= 1' <<<"$txs" # just make sure we're not getting a weird response
         if silent jq -e 'length == 1' <<<"$txs"; then
             assert_ne "$(jq -r '.[0].coins.amount' <<<"$txs")" 1000001
@@ -557,22 +621,14 @@ function test_transfer() {
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     assert_eq "$transfer_response" "$(pad_space '{"transfer":{"status":"success"}}')"
 
+    local timestamp
+    timestamp="$(unix_time_of_tx "$tx_hash")"
+
     # Check for both "a" and "b" that they recorded the transfer
-    local tx
     local -A tx_ids
     for key in a b; do
         log "querying the transfer history of \"$key\""
-        transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
-        transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
-        txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
-        silent jq -e 'length == 1' <<<"$txs" # just make sure we're not getting a weird response
-        tx="$(jq -r '.[0]' <<<"$txs")"
-        assert_eq "$(jq -r '.from' <<<"$tx")" "${ADDRESS[a]}"
-        assert_eq "$(jq -r '.sender' <<<"$tx")" "${ADDRESS[a]}"
-        assert_eq "$(jq -r '.receiver' <<<"$tx")" "${ADDRESS[b]}"
-        assert_eq "$(jq -r '.coins.amount' <<<"$tx")" 400000
-        assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
-        tx_ids[$key]="$(jq -r '.id' <<<"$tx")"
+        tx_ids[$key]="$(check_latest_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" "${ADDRESS[a]}" "${ADDRESS[a]}" "${ADDRESS[b]}" 400000 "$timestamp")"
     done
 
     assert_eq "${tx_ids[a]}" "${tx_ids[b]}"
@@ -594,6 +650,7 @@ function test_transfer() {
 RECEIVER_ADDRESS=''
 
 function create_receiver_contract() {
+    set -e
     local init_msg
 
     if [[ "$RECEIVER_ADDRESS" != '' ]]; then
@@ -611,6 +668,7 @@ function create_receiver_contract() {
 
 # This function exists so that we can reset the state as much as possible between different tests
 function redeem_receiver() {
+    set -e
     local receiver_addr="$1"
     local snip20_addr="$2"
     local to_addr="$3"
@@ -635,6 +693,7 @@ function redeem_receiver() {
 }
 
 function register_receiver() {
+    set -e
     local receiver_addr="$1"
     local snip20_addr="$2"
 
@@ -657,6 +716,7 @@ function register_receiver() {
 }
 
 function test_send() {
+    set -e
     local contract_addr="$1"
 
     log_test_header
@@ -686,14 +746,10 @@ function test_send() {
     assert_eq "$(get_generic_err "$send_response")" "insufficient funds: balance=1000000, required=1000001"
 
     # Check both a and b, that their last transaction is not for 1000001 uscrt
-    local transfer_history_query
-    local transfer_history_response
     local txs
     for key in a b; do
         log "querying the transfer history of \"$key\""
-        transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
-        transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
-        txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
+        txs="$(get_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" 1 0)"
         silent jq -e 'length <= 1' <<<"$txs" # just make sure we're not getting a weird response
         if silent jq -e 'length == 1' <<<"$txs"; then
             assert_ne "$(jq -r '.[0].coins.amount' <<<"$txs")" 1000001
@@ -720,6 +776,9 @@ function test_send() {
         "$((original_count + 1))"
     log 'received send response'
 
+    local timestamp
+    timestamp="$(unix_time_of_tx "$tx_hash")"
+
     # Check that the receiver got the message
     log 'checking whether state was updated in the receiver'
     receiver_state_query='{"get_count":{}}'
@@ -730,18 +789,8 @@ function test_send() {
     log 'receiver contract received the message'
 
     # Check that "a" recorded the transfer
-    local tx
     log 'querying the transfer history of "a"'
-    transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'","page_size":1}}'
-    transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
-    txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
-    silent jq -e 'length == 1' <<<"$txs" # just make sure we're not getting a weird response
-    tx="$(jq -r '.[0]' <<<"$txs")"
-    assert_eq "$(jq -r '.from' <<<"$tx")" "${ADDRESS[a]}"
-    assert_eq "$(jq -r '.sender' <<<"$tx")" "${ADDRESS[a]}"
-    assert_eq "$(jq -r '.receiver' <<<"$tx")" "$receiver_addr"
-    assert_eq "$(jq -r '.coins.amount' <<<"$tx")" 400000
-    assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
+    check_latest_tx_history "$contract_addr" "${ADDRESS[a]}" "${VK[a]}" "${ADDRESS[a]}" "${ADDRESS[a]}" "$receiver_addr" 400000 "$timestamp" >/dev/null
 
     # Check that "a" has fewer funds
     assert_eq "$(get_balance "$contract_addr" 'a')" 600000
@@ -768,6 +817,7 @@ function test_send() {
 
 # This test also tests TokenInfo
 function test_burn() {
+    set -e
     local contract_addr="$1"
 
     log_test_header
@@ -815,6 +865,7 @@ function test_burn() {
 }
 
 function test_transfer_from() {
+    set -e
     local contract_addr="$1"
 
     log_test_header
@@ -847,14 +898,10 @@ function test_transfer_from() {
     assert_eq "$(get_generic_err "$transfer_response")" "insufficient allowance: allowance=1000000, required=1000001"
 
     # Check both "a", "b", and "c", that their last transaction is not for 1000001 uscrt
-    local transfer_history_query
-    local transfer_history_response
     local txs
     for key in a b c; do
         log "querying the transfer history of \"$key\""
-        transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
-        transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
-        txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
+        txs="$(get_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" 1 0)"
         silent jq -e 'length <= 1' <<<"$txs" # just make sure we're not getting a weird response
         if silent jq -e 'length == 1' <<<"$txs"; then
             assert_ne "$(jq -r '.[0].coins.amount' <<<"$txs")" 1000001
@@ -868,23 +915,14 @@ function test_transfer_from() {
     tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[b]} --gas 200000)"
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "c" by "b" to process')"
     assert_eq "$transfer_response" "$(pad_space '{"transfer_from":{"status":"success"}}')"
+    local timestamp
+    timestamp="$(unix_time_of_tx "$tx_hash")"
 
     # Check for both "a", "b", and "c" that they recorded the transfer
-    local tx
     local -A tx_ids
     for key in a b c; do
         log "querying the transfer history of \"$key\""
-        transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
-        transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
-        txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
-        silent jq -e 'length == 1' <<<"$txs" # just make sure we're not getting a weird response
-        tx="$(jq -r '.[0]' <<<"$txs")"
-        assert_eq "$(jq -r '.from' <<<"$tx")" "${ADDRESS[a]}"
-        assert_eq "$(jq -r '.sender' <<<"$tx")" "${ADDRESS[b]}"
-        assert_eq "$(jq -r '.receiver' <<<"$tx")" "${ADDRESS[c]}"
-        assert_eq "$(jq -r '.coins.amount' <<<"$tx")" 400000
-        assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
-        tx_ids[$key]="$(jq -r '.id' <<<"$tx")"
+        tx_ids[$key]="$(check_latest_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" "${ADDRESS[b]}" "${ADDRESS[a]}" "${ADDRESS[c]}" 400000 "$timestamp")"
     done
 
     assert_eq "${tx_ids[a]}" "${tx_ids[b]}"
@@ -912,6 +950,7 @@ function test_transfer_from() {
 }
 
 function test_send_from() {
+    set -e
     local contract_addr="$1"
 
     log_test_header
@@ -949,14 +988,10 @@ function test_send_from() {
     assert_eq "$(get_generic_err "$send_response")" "insufficient allowance: allowance=1000000, required=1000001"
 
     # Check both a and b, that their last transaction is not for 1000001 uscrt
-    local transfer_history_query
-    local transfer_history_response
     local txs
     for key in a b c; do
         log "querying the transfer history of \"$key\""
-        transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
-        transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
-        txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
+        txs="$(get_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" 1 0)"
         silent jq -e 'length <= 1' <<<"$txs" # just make sure we're not getting a weird response
         if silent jq -e 'length == 1' <<<"$txs"; then
             assert_ne "$(jq -r '.[0].coins.amount' <<<"$txs")" 1000001
@@ -983,6 +1018,9 @@ function test_send_from() {
         "$((original_count + 1))"
     log 'received send response'
 
+    local timestamp
+    timestamp="$(unix_time_of_tx "$tx_hash")"
+
     # Check that the receiver got the message
     log 'checking whether state was updated in the receiver'
     receiver_state_query='{"get_count":{}}'
@@ -993,21 +1031,10 @@ function test_send_from() {
     log 'receiver contract received the message'
 
     # Check that "a" recorded the transfer
-    local tx
     local -A tx_ids
     for key in a b; do
         log "querying the transfer history of \"$key\""
-        transfer_history_query='{"transfer_history":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'","page_size":1}}'
-        transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
-        txs="$(jq -r '.transfer_history.txs' <<<"$transfer_history_response")"
-        silent jq -e 'length == 1' <<<"$txs" # just make sure we're not getting a weird response
-        tx="$(jq -r '.[0]' <<<"$txs")"
-        assert_eq "$(jq -r '.from' <<<"$tx")" "${ADDRESS[a]}"
-        assert_eq "$(jq -r '.sender' <<<"$tx")" "${ADDRESS[b]}"
-        assert_eq "$(jq -r '.receiver' <<<"$tx")" "$receiver_addr"
-        assert_eq "$(jq -r '.coins.amount' <<<"$tx")" 400000
-        assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
-        tx_ids[$key]="$(jq -r '.id' <<<"$tx")"
+        tx_ids[$key]="$(check_latest_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" "${ADDRESS[b]}" "${ADDRESS[a]}" "$receiver_addr" 400000 "$timestamp")"
     done
 
     assert_eq "${tx_ids[a]}" "${tx_ids[b]}"
