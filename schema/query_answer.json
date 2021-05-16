@@ -243,7 +243,8 @@
         "from",
         "id",
         "receiver",
-        "sender"
+        "sender",
+        "timestamp"
       ],
       "properties": {
         "coins": {
@@ -262,6 +263,11 @@
         },
         "sender": {
           "$ref": "#/definitions/HumanAddr"
+        },
+        "timestamp": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       }
     },

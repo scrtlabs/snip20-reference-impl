@@ -246,18 +246,18 @@ fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> QueryResult {
         let denom: String;
         // if token has more decimals than SCRT, you get magnitudes of SCRT per token
         if constants.decimals >= 6 {
-            rate = Uint128(10u128.checked_pow((constants.decimals - 6).into()).unwrap());
+            rate = Uint128(10u128.pow(constants.decimals as u32 - 6));
             denom = "SCRT".to_string();
         // if token has less decimals, you get magnitudes token for SCRT
         } else {
-            rate = Uint128(10u128.checked_pow((6 - constants.decimals).into()).unwrap());
+            rate = Uint128(10u128.pow(6 - constants.decimals as u32));
             denom = constants.symbol;
         }
         return to_binary(&QueryAnswer::ExchangeRate { rate, denom });
     }
     to_binary(&QueryAnswer::ExchangeRate {
         rate: Uint128(0),
-        denom: "Neither deposit nor redeem is enabled for this token.".to_string(),
+        denom: String::new(),
     })
 }
 
@@ -541,25 +541,16 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let amount_raw = amount.u128();
-
-    let mut config = Config::from_storage(&mut deps.storage);
+    let config = ReadonlyConfig::from_storage(&deps.storage);
     let constants = config.constants()?;
     if !constants.redeem_is_enabled {
         return Err(StdError::generic_err(
             "Redeem functionality is not enabled for this token.",
         ));
     }
-    let total_supply = config.total_supply();
-    if let Some(total_supply) = total_supply.checked_sub(amount_raw) {
-        config.set_total_supply(total_supply);
-    } else {
-        return Err(StdError::generic_err(
-            "You are tyring to redeem more tokens than what is available in the total supply",
-        ));
-    }
 
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
+    let amount_raw = amount.u128();
 
     let mut balances = Balances::from_storage(&mut deps.storage);
     let account_balance = balances.balance(&sender_address);
@@ -571,6 +562,16 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
             "insufficient funds to redeem: balance={}, required={}",
             account_balance, amount_raw
         )));
+    }
+
+    let mut config = Config::from_storage(&mut deps.storage);
+    let total_supply = config.total_supply();
+    if let Some(total_supply) = total_supply.checked_sub(amount_raw) {
+        config.set_total_supply(total_supply);
+    } else {
+        return Err(StdError::generic_err(
+            "You are tyring to redeem more tokens than what is available in the total supply",
+        ));
     }
 
     let token_reserve = deps
@@ -834,7 +835,7 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
     owner: &HumanAddr,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let mut config = Config::from_storage(&mut deps.storage);
+    let config = ReadonlyConfig::from_storage(&deps.storage);
     let constants = config.constants()?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
@@ -842,20 +843,9 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    // remove from supply
-    let amount = amount.u128();
-    let mut total_supply = config.total_supply();
-    if let Some(new_total_supply) = total_supply.checked_sub(amount) {
-        total_supply = new_total_supply;
-    } else {
-        return Err(StdError::generic_err(
-            "You're trying to burn more than is available in the total supply",
-        ));
-    }
-    config.set_total_supply(total_supply);
-
     let spender_address = deps.api.canonical_address(&env.message.sender)?;
     let owner_address = deps.api.canonical_address(owner)?;
+    let amount = amount.u128();
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
 
@@ -896,6 +886,18 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
         )));
     }
     balances.set_account_balance(&owner_address, account_balance);
+
+    // remove from supply
+    let mut config = Config::from_storage(&mut deps.storage);
+    let mut total_supply = config.total_supply();
+    if let Some(new_total_supply) = total_supply.checked_sub(amount) {
+        total_supply = new_total_supply;
+    } else {
+        return Err(StdError::generic_err(
+            "You're trying to burn more than is available in the total supply",
+        ));
+    }
+    config.set_total_supply(total_supply);
 
     let res = HandleResponse {
         messages: vec![],
@@ -1058,25 +1060,16 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let mut config = Config::from_storage(&mut deps.storage);
+    let config = ReadonlyConfig::from_storage(&deps.storage);
     let constants = config.constants()?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
             "Burn functionality is not enabled for this token.",
         ));
     }
-    let amount = amount.u128();
-    let mut total_supply = config.total_supply();
-    if let Some(new_total_supply) = total_supply.checked_sub(amount) {
-        total_supply = new_total_supply;
-    } else {
-        return Err(StdError::generic_err(
-            "You're trying to burn more than is available in the total supply",
-        ));
-    }
-    config.set_total_supply(total_supply);
 
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
+    let amount = amount.u128();
 
     let mut balances = Balances::from_storage(&mut deps.storage);
     let mut account_balance = balances.balance(&sender_address);
@@ -1091,6 +1084,17 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     }
 
     balances.set_account_balance(&sender_address, account_balance);
+
+    let mut config = Config::from_storage(&mut deps.storage);
+    let mut total_supply = config.total_supply();
+    if let Some(new_total_supply) = total_supply.checked_sub(amount) {
+        total_supply = new_total_supply;
+    } else {
+        return Err(StdError::generic_err(
+            "You're trying to burn more than is available in the total supply",
+        ));
+    }
+    config.set_total_supply(total_supply);
 
     let res = HandleResponse {
         messages: vec![],
@@ -1309,7 +1313,7 @@ mod tests {
             | HandleAnswer::SetMinters { status }
             | HandleAnswer::AddMinters { status }
             | HandleAnswer::RemoveMinters { status } => {
-                matches!(status, ResponseStatus::Success {..})
+                matches!(status, ResponseStatus::Success { .. })
             }
             _ => panic!("HandleAnswer not supported for success extraction"),
         }
@@ -1924,9 +1928,7 @@ mod tests {
             .account_amount(&bob_canonical);
         assert_eq!(bob_balance, 10000 - 2000);
         let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
-        // because an allowance error doesn't revert state, and the total_supply subtraction happens
-        // before the allowance check, the two allowance fails still decreased total_supply
-        assert_eq!(total_supply, 10000 - 2500 - 2500 - 2000);
+        assert_eq!(total_supply, 10000 - 2000);
 
         // Second burn more than allowance
         let handle_msg = HandleMsg::BurnFrom {
@@ -2138,7 +2140,10 @@ mod tests {
         );
 
         let contract_status = ReadonlyConfig::from_storage(&deps.storage).contract_status();
-        assert!(matches!(contract_status, ContractStatusLevel::StopAll{..}));
+        assert!(matches!(
+            contract_status,
+            ContractStatusLevel::StopAll { .. }
+        ));
     }
 
     #[test]
@@ -3204,10 +3209,7 @@ mod tests {
         match query_answer {
             QueryAnswer::ExchangeRate { rate, denom } => {
                 assert_eq!(rate, Uint128(0));
-                assert_eq!(
-                    denom,
-                    "Neither deposit nor redeem is enabled for this token."
-                );
+                assert_eq!(denom, String::new());
             }
             _ => panic!("unexpected"),
         }
