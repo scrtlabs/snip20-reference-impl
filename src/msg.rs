@@ -288,7 +288,7 @@ pub enum QueryAnswer {
     },
     TransferHistory {
         txs: Vec<Tx>,
-        total: u64,
+        total: Option<u64>,
     },
 
     ViewingKeyError {
