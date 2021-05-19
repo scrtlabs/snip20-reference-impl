@@ -41,7 +41,10 @@ pub struct Tx {
     pub sender: HumanAddr,
     pub receiver: HumanAddr,
     pub coins: Coin,
-    pub timestamp: u64,
+    // The timestamp and block height are optional so that the JSON schema
+    // reflects that some SNIP-20 contracts may not include this info.
+    pub timestamp: Option<u64>,
+    pub block_height: Option<u64>,
 }
 
 impl Tx {
@@ -52,7 +55,8 @@ impl Tx {
             sender: api.canonical_address(&self.sender)?,
             receiver: api.canonical_address(&self.receiver)?,
             coins: self.coins,
-            timestamp: self.timestamp,
+            timestamp: self.timestamp.unwrap_or(0),
+            block_height: self.block_height.unwrap_or(0),
         };
         Ok(tx)
     }
@@ -66,6 +70,7 @@ pub struct StoredTx {
     pub receiver: CanonicalAddr,
     pub coins: Coin,
     pub timestamp: u64,
+    pub block_height: u64,
 }
 
 impl StoredTx {
@@ -76,7 +81,8 @@ impl StoredTx {
             sender: api.human_address(&self.sender)?,
             receiver: api.human_address(&self.receiver)?,
             coins: self.coins,
-            timestamp: self.timestamp,
+            timestamp: Some(self.timestamp),
+            block_height: Some(self.block_height),
         };
         Ok(tx)
     }
@@ -89,7 +95,7 @@ pub fn store_transfer<S: Storage>(
     receiver: &CanonicalAddr,
     amount: Uint128,
     denom: String,
-    timestamp: u64,
+    block: cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let mut config = Config::from_storage(store);
     let id = config.tx_count() + 1;
@@ -102,7 +108,8 @@ pub fn store_transfer<S: Storage>(
         sender: sender.clone(),
         receiver: receiver.clone(),
         coins,
-        timestamp,
+        timestamp: block.time,
+        block_height: block.height,
     };
 
     if owner != sender {

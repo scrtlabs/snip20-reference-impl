@@ -219,6 +219,14 @@
         "sender"
       ],
       "properties": {
+        "block_height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
         "coins": {
           "$ref": "#/definitions/Coin"
         },
@@ -235,6 +243,14 @@
         },
         "sender": {
           "$ref": "#/definitions/HumanAddr"
+        },
+        "timestamp": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
         }
       }
     },
