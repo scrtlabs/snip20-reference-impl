@@ -41,7 +41,9 @@ pub struct Tx {
     pub sender: HumanAddr,
     pub receiver: HumanAddr,
     pub coins: Coin,
-    pub timestamp: u64,
+    // This is optional so that the JSON schema reflects that
+    // some SNIP-20 contracts may not include this info.
+    pub timestamp: Option<u64>,
 }
 
 impl Tx {
@@ -52,7 +54,7 @@ impl Tx {
             sender: api.canonical_address(&self.sender)?,
             receiver: api.canonical_address(&self.receiver)?,
             coins: self.coins,
-            timestamp: self.timestamp,
+            timestamp: self.timestamp.unwrap_or(0),
         };
         Ok(tx)
     }
@@ -76,7 +78,7 @@ impl StoredTx {
             sender: api.human_address(&self.sender)?,
             receiver: api.human_address(&self.receiver)?,
             coins: self.coins,
-            timestamp: self.timestamp,
+            timestamp: Some(self.timestamp),
         };
         Ok(tx)
     }
