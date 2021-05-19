@@ -1106,16 +1106,16 @@ function main() {
     local prng_seed
     prng_seed="$(base64 <<<'enigma-rocks')"
     local init_msg
-    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{"public_total_supply":true}}'
+    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{"public_total_supply":true,"enable_deposit":true,"enable_redeem":true,"enable_mint":true,"enable_burn":true}}'
     contract_addr="$(create_contract '.' "$init_msg")"
 
     # To make testing faster, check the logs and try to reuse the deployed contract and VKs from previous runs.
     # Remember to comment out the contract deployment and `test_viewing_key` if you do.
-    local contract_addr='secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg'
-    VK[a]='api_key_U6FcuhP2km6UHtYeFSyaZbggcgMJQAiTMlNWV3X4iXQ='
-    VK[b]='api_key_YoQlmqnOkkEoh81XzFkiZ3z7+ZAJh9kyFXvtaMBhiFU='
-    VK[c]='api_key_/cdkitEbzaHZA41OB6cGcz1XGnQk6LYTAfSBWTOU5aQ='
-    VK[d]='api_key_WQYkuGOco/mSHgtKWG0f7b2UcrSG3s1fIqm1X/wIGDo='
+#    local contract_addr='secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg'
+#    VK[a]='api_key_U6FcuhP2km6UHtYeFSyaZbggcgMJQAiTMlNWV3X4iXQ='
+#    VK[b]='api_key_YoQlmqnOkkEoh81XzFkiZ3z7+ZAJh9kyFXvtaMBhiFU='
+#    VK[c]='api_key_/cdkitEbzaHZA41OB6cGcz1XGnQk6LYTAfSBWTOU5aQ='
+#    VK[d]='api_key_WQYkuGOco/mSHgtKWG0f7b2UcrSG3s1fIqm1X/wIGDo='
 
     log "contract address: $contract_addr"
 
