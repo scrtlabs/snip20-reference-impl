@@ -165,6 +165,14 @@
             "txs"
           ],
           "properties": {
+            "total": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
             "txs": {
               "type": "array",
               "items": {
@@ -243,10 +251,17 @@
         "from",
         "id",
         "receiver",
-        "sender",
-        "timestamp"
+        "sender"
       ],
       "properties": {
+        "block_height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
         "coins": {
           "$ref": "#/definitions/Coin"
         },
@@ -265,7 +280,10 @@
           "$ref": "#/definitions/HumanAddr"
         },
         "timestamp": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint64",
           "minimum": 0.0
         }

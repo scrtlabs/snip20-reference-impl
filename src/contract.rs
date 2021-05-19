@@ -61,7 +61,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Decimals must not exceed 18"));
     }
 
-    let admin = msg.admin.unwrap_or_else(|| env.message.sender);
+    let admin = msg.admin.unwrap_or(env.message.sender);
 
     let prng_seed_hashed = sha_256(&msg.prng_seed.0);
 
@@ -299,9 +299,9 @@ pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     page_size: u32,
 ) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account).unwrap();
-    let txs = get_transfers(&deps.api, &deps.storage, &address, page, page_size)?;
+    let (txs, total) = get_transfers(&deps.api, &deps.storage, &address, page, page_size)?;
 
-    let result = QueryAnswer::TransferHistory { txs };
+    let result = QueryAnswer::TransferHistory { txs, total: Some(total) };
     to_binary(&result)
 }
 
@@ -627,7 +627,7 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
         &recipient_address,
         amount,
         symbol,
-        env.block.time,
+        env.block
     )?;
 
     Ok(())
@@ -775,7 +775,7 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
         &recipient_address,
         amount,
         symbol,
-        env.block.time,
+        env.block,
     )?;
 
     Ok(())
@@ -1154,14 +1154,14 @@ fn check_if_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdRes
 
 fn is_valid_name(name: &str) -> bool {
     let len = name.len();
-    3 <= len && len <= 30
+    (3..=30).contains(&len)
 }
 
 fn is_valid_symbol(symbol: &str) -> bool {
     let len = symbol.len();
-    let len_is_valid = 3 <= len && len <= 6;
+    let len_is_valid = (3..=6).contains(&len);
 
-    len_is_valid && symbol.bytes().all(|byte| b'A' <= byte && byte <= b'Z')
+    len_is_valid && symbol.bytes().all(|byte| (b'A'..=b'Z').contains(&byte))
 }
 
 // pub fn migrate<S: Storage, A: Api, Q: Querier>(
@@ -3425,7 +3425,7 @@ mod tests {
         // let a: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
         // println!("{:?}", a);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
-            QueryAnswer::TransferHistory { txs } => txs,
+            QueryAnswer::TransferHistory { txs, total } => txs,
             _ => panic!("Unexpected"),
         };
         assert!(transfers.is_empty());
@@ -3438,7 +3438,7 @@ mod tests {
         };
         let query_result = query(&deps, query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
-            QueryAnswer::TransferHistory { txs } => txs,
+            QueryAnswer::TransferHistory { txs, total } => txs,
             _ => panic!("Unexpected"),
         };
         assert_eq!(transfers.len(), 3);
@@ -3451,7 +3451,7 @@ mod tests {
         };
         let query_result = query(&deps, query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
-            QueryAnswer::TransferHistory { txs } => txs,
+            QueryAnswer::TransferHistory { txs, total } => txs,
             _ => panic!("Unexpected"),
         };
         assert_eq!(transfers.len(), 2);
