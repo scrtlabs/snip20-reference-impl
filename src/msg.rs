@@ -40,11 +40,39 @@ pub struct InitConfig {
     /// Indicates whether the total supply is public or should be kept secret.
     /// default: False
     public_total_supply: Option<bool>,
+    /// Indicates whether deposit functionality should be enabled
+    /// default: False
+    enable_deposit: Option<bool>,
+    /// Indicates whether redeem functionality should be enabled
+    /// default: False
+    enable_redeem: Option<bool>,
+    /// Indicates whether mint functionality should be enabled
+    /// default: False
+    enable_mint: Option<bool>,
+    /// Indicates whether burn functionality should be enabled
+    /// default: False
+    enable_burn: Option<bool>,
 }
 
 impl InitConfig {
     pub fn public_total_supply(&self) -> bool {
         self.public_total_supply.unwrap_or(false)
+    }
+
+    pub fn deposit_enabled(&self) -> bool {
+        self.enable_deposit.unwrap_or(false)
+    }
+
+    pub fn redeem_enabled(&self) -> bool {
+        self.enable_redeem.unwrap_or(false)
+    }
+
+    pub fn mint_enabled(&self) -> bool {
+        self.enable_mint.unwrap_or(false)
+    }
+
+    pub fn burn_enabled(&self) -> bool {
+        self.enable_burn.unwrap_or(false)
     }
 }
 
@@ -231,6 +259,7 @@ pub enum HandleAnswer {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     TokenInfo {},
+    TokenConfig {},
     ExchangeRate {},
     Allowance {
         owner: HumanAddr,
@@ -274,6 +303,13 @@ pub enum QueryAnswer {
         symbol: String,
         decimals: u8,
         total_supply: Option<Uint128>,
+    },
+    TokenConfig {
+        public_total_supply: bool,
+        deposit_enabled: bool,
+        redeem_enabled: bool,
+        mint_enabled: bool,
+        burn_enabled: bool,
     },
     ExchangeRate {
         rate: Uint128,
