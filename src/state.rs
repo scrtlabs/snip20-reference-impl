@@ -137,7 +137,7 @@ pub fn get_transfers<A: Api, S: ReadonlyStorage>(
     for_address: &CanonicalAddr,
     page: u32,
     page_size: u32,
-) -> StdResult<Vec<Tx>> {
+) -> StdResult<(Vec<Tx>, u64)> {
     let store = ReadonlyPrefixedStorage::multilevel(&[PREFIX_TXS, for_address.as_slice()], storage);
 
     // Try to access the storage of txs for the account.
@@ -145,7 +145,7 @@ pub fn get_transfers<A: Api, S: ReadonlyStorage>(
     let store = if let Some(result) = AppendStore::<StoredTx, _>::attach(&store) {
         result?
     } else {
-        return Ok(vec![]);
+        return Ok((vec![], 0));
     };
 
     // Take `page_size` txs starting from the latest tx, potentially skipping `page * page_size`
@@ -159,7 +159,7 @@ pub fn get_transfers<A: Api, S: ReadonlyStorage>(
     let txs: StdResult<Vec<Tx>> = tx_iter
         .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
         .collect();
-    txs
+    txs.map(|txs| (txs, store.len() as u64))
 }
 
 // Config

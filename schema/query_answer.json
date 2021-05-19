@@ -130,6 +130,14 @@
             "txs"
           ],
           "properties": {
+            "total": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
             "txs": {
               "type": "array",
               "items": {

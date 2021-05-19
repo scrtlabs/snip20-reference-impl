@@ -527,9 +527,9 @@ function test_deposit() {
 
 function unix_time_of_tx() {
     set -e
-    local tx_hash="$1"
+    local tx="$1"
 
-    date -d "$(secretcli q tx "$tx_hash" | jq -r '.timestamp')" '+%s'
+    date -d "$(jq -r '.timestamp' <<<"$tx")" '+%s'
 }
 
 function get_tx_history() {
@@ -544,6 +544,10 @@ function get_tx_history() {
     local transfer_history_response
     transfer_history_query='{"transfer_history":{"address":"'"$account"'","key":"'"$viewing_key"'","page_size":'"$page_size"',"page":'"$page"'}}'
     transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
+    log "$transfer_history_response"
+    # There's no good way of tracking the exact expected value,
+    # so we just check that the `total` field is a number
+    jq -e '.transfer_history.total | numbers' <<<"$transfer_history_response" > /dev/null
     jq -r '.transfer_history.txs' <<<"$transfer_history_response"
 }
 
@@ -560,6 +564,7 @@ function check_latest_tx_history() {
     local receiver="$6"
     local amount="$7"
     local timestamp="$8"
+    local block_height="$9"
 
     local txs
     local tx
@@ -573,6 +578,7 @@ function check_latest_tx_history() {
     assert_eq "$(jq -r '.coins.amount' <<<"$tx")" "$amount"
     assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
     assert_eq "$(jq -r '.timestamp' <<<"$tx")" "$timestamp"
+    assert_eq "$(jq -r '.block_height' <<<"$tx")" "$block_height"
 
     jq -r '.id' <<<"$tx"
 }
@@ -621,14 +627,20 @@ function test_transfer() {
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     assert_eq "$transfer_response" "$(pad_space '{"transfer":{"status":"success"}}')"
 
+    local native_tx
+    native_tx="$(secretcli q tx "$tx_hash")"
     local timestamp
-    timestamp="$(unix_time_of_tx "$tx_hash")"
+    timestamp="$(unix_time_of_tx "$native_tx")"
+    local block_height
+    block_height="$(jq -r '.height' <<<"$native_tx")"
 
     # Check for both "a" and "b" that they recorded the transfer
     local -A tx_ids
     for key in a b; do
         log "querying the transfer history of \"$key\""
-        tx_ids[$key]="$(check_latest_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" "${ADDRESS[a]}" "${ADDRESS[a]}" "${ADDRESS[b]}" 400000 "$timestamp")"
+        tx_ids[$key]="$(
+            check_latest_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" "${ADDRESS[a]}" "${ADDRESS[a]}" "${ADDRESS[b]}" 400000 "$timestamp" "$block_height"
+        )"
     done
 
     assert_eq "${tx_ids[a]}" "${tx_ids[b]}"
@@ -776,8 +788,12 @@ function test_send() {
         "$((original_count + 1))"
     log 'received send response'
 
+    local native_tx
+    native_tx="$(secretcli q tx "$tx_hash")"
     local timestamp
-    timestamp="$(unix_time_of_tx "$tx_hash")"
+    timestamp="$(unix_time_of_tx "$native_tx")"
+    local block_height
+    block_height="$(jq -r '.height' <<<"$native_tx")"
 
     # Check that the receiver got the message
     log 'checking whether state was updated in the receiver'
@@ -790,7 +806,7 @@ function test_send() {
 
     # Check that "a" recorded the transfer
     log 'querying the transfer history of "a"'
-    check_latest_tx_history "$contract_addr" "${ADDRESS[a]}" "${VK[a]}" "${ADDRESS[a]}" "${ADDRESS[a]}" "$receiver_addr" 400000 "$timestamp" >/dev/null
+    check_latest_tx_history "$contract_addr" "${ADDRESS[a]}" "${VK[a]}" "${ADDRESS[a]}" "${ADDRESS[a]}" "$receiver_addr" 400000 "$timestamp" "$block_height" >/dev/null
 
     # Check that "a" has fewer funds
     assert_eq "$(get_balance "$contract_addr" 'a')" 600000
@@ -915,14 +931,21 @@ function test_transfer_from() {
     tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[b]} --gas 200000)"
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "c" by "b" to process')"
     assert_eq "$transfer_response" "$(pad_space '{"transfer_from":{"status":"success"}}')"
+
+    local native_tx
+    native_tx="$(secretcli q tx "$tx_hash")"
     local timestamp
-    timestamp="$(unix_time_of_tx "$tx_hash")"
+    timestamp="$(unix_time_of_tx "$native_tx")"
+    local block_height
+    block_height="$(jq -r '.height' <<<"$native_tx")"
 
     # Check for both "a", "b", and "c" that they recorded the transfer
     local -A tx_ids
     for key in a b c; do
         log "querying the transfer history of \"$key\""
-        tx_ids[$key]="$(check_latest_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" "${ADDRESS[b]}" "${ADDRESS[a]}" "${ADDRESS[c]}" 400000 "$timestamp")"
+        tx_ids[$key]="$(
+            check_latest_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" "${ADDRESS[b]}" "${ADDRESS[a]}" "${ADDRESS[c]}" 400000 "$timestamp" "$block_height"
+        )"
     done
 
     assert_eq "${tx_ids[a]}" "${tx_ids[b]}"
@@ -1018,8 +1041,12 @@ function test_send_from() {
         "$((original_count + 1))"
     log 'received send response'
 
+    local native_tx
+    native_tx="$(secretcli q tx "$tx_hash")"
     local timestamp
-    timestamp="$(unix_time_of_tx "$tx_hash")"
+    timestamp="$(unix_time_of_tx "$native_tx")"
+    local block_height
+    block_height="$(jq -r '.height' <<<"$native_tx")"
 
     # Check that the receiver got the message
     log 'checking whether state was updated in the receiver'
@@ -1034,7 +1061,9 @@ function test_send_from() {
     local -A tx_ids
     for key in a b; do
         log "querying the transfer history of \"$key\""
-        tx_ids[$key]="$(check_latest_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" "${ADDRESS[b]}" "${ADDRESS[a]}" "$receiver_addr" 400000 "$timestamp")"
+        tx_ids[$key]="$(
+            check_latest_tx_history "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" "${ADDRESS[b]}" "${ADDRESS[a]}" "$receiver_addr" 400000 "$timestamp" "$block_height"
+        )"
     done
 
     assert_eq "${tx_ids[a]}" "${tx_ids[b]}"
@@ -1082,11 +1111,11 @@ function main() {
 
     # To make testing faster, check the logs and try to reuse the deployed contract and VKs from previous runs.
     # Remember to comment out the contract deployment and `test_viewing_key` if you do.
-#    local contract_addr='secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg'
-#    VK[a]='api_key_Ij3ZwkDOTqMPnmCLGn3F2uX0pMpETw2LTyCkQ0sDMv8='
-#    VK[b]='api_key_hV3SlzQMC4YK50GbDrpbjicGOMQpolfPI+O6pMp6oQY='
-#    VK[c]='api_key_7Bv00UvQCkZ7SltDn205R0GBugq/l8GnRX6N0JIBQuA='
-#    VK[d]='api_key_A3Y3mFe87d2fEq90kNlPSIUSmVgoao448ZpyDAJkB/4='
+    local contract_addr='secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg'
+    VK[a]='api_key_U6FcuhP2km6UHtYeFSyaZbggcgMJQAiTMlNWV3X4iXQ='
+    VK[b]='api_key_YoQlmqnOkkEoh81XzFkiZ3z7+ZAJh9kyFXvtaMBhiFU='
+    VK[c]='api_key_/cdkitEbzaHZA41OB6cGcz1XGnQk6LYTAfSBWTOU5aQ='
+    VK[d]='api_key_WQYkuGOco/mSHgtKWG0f7b2UcrSG3s1fIqm1X/wIGDo='
 
     log "contract address: $contract_addr"
 

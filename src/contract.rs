@@ -261,9 +261,9 @@ pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     page_size: u32,
 ) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account).unwrap();
-    let txs = get_transfers(&deps.api, &deps.storage, &address, page, page_size)?;
+    let (txs, total) = get_transfers(&deps.api, &deps.storage, &address, page, page_size)?;
 
-    let result = QueryAnswer::TransferHistory { txs };
+    let result = QueryAnswer::TransferHistory { txs, total: Some(total) };
     to_binary(&result)
 }
 
@@ -2707,7 +2707,7 @@ mod tests {
         // let a: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
         // println!("{:?}", a);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
-            QueryAnswer::TransferHistory { txs } => txs,
+            QueryAnswer::TransferHistory { txs, total } => txs,
             _ => panic!("Unexpected"),
         };
         assert!(transfers.is_empty());
@@ -2720,7 +2720,7 @@ mod tests {
         };
         let query_result = query(&deps, query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
-            QueryAnswer::TransferHistory { txs } => txs,
+            QueryAnswer::TransferHistory { txs, total } => txs,
             _ => panic!("Unexpected"),
         };
         assert_eq!(transfers.len(), 3);
@@ -2733,7 +2733,7 @@ mod tests {
         };
         let query_result = query(&deps, query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
-            QueryAnswer::TransferHistory { txs } => txs,
+            QueryAnswer::TransferHistory { txs, total } => txs,
             _ => panic!("Unexpected"),
         };
         assert_eq!(transfers.len(), 2);
