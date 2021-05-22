@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
 
-use crate::state::Tx;
+use crate::transaction_history::{RichTx, Tx};
 use crate::viewing_key::ViewingKey;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -276,6 +276,12 @@ pub enum QueryMsg {
         page: Option<u32>,
         page_size: u32,
     },
+    TransactionHistory {
+        address: HumanAddr,
+        key: String,
+        page: Option<u32>,
+        page_size: u32,
+    },
     Minters {},
 }
 
@@ -284,6 +290,9 @@ impl QueryMsg {
         match self {
             Self::Balance { address, key } => (vec![address], ViewingKey(key.clone())),
             Self::TransferHistory { address, key, .. } => (vec![address], ViewingKey(key.clone())),
+            Self::TransactionHistory { address, key, .. } => {
+                (vec![address], ViewingKey(key.clone()))
+            }
             Self::Allowance {
                 owner,
                 spender,
@@ -328,7 +337,10 @@ pub enum QueryAnswer {
         txs: Vec<Tx>,
         total: Option<u64>,
     },
-
+    TransactionHistory {
+        txs: Vec<RichTx>,
+        total: Option<u64>,
+    },
     ViewingKeyError {
         msg: String,
     },

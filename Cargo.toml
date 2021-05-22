@@ -29,12 +29,14 @@ overflow-checks = true
 [features]
 # for quicker tests, cargo test --lib
 # for more explicit tests, cargo test --features=backtraces
+#default = ["debug-print"]
 backtraces = ["cosmwasm-std/backtraces", "cosmwasm-vm/backtraces"]
+debug-print = ["cosmwasm-std/debug-print"]
 
 [dependencies]
-cosmwasm-std = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.0" }
-cosmwasm-storage = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.0" }
-secret-toolkit = { git = "https://github.com/enigmampc/secret-toolkit", rev = "6aa670f" }
+cosmwasm-std = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.4-debug-print" }
+cosmwasm-storage = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.4-debug-print" }
+secret-toolkit = { git = "https://github.com/enigmampc/secret-toolkit", rev = "v0.1.1-debug-print" }
 schemars = "0.7"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }
 snafu = { version = "0.6.3" }

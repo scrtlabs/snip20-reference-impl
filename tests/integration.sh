@@ -373,7 +373,7 @@ function get_allowance() {
 }
 
 function log_test_header() {
-    log " # Starting ${FUNCNAME[1]}"
+    log " ########### Starting ${FUNCNAME[1]} ###############################################################################################################################################"
 }
 
 function test_viewing_key() {
@@ -623,7 +623,7 @@ function test_transfer() {
     log 'transferring funds from "a" to "b"'
     local transfer_message='{"transfer":{"recipient":"'"${ADDRESS[b]}"'","amount":"400000"}}'
     local transfer_response
-    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 160000)"
+    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 200000)"
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     assert_eq "$transfer_response" "$(pad_space '{"transfer":{"status":"success"}}')"
 
@@ -928,7 +928,7 @@ function test_transfer_from() {
     log 'transferring funds from "a" to "c" using "b"'
     local transfer_message='{"transfer_from":{"owner":"'"${ADDRESS[a]}"'","recipient":"'"${ADDRESS[c]}"'","amount":"400000"}}'
     local transfer_response
-    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[b]} --gas 200000)"
+    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[b]} --gas 250000)"
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "c" by "b" to process')"
     assert_eq "$transfer_response" "$(pad_space '{"transfer_from":{"status":"success"}}')"
 
@@ -1034,7 +1034,7 @@ function test_send_from() {
     receiver_msg="$(base64 <<<"$receiver_msg")"
     local send_message='{"send_from":{"owner":"'"${ADDRESS[a]}"'","recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
     local send_response
-    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[b]} --gas 300000)"
+    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[b]} --gas 301000)"
     send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
     assert_eq \
         "$(jq -r '.output_log[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \

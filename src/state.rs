@@ -1,12 +1,10 @@
 use std::any::type_name;
 use std::convert::TryFrom;
 
-use cosmwasm_std::{
-    Api, CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
-};
+use cosmwasm_std::{CanonicalAddr, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
-use secret_toolkit::storage::{AppendStore, AppendStoreMut, TypedStore, TypedStoreMut};
+use secret_toolkit::storage::{TypedStore, TypedStoreMut};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -29,138 +27,6 @@ pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
-
-// Note that id is a globally incrementing counter.
-// Since it's 64 bits long, even at 50 tx/s it would take
-// over 11 billion years for it to rollback. I'm pretty sure
-// we'll have bigger issues by then.
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
-pub struct Tx {
-    pub id: u64,
-    pub from: HumanAddr,
-    pub sender: HumanAddr,
-    pub receiver: HumanAddr,
-    pub coins: Coin,
-    // The timestamp and block height are optional so that the JSON schema
-    // reflects that some SNIP-20 contracts may not include this info.
-    pub timestamp: Option<u64>,
-    pub block_height: Option<u64>,
-}
-
-impl Tx {
-    pub fn into_stored<A: Api>(self, api: &A) -> StdResult<StoredTx> {
-        let tx = StoredTx {
-            id: self.id,
-            from: api.canonical_address(&self.from)?,
-            sender: api.canonical_address(&self.sender)?,
-            receiver: api.canonical_address(&self.receiver)?,
-            coins: self.coins,
-            timestamp: self.timestamp.unwrap_or(0),
-            block_height: self.block_height.unwrap_or(0),
-        };
-        Ok(tx)
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct StoredTx {
-    pub id: u64,
-    pub from: CanonicalAddr,
-    pub sender: CanonicalAddr,
-    pub receiver: CanonicalAddr,
-    pub coins: Coin,
-    pub timestamp: u64,
-    pub block_height: u64,
-}
-
-impl StoredTx {
-    pub fn into_humanized<A: Api>(self, api: &A) -> StdResult<Tx> {
-        let tx = Tx {
-            id: self.id,
-            from: api.human_address(&self.from)?,
-            sender: api.human_address(&self.sender)?,
-            receiver: api.human_address(&self.receiver)?,
-            coins: self.coins,
-            timestamp: Some(self.timestamp),
-            block_height: Some(self.block_height),
-        };
-        Ok(tx)
-    }
-}
-
-pub fn store_transfer<S: Storage>(
-    store: &mut S,
-    owner: &CanonicalAddr,
-    sender: &CanonicalAddr,
-    receiver: &CanonicalAddr,
-    amount: Uint128,
-    denom: String,
-    block: cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
-    let mut config = Config::from_storage(store);
-    let id = config.tx_count() + 1;
-    config.set_tx_count(id)?;
-
-    let coins = Coin { denom, amount };
-    let tx = StoredTx {
-        id,
-        from: owner.clone(),
-        sender: sender.clone(),
-        receiver: receiver.clone(),
-        coins,
-        timestamp: block.time,
-        block_height: block.height,
-    };
-
-    if owner != sender {
-        append_tx(store, tx.clone(), &owner)?;
-    }
-    append_tx(store, tx.clone(), &sender)?;
-    append_tx(store, tx, &receiver)?;
-
-    Ok(())
-}
-
-fn append_tx<S: Storage>(
-    store: &mut S,
-    tx: StoredTx,
-    for_address: &CanonicalAddr,
-) -> StdResult<()> {
-    let mut store = PrefixedStorage::multilevel(&[PREFIX_TXS, for_address.as_slice()], store);
-    let mut store = AppendStoreMut::attach_or_create(&mut store)?;
-    store.push(&tx)
-}
-
-pub fn get_transfers<A: Api, S: ReadonlyStorage>(
-    api: &A,
-    storage: &S,
-    for_address: &CanonicalAddr,
-    page: u32,
-    page_size: u32,
-) -> StdResult<(Vec<Tx>, u64)> {
-    let store = ReadonlyPrefixedStorage::multilevel(&[PREFIX_TXS, for_address.as_slice()], storage);
-
-    // Try to access the storage of txs for the account.
-    // If it doesn't exist yet, return an empty list of transfers.
-    let store = if let Some(result) = AppendStore::<StoredTx, _>::attach(&store) {
-        result?
-    } else {
-        return Ok((vec![], 0));
-    };
-
-    // Take `page_size` txs starting from the latest tx, potentially skipping `page * page_size`
-    // txs from the start.
-    let tx_iter = store
-        .iter()
-        .rev()
-        .skip((page * page_size) as _)
-        .take(page_size as _);
-    // The `and_then` here flattens the `StdResult<StdResult<Tx>>` to an `StdResult<Tx>`
-    let txs: StdResult<Vec<Tx>> = tx_iter
-        .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
-        .collect();
-    txs.map(|txs| (txs, store.len() as u64))
-}
 
 // Config
 
@@ -219,9 +85,16 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfig<'a, S> {
     }
 }
 
+fn ser_bin_data<T: Serialize>(obj: &T) -> StdResult<Vec<u8>> {
+    bincode2::serialize(&obj).map_err(|e| StdError::serialize_err(type_name::<T>(), e))
+}
+
+fn deser_bin_data<T: DeserializeOwned>(data: &[u8]) -> StdResult<T> {
+    bincode2::deserialize::<T>(&data).map_err(|e| StdError::serialize_err(type_name::<T>(), e))
+}
+
 fn set_bin_data<T: Serialize, S: Storage>(storage: &mut S, key: &[u8], data: &T) -> StdResult<()> {
-    let bin_data =
-        bincode2::serialize(&data).map_err(|e| StdError::serialize_err(type_name::<T>(), e))?;
+    let bin_data = ser_bin_data(data)?;
 
     storage.set(key, &bin_data);
     Ok(())
@@ -232,8 +105,7 @@ fn get_bin_data<T: DeserializeOwned, S: ReadonlyStorage>(storage: &S, key: &[u8]
 
     match bin_data {
         None => Err(StdError::not_found("Key not found in storage")),
-        Some(bin_data) => Ok(bincode2::deserialize::<T>(&bin_data)
-            .map_err(|e| StdError::serialize_err(type_name::<T>(), e))?),
+        Some(bin_data) => Ok(deser_bin_data(&bin_data)?),
     }
 }
 
