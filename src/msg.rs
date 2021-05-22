@@ -77,7 +77,7 @@ impl InitConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
     // Native coin interactions
@@ -170,6 +170,10 @@ pub enum HandleMsg {
         owner: HumanAddr,
         amount: Uint128,
         memo: Option<String>,
+        padding: Option<String>,
+    },
+    BatchBurnFrom {
+        actions: Vec<batch::BurnFromAction>,
         padding: Option<String>,
     },
 
@@ -269,6 +273,9 @@ pub enum HandleAnswer {
         status: ResponseStatus,
     },
     BurnFrom {
+        status: ResponseStatus,
+    },
+    BatchBurnFrom {
         status: ResponseStatus,
     },
 

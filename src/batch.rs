@@ -48,3 +48,11 @@ pub struct MintAction {
     pub amount: Uint128,
     pub memo: Option<String>,
 }
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub struct BurnFromAction {
+    pub owner: HumanAddr,
+    pub amount: Uint128,
+    pub memo: Option<String>,
+}
