@@ -81,6 +81,44 @@
     {
       "type": "object",
       "required": [
+        "batch_transfer"
+      ],
+      "properties": {
+        "batch_transfer": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "batch_send"
+      ],
+      "properties": {
+        "batch_send": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "burn"
       ],
       "properties": {
@@ -249,6 +287,44 @@
     {
       "type": "object",
       "required": [
+        "batch_transfer_from"
+      ],
+      "properties": {
+        "batch_transfer_from": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "batch_send_from"
+      ],
+      "properties": {
+        "batch_send_from": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "burn_from"
       ],
       "properties": {
@@ -272,6 +348,25 @@
       ],
       "properties": {
         "mint": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "batch_mint"
+      ],
+      "properties": {
+        "batch_mint": {
           "type": "object",
           "required": [
             "status"

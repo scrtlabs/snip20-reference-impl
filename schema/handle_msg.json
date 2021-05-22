@@ -135,6 +135,62 @@
     {
       "type": "object",
       "required": [
+        "batch_transfer"
+      ],
+      "properties": {
+        "batch_transfer": {
+          "type": "object",
+          "required": [
+            "actions"
+          ],
+          "properties": {
+            "actions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TransferAction"
+              }
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "batch_send"
+      ],
+      "properties": {
+        "batch_send": {
+          "type": "object",
+          "required": [
+            "actions"
+          ],
+          "properties": {
+            "actions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/SendAction"
+              }
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "burn"
       ],
       "properties": {
@@ -403,6 +459,62 @@
     {
       "type": "object",
       "required": [
+        "batch_transfer_from"
+      ],
+      "properties": {
+        "batch_transfer_from": {
+          "type": "object",
+          "required": [
+            "actions"
+          ],
+          "properties": {
+            "actions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TransferFromAction"
+              }
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "batch_send_from"
+      ],
+      "properties": {
+        "batch_send_from": {
+          "type": "object",
+          "required": [
+            "actions"
+          ],
+          "properties": {
+            "actions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/SendFromAction"
+              }
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "burn_from"
       ],
       "properties": {
@@ -465,6 +577,34 @@
             },
             "recipient": {
               "$ref": "#/definitions/HumanAddr"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "batch_mint"
+      ],
+      "properties": {
+        "batch_mint": {
+          "type": "object",
+          "required": [
+            "actions"
+          ],
+          "properties": {
+            "actions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/MintAction"
+              }
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         }
@@ -620,6 +760,139 @@
     },
     "HumanAddr": {
       "type": "string"
+    },
+    "MintAction": {
+      "type": "object",
+      "required": [
+        "amount",
+        "recipient"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "memo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipient": {
+          "$ref": "#/definitions/HumanAddr"
+        }
+      }
+    },
+    "SendAction": {
+      "type": "object",
+      "required": [
+        "amount",
+        "recipient"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "memo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "msg": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Binary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recipient": {
+          "$ref": "#/definitions/HumanAddr"
+        }
+      }
+    },
+    "SendFromAction": {
+      "type": "object",
+      "required": [
+        "amount",
+        "owner",
+        "recipient"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "memo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "msg": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Binary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner": {
+          "$ref": "#/definitions/HumanAddr"
+        },
+        "recipient": {
+          "$ref": "#/definitions/HumanAddr"
+        }
+      }
+    },
+    "TransferAction": {
+      "type": "object",
+      "required": [
+        "amount",
+        "recipient"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "memo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipient": {
+          "$ref": "#/definitions/HumanAddr"
+        }
+      }
+    },
+    "TransferFromAction": {
+      "type": "object",
+      "required": [
+        "amount",
+        "owner",
+        "recipient"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "memo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "$ref": "#/definitions/HumanAddr"
+        },
+        "recipient": {
+          "$ref": "#/definitions/HumanAddr"
+        }
+      }
     },
     "Uint128": {
       "type": "string"
