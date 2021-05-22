@@ -3772,7 +3772,7 @@ mod tests {
                     amount: Uint128(2500),
                 },
                 memo: Some("my transfer message #3".to_string()),
-                timestamp: 1571797419,
+                block_time: 1571797419,
                 block_height: 12345,
             },
             RichTx {
@@ -3787,7 +3787,7 @@ mod tests {
                     amount: Uint128(500),
                 },
                 memo: Some("my transfer message #2".to_string()),
-                timestamp: 1571797419,
+                block_time: 1571797419,
                 block_height: 12345,
             },
             RichTx {
@@ -3802,7 +3802,7 @@ mod tests {
                     amount: Uint128(1000),
                 },
                 memo: Some("my transfer message #1".to_string()),
-                timestamp: 1571797419,
+                block_time: 1571797419,
                 block_height: 12345,
             },
             RichTx {
@@ -3813,7 +3813,7 @@ mod tests {
                     amount: Uint128(1000),
                 },
                 memo: None,
-                timestamp: 1571797419,
+                block_time: 1571797419,
                 block_height: 12345,
             },
             RichTx {
@@ -3827,7 +3827,7 @@ mod tests {
                     amount: Uint128(100),
                 },
                 memo: Some("my mint message".to_string()),
-                timestamp: 1571797419,
+                block_time: 1571797419,
                 block_height: 12345,
             },
             RichTx {
@@ -3838,7 +3838,7 @@ mod tests {
                     amount: Uint128(1000),
                 },
                 memo: None,
-                timestamp: 1571797419,
+                block_time: 1571797419,
                 block_height: 12345,
             },
             RichTx {
@@ -3852,7 +3852,7 @@ mod tests {
                     amount: Uint128(1),
                 },
                 memo: Some("my burn message".to_string()),
-                timestamp: 1571797419,
+                block_time: 1571797419,
                 block_height: 12345,
             },
             RichTx {
@@ -3867,7 +3867,7 @@ mod tests {
                 },
 
                 memo: Some("Initial Balance".to_string()),
-                timestamp: 1571797419,
+                block_time: 1571797419,
                 block_height: 12345,
             },
         ];

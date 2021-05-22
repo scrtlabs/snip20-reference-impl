@@ -563,7 +563,7 @@ function check_latest_tx_history() {
     local from="$5"
     local receiver="$6"
     local amount="$7"
-    local timestamp="$8"
+    local block_time="$8"
     local block_height="$9"
 
     local txs
@@ -577,7 +577,7 @@ function check_latest_tx_history() {
     assert_eq "$(jq -r '.receiver' <<<"$tx")" "$receiver"
     assert_eq "$(jq -r '.coins.amount' <<<"$tx")" "$amount"
     assert_eq "$(jq -r '.coins.denom' <<<"$tx")" 'SSCRT'
-    assert_eq "$(jq -r '.timestamp' <<<"$tx")" "$timestamp"
+    assert_eq "$(jq -r '.block_time' <<<"$tx")" "$block_time"
     assert_eq "$(jq -r '.block_height' <<<"$tx")" "$block_height"
 
     jq -r '.id' <<<"$tx"
@@ -1121,11 +1121,11 @@ function main() {
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
     test_viewing_key "$contract_addr"
-#    test_deposit "$contract_addr"
-#    test_transfer "$contract_addr"
+    test_deposit "$contract_addr"
+    test_transfer "$contract_addr"
     test_send "$contract_addr"
-#    test_burn "$contract_addr"
-#    test_transfer_from "$contract_addr"
+    test_burn "$contract_addr"
+    test_transfer_from "$contract_addr"
     test_send_from "$contract_addr"
 
     log 'Tests completed successfully'

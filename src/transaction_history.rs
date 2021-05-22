@@ -26,9 +26,9 @@ pub struct Tx {
     pub coins: Coin,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memo: Option<String>,
-    // The timestamp and block height are optional so that the JSON schema
+    // The block time and block height are optional so that the JSON schema
     // reflects that some SNIP-20 contracts may not include this info.
-    pub timestamp: Option<u64>,
+    pub block_time: Option<u64>,
     pub block_height: Option<u64>,
 }
 
@@ -64,7 +64,7 @@ pub struct RichTx {
     pub coins: Coin,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memo: Option<String>,
-    pub timestamp: u64,
+    pub block_time: u64,
     pub block_height: u64,
 }
 
@@ -80,7 +80,7 @@ struct StoredLegacyTransfer {
     receiver: CanonicalAddr,
     coins: Coin,
     memo: Option<String>,
-    timestamp: u64,
+    block_time: u64,
     block_height: u64,
 }
 
@@ -93,7 +93,7 @@ impl StoredLegacyTransfer {
             receiver: api.human_address(&self.receiver)?,
             coins: self.coins,
             memo: self.memo,
-            timestamp: Some(self.timestamp),
+            block_time: Some(self.block_time),
             block_height: Some(self.block_height),
         };
         Ok(tx)
@@ -239,7 +239,7 @@ struct StoredRichTx {
     action: StoredTxAction,
     coins: Coin,
     memo: Option<String>,
-    timestamp: u64,
+    block_time: u64,
     block_height: u64,
 }
 
@@ -256,7 +256,7 @@ impl StoredRichTx {
             action,
             coins,
             memo,
-            timestamp: block.time,
+            block_time: block.time,
             block_height: block.height,
         }
     }
@@ -267,7 +267,7 @@ impl StoredRichTx {
             action: self.action.into_humanized(api)?,
             coins: self.coins,
             memo: self.memo,
-            timestamp: self.timestamp,
+            block_time: self.block_time,
             block_height: self.block_height,
         })
     }
@@ -279,7 +279,7 @@ impl StoredRichTx {
             action,
             coins: transfer.coins,
             memo: transfer.memo,
-            timestamp: transfer.timestamp,
+            block_time: transfer.block_time,
             block_height: transfer.block_height,
         }
     }
@@ -314,7 +314,7 @@ pub fn store_transfer<S: Storage>(
         receiver: receiver.clone(),
         coins,
         memo,
-        timestamp: block.time,
+        block_time: block.time,
         block_height: block.height,
     };
     let tx = StoredRichTx::from_stored_legacy_transfer(transfer.clone());
