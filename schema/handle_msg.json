@@ -550,6 +550,34 @@
     {
       "type": "object",
       "required": [
+        "batch_burn_from"
+      ],
+      "properties": {
+        "batch_burn_from": {
+          "type": "object",
+          "required": [
+            "actions"
+          ],
+          "properties": {
+            "actions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BurnFromAction"
+              }
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "mint"
       ],
       "properties": {
@@ -749,6 +777,27 @@
     "Binary": {
       "description": "Binary is a wrapper around Vec<u8> to add base64 de/serialization with serde. It also adds some helper methods to help encode inline.\n\nThis is only needed as serde-json-{core,wasm} has a horrible encoding for Vec<u8>",
       "type": "string"
+    },
+    "BurnFromAction": {
+      "type": "object",
+      "required": [
+        "amount",
+        "owner"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "memo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "$ref": "#/definitions/HumanAddr"
+        }
+      }
     },
     "ContractStatusLevel": {
       "type": "string",

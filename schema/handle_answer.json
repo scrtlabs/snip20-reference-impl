@@ -344,6 +344,25 @@
     {
       "type": "object",
       "required": [
+        "batch_burn_from"
+      ],
+      "properties": {
+        "batch_burn_from": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "mint"
       ],
       "properties": {
