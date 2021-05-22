@@ -6,6 +6,7 @@ use cosmwasm_std::{
     StdResult, Storage, Uint128,
 };
 
+use crate::batch;
 use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
@@ -148,14 +149,16 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             amount,
             memo,
             ..
-        } => try_transfer(deps, env, &recipient, amount, memo),
+        } => try_transfer(deps, env, recipient, amount, memo),
         HandleMsg::Send {
             recipient,
             amount,
             msg,
             memo,
             ..
-        } => try_send(deps, env, &recipient, amount, memo, msg),
+        } => try_send(deps, env, recipient, amount, memo, msg),
+        HandleMsg::BatchTransfer { actions, .. } => try_batch_transfer(deps, env, actions),
+        HandleMsg::BatchSend { actions, .. } => try_batch_send(deps, env, actions),
         HandleMsg::Burn { amount, memo, .. } => try_burn(deps, env, amount, memo),
         HandleMsg::RegisterReceive { code_hash, .. } => try_register_receive(deps, env, code_hash),
         HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
@@ -180,7 +183,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             amount,
             memo,
             ..
-        } => try_transfer_from(deps, env, &owner, &recipient, amount, memo),
+        } => try_transfer_from(deps, &env, &owner, &recipient, amount, memo),
         HandleMsg::SendFrom {
             owner,
             recipient,
@@ -188,13 +191,17 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             msg,
             memo,
             ..
-        } => try_send_from(deps, env, &owner, &recipient, amount, memo, msg),
+        } => try_send_from(deps, env, owner, recipient, amount, memo, msg),
+        HandleMsg::BatchTransferFrom { actions, .. } => {
+            try_batch_transfer_from(deps, &env, actions)
+        }
+        HandleMsg::BatchSendFrom { actions, .. } => try_batch_send_from(deps, env, actions),
         HandleMsg::BurnFrom {
             owner,
             amount,
             memo,
             ..
-        } => try_burn_from(deps, env, &owner, amount, memo),
+        } => try_burn_from(deps, &env, &owner, amount, memo),
 
         // Mint
         HandleMsg::Mint {
@@ -203,6 +210,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             memo,
             ..
         } => try_mint(deps, env, recipient, amount, memo),
+        HandleMsg::BatchMint { actions, .. } => try_batch_mint(deps, env, actions),
 
         // Other
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
@@ -256,9 +264,7 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
                     page_size,
                     ..
                 } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
-                QueryMsg::Allowance { owner, spender, .. } => {
-                    try_check_allowance(deps, owner, spender)
-                }
+                QueryMsg::Allowance { owner, spender, .. } => query_allowance(deps, owner, spender),
                 _ => panic!("This query type does not require authentication"),
             };
         }
@@ -394,10 +400,44 @@ fn change_admin<S: Storage, A: Api, Q: Querier>(
     })
 }
 
+fn try_mint_impl<S: Storage>(
+    storage: &mut S,
+    minter: &CanonicalAddr,
+    recipient: &CanonicalAddr,
+    amount: Uint128,
+    denom: String,
+    memo: Option<String>,
+    block: &cosmwasm_std::BlockInfo,
+) -> StdResult<()> {
+    let raw_amount = amount.u128();
+
+    let mut balances = Balances::from_storage(storage);
+
+    let mut account_balance = balances.balance(recipient);
+
+    if let Some(new_balance) = account_balance.checked_add(raw_amount) {
+        account_balance = new_balance;
+    } else {
+        // This error literally can not happen, since the account's funds are a subset
+        // of the total supply, both are stored as u128, and we check for overflow of
+        // the total supply just a couple lines before.
+        // Still, writing this to cover all overflows.
+        return Err(StdError::generic_err(
+            "This mint attempt would increase the account's balance above the supported maximum",
+        ));
+    }
+
+    balances.set_account_balance(recipient, account_balance);
+
+    store_mint(storage, minter, recipient, amount, denom, memo, block)?;
+
+    Ok(())
+}
+
 fn try_mint<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    address: HumanAddr,
+    recipient: HumanAddr,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<HandleResponse> {
@@ -416,10 +456,8 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    let raw_amount = amount.u128();
-
     let mut total_supply = config.total_supply();
-    if let Some(new_total_supply) = total_supply.checked_add(raw_amount) {
+    if let Some(new_total_supply) = total_supply.checked_add(amount.u128()) {
         total_supply = new_total_supply;
     } else {
         return Err(StdError::generic_err(
@@ -428,32 +466,12 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     }
     config.set_total_supply(total_supply);
 
-    let recipient_account = &deps.api.canonical_address(&address)?;
-
-    let mut balances = Balances::from_storage(&mut deps.storage);
-
-    let mut account_balance = balances.balance(recipient_account);
-
-    if let Some(new_balance) = account_balance.checked_add(raw_amount) {
-        account_balance = new_balance;
-    } else {
-        // This error literally can not happen, since the account's funds are a subset
-        // of the total supply, both are stored as u128, and we check for overflow of
-        // the total supply just a couple lines before.
-        // Still, writing this to cover all overflows.
-        return Err(StdError::generic_err(
-            "This mint attempt would increase the account's balance above the supported maximum",
-        ));
-    }
-
-    balances.set_account_balance(recipient_account, account_balance);
-
     let minter = &deps.api.canonical_address(&env.message.sender)?;
-
-    store_mint(
+    let recipient = &deps.api.canonical_address(&recipient)?;
+    try_mint_impl(
         &mut deps.storage,
-        minter,
-        recipient_account,
+        &minter,
+        &recipient,
         amount,
         constants.symbol,
         memo,
@@ -464,6 +482,63 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
         messages: vec![],
         log: vec![],
         data: Some(to_binary(&HandleAnswer::Mint { status: Success })?),
+    };
+
+    Ok(res)
+}
+
+fn try_batch_mint<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    actions: Vec<batch::MintAction>,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+    let constants = config.constants()?;
+    if !constants.mint_is_enabled {
+        return Err(StdError::generic_err(
+            "Mint functionality is not enabled for this token.",
+        ));
+    }
+
+    let minters = config.minters();
+    if !minters.contains(&env.message.sender) {
+        return Err(StdError::generic_err(
+            "Minting is allowed to minter accounts only",
+        ));
+    }
+
+    let mut total_supply = config.total_supply();
+
+    // Quick loop to check that the total of amounts is valid
+    for action in &actions {
+        if let Some(new_total_supply) = total_supply.checked_add(action.amount.u128()) {
+            total_supply = new_total_supply;
+        } else {
+            return Err(StdError::generic_err(
+                format!("This mint attempt would increase the total supply above the supported maximum: {:?}", action),
+            ));
+        }
+    }
+    config.set_total_supply(total_supply);
+
+    let minter = &deps.api.canonical_address(&env.message.sender)?;
+    for action in actions {
+        let recipient = &deps.api.canonical_address(&action.recipient)?;
+        try_mint_impl(
+            &mut deps.storage,
+            &minter,
+            &recipient,
+            action.amount,
+            constants.symbol.clone(),
+            action.memo,
+            &env.block,
+        )?;
+    }
+
+    let res = HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::BatchMint { status: Success })?),
     };
 
     Ok(res)
@@ -526,7 +601,7 @@ fn set_contract_status<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-pub fn try_check_allowance<S: Storage, A: Api, Q: Querier>(
+pub fn query_allowance<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     owner: HumanAddr,
     spender: HumanAddr,
@@ -688,32 +763,25 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
 
 fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    env: Env,
-    recipient: &HumanAddr,
+    sender: &CanonicalAddr,
+    recipient: &CanonicalAddr,
     amount: Uint128,
     memo: Option<String>,
+    block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
-    let sender_address = deps.api.canonical_address(&env.message.sender)?;
-    let recipient_address = deps.api.canonical_address(recipient)?;
-
-    perform_transfer(
-        &mut deps.storage,
-        &sender_address,
-        &recipient_address,
-        amount.u128(),
-    )?;
+    perform_transfer(&mut deps.storage, &sender, &recipient, amount.u128())?;
 
     let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
 
     store_transfer(
         &mut deps.storage,
-        &sender_address,
-        &sender_address,
-        &recipient_address,
+        &sender,
+        &sender,
+        &recipient,
         amount,
         symbol,
         memo,
-        &env.block,
+        block,
     )?;
 
     Ok(())
@@ -722,11 +790,13 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
 fn try_transfer<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    recipient: &HumanAddr,
+    recipient: HumanAddr,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<HandleResponse> {
-    try_transfer_impl(deps, env, recipient, amount, memo)?;
+    let sender = deps.api.canonical_address(&env.message.sender)?;
+    let recipient = deps.api.canonical_address(&recipient)?;
+    try_transfer_impl(deps, &sender, &recipient, amount, memo, &env.block)?;
 
     let res = HandleResponse {
         messages: vec![],
@@ -736,43 +806,79 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
+fn try_batch_transfer<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    actions: Vec<batch::TransferAction>,
+) -> StdResult<HandleResponse> {
+    let sender = deps.api.canonical_address(&env.message.sender)?;
+    for action in actions {
+        let recipient = deps.api.canonical_address(&action.recipient)?;
+        try_transfer_impl(
+            deps,
+            &sender,
+            &recipient,
+            action.amount,
+            action.memo,
+            &env.block,
+        )?;
+    }
+
+    let res = HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::BatchTransfer { status: Success })?),
+    };
+    Ok(res)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn try_add_receiver_api_callback<S: ReadonlyStorage>(
-    messages: &mut Vec<CosmosMsg>,
     storage: &S,
-    recipient: &HumanAddr,
+    messages: &mut Vec<CosmosMsg>,
+    recipient: HumanAddr,
     msg: Option<Binary>,
     sender: HumanAddr,
     from: HumanAddr,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<()> {
-    let receiver_hash = get_receiver_hash(storage, recipient);
+    let receiver_hash = get_receiver_hash(storage, &recipient);
     if let Some(receiver_hash) = receiver_hash {
         let receiver_hash = receiver_hash?;
         let receiver_msg = Snip20ReceiveMsg::new(sender, from, amount, memo, msg);
-        let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient.clone())?;
+        let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient)?;
 
         messages.push(callback_msg);
     }
     Ok(())
 }
 
-fn try_send<S: Storage, A: Api, Q: Querier>(
+#[allow(clippy::too_many_arguments)]
+fn try_send_impl<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    env: Env,
-    recipient: &HumanAddr,
+    messages: &mut Vec<CosmosMsg>,
+    sender: HumanAddr,
+    sender_canon: &CanonicalAddr, // redundant but more efficient
+    recipient: HumanAddr,
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
-) -> StdResult<HandleResponse> {
-    let sender = env.message.sender.clone();
-    try_transfer_impl(deps, env, recipient, amount, memo.clone())?;
-
-    let mut messages = vec![];
+    block: &cosmwasm_std::BlockInfo,
+) -> StdResult<()> {
+    let recipient_canon = deps.api.canonical_address(&recipient)?;
+    try_transfer_impl(
+        deps,
+        &sender_canon,
+        &recipient_canon,
+        amount,
+        memo.clone(),
+        block,
+    )?;
 
     try_add_receiver_api_callback(
-        &mut messages,
         &deps.storage,
+        messages,
         recipient,
         msg,
         sender.clone(),
@@ -781,10 +887,66 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
         memo,
     )?;
 
+    Ok(())
+}
+
+fn try_send<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    recipient: HumanAddr,
+    amount: Uint128,
+    memo: Option<String>,
+    msg: Option<Binary>,
+) -> StdResult<HandleResponse> {
+    let mut messages = vec![];
+    let sender = env.message.sender;
+    let sender_canon = deps.api.canonical_address(&sender)?;
+    try_send_impl(
+        deps,
+        &mut messages,
+        sender,
+        &sender_canon,
+        recipient,
+        amount,
+        memo,
+        msg,
+        &env.block,
+    )?;
+
     let res = HandleResponse {
         messages,
         log: vec![],
         data: Some(to_binary(&HandleAnswer::Send { status: Success })?),
+    };
+    Ok(res)
+}
+
+fn try_batch_send<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    actions: Vec<batch::SendAction>,
+) -> StdResult<HandleResponse> {
+    let mut messages = vec![];
+    let sender = env.message.sender;
+    let sender_canon = deps.api.canonical_address(&sender)?;
+    for action in actions {
+        try_send_impl(
+            deps,
+            &mut messages,
+            sender.clone(),
+            &sender_canon,
+            action.recipient,
+            action.amount,
+            action.memo,
+            action.msg,
+            &env.block,
+        )?;
+    }
+
+    let res = HandleResponse {
+        messages,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::BatchSend { status: Success })?),
     };
     Ok(res)
 }
@@ -812,58 +974,53 @@ fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
     ))
 }
 
+fn use_allowance<S: Storage>(
+    storage: &mut S,
+    env: &Env,
+    owner: &CanonicalAddr,
+    spender: &CanonicalAddr,
+    amount: u128,
+) -> StdResult<()> {
+    let mut allowance = read_allowance(storage, owner, spender)?;
+
+    if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) && allowance.amount != 0 {
+        allowance.amount = 0;
+        write_allowance(storage, owner, spender, allowance)?;
+        return Err(insufficient_allowance(0, amount));
+    }
+    if let Some(new_allowance) = allowance.amount.checked_sub(amount) {
+        allowance.amount = new_allowance;
+    } else {
+        return Err(insufficient_allowance(allowance.amount, amount));
+    }
+
+    write_allowance(storage, owner, spender, allowance)?;
+
+    Ok(())
+}
+
 fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    env: Env,
-    owner: &HumanAddr,
-    recipient: &HumanAddr,
+    env: &Env,
+    spender: &CanonicalAddr,
+    owner: &CanonicalAddr,
+    recipient: &CanonicalAddr,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<()> {
-    let spender_address = deps.api.canonical_address(&env.message.sender)?;
-    let owner_address = deps.api.canonical_address(owner)?;
-    let recipient_address = deps.api.canonical_address(recipient)?;
-    let amount_raw = amount.u128();
+    let raw_amount = amount.u128();
 
-    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+    use_allowance(&mut deps.storage, env, owner, spender, raw_amount)?;
 
-    if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) {
-        allowance.amount = 0;
-        write_allowance(
-            &mut deps.storage,
-            &owner_address,
-            &spender_address,
-            allowance,
-        )?;
-        return Err(insufficient_allowance(0, amount_raw));
-    }
-
-    if let Some(new_allowance) = allowance.amount.checked_sub(amount_raw) {
-        allowance.amount = new_allowance;
-    } else {
-        return Err(insufficient_allowance(allowance.amount, amount_raw));
-    }
-
-    write_allowance(
-        &mut deps.storage,
-        &owner_address,
-        &spender_address,
-        allowance,
-    )?;
-    perform_transfer(
-        &mut deps.storage,
-        &owner_address,
-        &recipient_address,
-        amount_raw,
-    )?;
+    perform_transfer(&mut deps.storage, owner, recipient, raw_amount)?;
 
     let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
 
     store_transfer(
         &mut deps.storage,
-        &owner_address,
-        &spender_address,
-        &recipient_address,
+        owner,
+        spender,
+        recipient,
         amount,
         symbol,
         memo,
@@ -875,13 +1032,16 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
 
 fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    env: Env,
+    env: &Env,
     owner: &HumanAddr,
     recipient: &HumanAddr,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<HandleResponse> {
-    try_transfer_from_impl(deps, env, owner, recipient, amount, memo)?;
+    let spender = deps.api.canonical_address(&env.message.sender)?;
+    let owner = deps.api.canonical_address(owner)?;
+    let recipient = deps.api.canonical_address(recipient)?;
+    try_transfer_from_impl(deps, env, &spender, &owner, &recipient, amount, memo)?;
 
     let res = HandleResponse {
         messages: vec![],
@@ -891,29 +1051,97 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
+fn try_batch_transfer_from<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: &Env,
+    actions: Vec<batch::TransferFromAction>,
+) -> StdResult<HandleResponse> {
+    let spender = deps.api.canonical_address(&env.message.sender)?;
+    for action in actions {
+        let owner = deps.api.canonical_address(&action.owner)?;
+        let recipient = deps.api.canonical_address(&action.recipient)?;
+        try_transfer_from_impl(
+            deps,
+            env,
+            &spender,
+            &owner,
+            &recipient,
+            action.amount,
+            action.memo,
+        )?;
+    }
+
+    let res = HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::BatchTransferFrom {
+            status: Success,
+        })?),
+    };
+    Ok(res)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_send_from_impl<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    messages: &mut Vec<CosmosMsg>,
+    spender_canon: &CanonicalAddr, // redundant but more efficient
+    owner: HumanAddr,
+    recipient: HumanAddr,
+    amount: Uint128,
+    memo: Option<String>,
+    msg: Option<Binary>,
+) -> StdResult<()> {
+    let owner_canon = deps.api.canonical_address(&owner)?;
+    let recipient_canon = deps.api.canonical_address(&recipient)?;
+    try_transfer_from_impl(
+        deps,
+        &env,
+        &spender_canon,
+        &owner_canon,
+        &recipient_canon,
+        amount,
+        memo.clone(),
+    )?;
+
+    try_add_receiver_api_callback(
+        &deps.storage,
+        messages,
+        recipient,
+        msg,
+        env.message.sender,
+        owner,
+        amount,
+        memo,
+    )?;
+
+    Ok(())
+}
+
 fn try_send_from<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    owner: &HumanAddr,
-    recipient: &HumanAddr,
+    owner: HumanAddr,
+    recipient: HumanAddr,
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
-    let sender = env.message.sender.clone();
-    try_transfer_from_impl(deps, env, owner, recipient, amount, memo.clone())?;
+    let spender = &env.message.sender;
+    let spender_canon = deps.api.canonical_address(spender)?;
 
     let mut messages = vec![];
-
-    try_add_receiver_api_callback(
+    try_send_from_impl(
+        deps,
+        env,
         &mut messages,
-        &deps.storage,
+        &spender_canon,
+        owner,
         recipient,
-        msg,
-        sender,
-        owner.clone(),
         amount,
         memo,
+        msg,
     )?;
 
     let res = HandleResponse {
@@ -924,9 +1152,40 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_burn_from<S: Storage, A: Api, Q: Querier>(
+fn try_batch_send_from<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
+    actions: Vec<batch::SendFromAction>,
+) -> StdResult<HandleResponse> {
+    let spender = &env.message.sender;
+    let spender_canon = deps.api.canonical_address(spender)?;
+    let mut messages = vec![];
+
+    for action in actions {
+        try_send_from_impl(
+            deps,
+            env.clone(),
+            &mut messages,
+            &spender_canon,
+            action.owner,
+            action.recipient,
+            action.amount,
+            action.memo,
+            action.msg,
+        )?;
+    }
+
+    let res = HandleResponse {
+        messages,
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::BatchSendFrom { status: Success })?),
+    };
+    Ok(res)
+}
+
+fn try_burn_from<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: &Env,
     owner: &HumanAddr,
     amount: Uint128,
     memo: Option<String>,
@@ -939,39 +1198,14 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    let spender_address = deps.api.canonical_address(&env.message.sender)?;
-    let owner_address = deps.api.canonical_address(owner)?;
+    let spender = deps.api.canonical_address(&env.message.sender)?;
+    let owner = deps.api.canonical_address(owner)?;
     let raw_amount = amount.u128();
-
-    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
-
-    if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) {
-        allowance.amount = 0;
-        write_allowance(
-            &mut deps.storage,
-            &owner_address,
-            &spender_address,
-            allowance,
-        )?;
-        return Err(insufficient_allowance(0, raw_amount));
-    }
-
-    if let Some(new_allowance) = allowance.amount.checked_sub(raw_amount) {
-        allowance.amount = new_allowance;
-    } else {
-        return Err(insufficient_allowance(allowance.amount, raw_amount));
-    }
-
-    write_allowance(
-        &mut deps.storage,
-        &owner_address,
-        &spender_address,
-        allowance,
-    )?;
+    use_allowance(&mut deps.storage, env, &owner, &spender, raw_amount)?;
 
     // subtract from owner account
     let mut balances = Balances::from_storage(&mut deps.storage);
-    let mut account_balance = balances.balance(&owner_address);
+    let mut account_balance = balances.balance(&owner);
 
     if let Some(new_balance) = account_balance.checked_sub(raw_amount) {
         account_balance = new_balance;
@@ -981,7 +1215,7 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
             account_balance, raw_amount
         )));
     }
-    balances.set_account_balance(&owner_address, account_balance);
+    balances.set_account_balance(&owner, account_balance);
 
     // remove from supply
     let mut config = Config::from_storage(&mut deps.storage);
@@ -997,8 +1231,8 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
 
     store_burn(
         &mut deps.storage,
-        &owner_address,
-        &spender_address,
+        &owner,
+        &spender,
         amount,
         constants.symbol,
         memo,

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
 
+use crate::batch;
 use crate::transaction_history::{RichTx, Tx};
 use crate::viewing_key::ViewingKey;
 
@@ -103,6 +104,14 @@ pub enum HandleMsg {
         memo: Option<String>,
         padding: Option<String>,
     },
+    BatchTransfer {
+        actions: Vec<batch::TransferAction>,
+        padding: Option<String>,
+    },
+    BatchSend {
+        actions: Vec<batch::SendAction>,
+        padding: Option<String>,
+    },
     Burn {
         amount: Uint128,
         memo: Option<String>,
@@ -149,6 +158,14 @@ pub enum HandleMsg {
         memo: Option<String>,
         padding: Option<String>,
     },
+    BatchTransferFrom {
+        actions: Vec<batch::TransferFromAction>,
+        padding: Option<String>,
+    },
+    BatchSendFrom {
+        actions: Vec<batch::SendFromAction>,
+        padding: Option<String>,
+    },
     BurnFrom {
         owner: HumanAddr,
         amount: Uint128,
@@ -161,6 +178,10 @@ pub enum HandleMsg {
         recipient: HumanAddr,
         amount: Uint128,
         memo: Option<String>,
+        padding: Option<String>,
+    },
+    BatchMint {
+        actions: Vec<batch::MintAction>,
         padding: Option<String>,
     },
     AddMinters {
@@ -205,6 +226,12 @@ pub enum HandleAnswer {
     Send {
         status: ResponseStatus,
     },
+    BatchTransfer {
+        status: ResponseStatus,
+    },
+    BatchSend {
+        status: ResponseStatus,
+    },
     Burn {
         status: ResponseStatus,
     },
@@ -235,12 +262,21 @@ pub enum HandleAnswer {
     SendFrom {
         status: ResponseStatus,
     },
+    BatchTransferFrom {
+        status: ResponseStatus,
+    },
+    BatchSendFrom {
+        status: ResponseStatus,
+    },
     BurnFrom {
         status: ResponseStatus,
     },
 
     // Mint
     Mint {
+        status: ResponseStatus,
+    },
+    BatchMint {
         status: ResponseStatus,
     },
     AddMinters {
