@@ -24,6 +24,8 @@ pub struct Tx {
     pub sender: HumanAddr,
     pub receiver: HumanAddr,
     pub coins: Coin,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memo: Option<String>,
     // The timestamp and block height are optional so that the JSON schema
     // reflects that some SNIP-20 contracts may not include this info.
     pub timestamp: Option<u64>,
@@ -60,6 +62,8 @@ pub struct RichTx {
     pub id: u64,
     pub action: TxAction,
     pub coins: Coin,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memo: Option<String>,
     pub timestamp: u64,
     pub block_height: u64,
 }
@@ -75,6 +79,7 @@ struct StoredLegacyTransfer {
     sender: CanonicalAddr,
     receiver: CanonicalAddr,
     coins: Coin,
+    memo: Option<String>,
     timestamp: u64,
     block_height: u64,
 }
@@ -87,6 +92,7 @@ impl StoredLegacyTransfer {
             sender: api.human_address(&self.sender)?,
             receiver: api.human_address(&self.receiver)?,
             coins: self.coins,
+            memo: self.memo,
             timestamp: Some(self.timestamp),
             block_height: Some(self.block_height),
         };
@@ -232,16 +238,24 @@ struct StoredRichTx {
     id: u64,
     action: StoredTxAction,
     coins: Coin,
+    memo: Option<String>,
     timestamp: u64,
     block_height: u64,
 }
 
 impl StoredRichTx {
-    fn new(id: u64, action: StoredTxAction, coins: Coin, block: &cosmwasm_std::BlockInfo) -> Self {
+    fn new(
+        id: u64,
+        action: StoredTxAction,
+        coins: Coin,
+        memo: Option<String>,
+        block: &cosmwasm_std::BlockInfo,
+    ) -> Self {
         Self {
             id,
             action,
             coins,
+            memo,
             timestamp: block.time,
             block_height: block.height,
         }
@@ -252,6 +266,7 @@ impl StoredRichTx {
             id: self.id,
             action: self.action.into_humanized(api)?,
             coins: self.coins,
+            memo: self.memo,
             timestamp: self.timestamp,
             block_height: self.block_height,
         })
@@ -263,6 +278,7 @@ impl StoredRichTx {
             id: transfer.id,
             action,
             coins: transfer.coins,
+            memo: transfer.memo,
             timestamp: transfer.timestamp,
             block_height: transfer.block_height,
         }
@@ -278,6 +294,7 @@ fn increment_tx_count<S: Storage>(store: &mut S) -> StdResult<u64> {
     Ok(id)
 }
 
+#[allow(clippy::too_many_arguments)] // We just need them
 pub fn store_transfer<S: Storage>(
     store: &mut S,
     owner: &CanonicalAddr,
@@ -285,6 +302,7 @@ pub fn store_transfer<S: Storage>(
     receiver: &CanonicalAddr,
     amount: Uint128,
     denom: String,
+    memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
@@ -295,6 +313,7 @@ pub fn store_transfer<S: Storage>(
         sender: sender.clone(),
         receiver: receiver.clone(),
         coins,
+        memo,
         timestamp: block.time,
         block_height: block.height,
     };
@@ -321,12 +340,13 @@ pub fn store_mint<S: Storage>(
     recipient: &CanonicalAddr,
     amount: Uint128,
     denom: String,
+    memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
     let action = StoredTxAction::mint(minter.clone(), recipient.clone());
-    let tx = StoredRichTx::new(id, action, coins, block);
+    let tx = StoredRichTx::new(id, action, coins, memo, block);
 
     if minter != recipient {
         append_tx(store, &tx, recipient)?;
@@ -342,12 +362,13 @@ pub fn store_burn<S: Storage>(
     burner: &CanonicalAddr,
     amount: Uint128,
     denom: String,
+    memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
     let action = StoredTxAction::burn(owner.clone(), burner.clone());
-    let tx = StoredRichTx::new(id, action, coins, block);
+    let tx = StoredRichTx::new(id, action, coins, memo, block);
 
     if burner != owner {
         append_tx(store, &tx, owner)?;
@@ -367,7 +388,7 @@ pub fn store_deposit<S: Storage>(
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
     let action = StoredTxAction::deposit();
-    let tx = StoredRichTx::new(id, action, coins, block);
+    let tx = StoredRichTx::new(id, action, coins, None, block);
 
     append_tx(store, &tx, recipient)?;
 
@@ -384,7 +405,7 @@ pub fn store_redeem<S: Storage>(
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
     let action = StoredTxAction::redeem();
-    let tx = StoredRichTx::new(id, action, coins, block);
+    let tx = StoredRichTx::new(id, action, coins, None, block);
 
     append_tx(store, &tx, redeemer)?;
 

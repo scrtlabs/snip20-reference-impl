@@ -69,6 +69,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
                 &balance_address,
                 balance.amount,
                 msg.symbol.clone(),
+                Some("Initial Balance".to_string()),
                 &env.block,
             )?;
         }
@@ -143,15 +144,19 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 
         // Base
         HandleMsg::Transfer {
-            recipient, amount, ..
-        } => try_transfer(deps, env, &recipient, amount),
+            recipient,
+            amount,
+            memo,
+            ..
+        } => try_transfer(deps, env, &recipient, amount, memo),
         HandleMsg::Send {
             recipient,
             amount,
             msg,
+            memo,
             ..
-        } => try_send(deps, env, &recipient, amount, msg),
-        HandleMsg::Burn { amount, .. } => try_burn(deps, env, amount),
+        } => try_send(deps, env, &recipient, amount, memo, msg),
+        HandleMsg::Burn { amount, memo, .. } => try_burn(deps, env, amount, memo),
         HandleMsg::RegisterReceive { code_hash, .. } => try_register_receive(deps, env, code_hash),
         HandleMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
         HandleMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
@@ -173,21 +178,31 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             owner,
             recipient,
             amount,
+            memo,
             ..
-        } => try_transfer_from(deps, env, &owner, &recipient, amount),
+        } => try_transfer_from(deps, env, &owner, &recipient, amount, memo),
         HandleMsg::SendFrom {
             owner,
             recipient,
             amount,
             msg,
+            memo,
             ..
-        } => try_send_from(deps, env, &owner, &recipient, amount, msg),
-        HandleMsg::BurnFrom { owner, amount, .. } => try_burn_from(deps, env, &owner, amount),
+        } => try_send_from(deps, env, &owner, &recipient, amount, memo, msg),
+        HandleMsg::BurnFrom {
+            owner,
+            amount,
+            memo,
+            ..
+        } => try_burn_from(deps, env, &owner, amount, memo),
 
         // Mint
         HandleMsg::Mint {
-            recipient, amount, ..
-        } => try_mint(deps, env, recipient, amount),
+            recipient,
+            amount,
+            memo,
+            ..
+        } => try_mint(deps, env, recipient, amount, memo),
 
         // Other
         HandleMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
@@ -384,6 +399,7 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     env: Env,
     address: HumanAddr,
     amount: Uint128,
+    memo: Option<String>,
 ) -> StdResult<HandleResponse> {
     let mut config = Config::from_storage(&mut deps.storage);
     let constants = config.constants()?;
@@ -440,6 +456,7 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
         recipient_account,
         amount,
         constants.symbol,
+        memo,
         &env.block,
     )?;
 
@@ -674,6 +691,7 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
     env: Env,
     recipient: &HumanAddr,
     amount: Uint128,
+    memo: Option<String>,
 ) -> StdResult<()> {
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
     let recipient_address = deps.api.canonical_address(recipient)?;
@@ -694,6 +712,7 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
         &recipient_address,
         amount,
         symbol,
+        memo,
         &env.block,
     )?;
 
@@ -705,8 +724,9 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     env: Env,
     recipient: &HumanAddr,
     amount: Uint128,
+    memo: Option<String>,
 ) -> StdResult<HandleResponse> {
-    try_transfer_impl(deps, env, recipient, amount)?;
+    try_transfer_impl(deps, env, recipient, amount, memo)?;
 
     let res = HandleResponse {
         messages: vec![],
@@ -724,11 +744,12 @@ fn try_add_receiver_api_callback<S: ReadonlyStorage>(
     sender: HumanAddr,
     from: HumanAddr,
     amount: Uint128,
+    memo: Option<String>,
 ) -> StdResult<()> {
     let receiver_hash = get_receiver_hash(storage, recipient);
     if let Some(receiver_hash) = receiver_hash {
         let receiver_hash = receiver_hash?;
-        let receiver_msg = Snip20ReceiveMsg::new(sender, from, amount, msg);
+        let receiver_msg = Snip20ReceiveMsg::new(sender, from, amount, memo, msg);
         let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient.clone())?;
 
         messages.push(callback_msg);
@@ -741,10 +762,11 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
     env: Env,
     recipient: &HumanAddr,
     amount: Uint128,
+    memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
     let sender = env.message.sender.clone();
-    try_transfer_impl(deps, env, recipient, amount)?;
+    try_transfer_impl(deps, env, recipient, amount, memo.clone())?;
 
     let mut messages = vec![];
 
@@ -756,6 +778,7 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
         sender.clone(),
         sender,
         amount,
+        memo,
     )?;
 
     let res = HandleResponse {
@@ -795,6 +818,7 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
     owner: &HumanAddr,
     recipient: &HumanAddr,
     amount: Uint128,
+    memo: Option<String>,
 ) -> StdResult<()> {
     let spender_address = deps.api.canonical_address(&env.message.sender)?;
     let owner_address = deps.api.canonical_address(owner)?;
@@ -842,6 +866,7 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
         &recipient_address,
         amount,
         symbol,
+        memo,
         &env.block,
     )?;
 
@@ -854,8 +879,9 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     owner: &HumanAddr,
     recipient: &HumanAddr,
     amount: Uint128,
+    memo: Option<String>,
 ) -> StdResult<HandleResponse> {
-    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
+    try_transfer_from_impl(deps, env, owner, recipient, amount, memo)?;
 
     let res = HandleResponse {
         messages: vec![],
@@ -871,10 +897,11 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
     owner: &HumanAddr,
     recipient: &HumanAddr,
     amount: Uint128,
+    memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<HandleResponse> {
     let sender = env.message.sender.clone();
-    try_transfer_from_impl(deps, env, owner, recipient, amount)?;
+    try_transfer_from_impl(deps, env, owner, recipient, amount, memo.clone())?;
 
     let mut messages = vec![];
 
@@ -886,6 +913,7 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
         sender,
         owner.clone(),
         amount,
+        memo,
     )?;
 
     let res = HandleResponse {
@@ -901,6 +929,7 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
     env: Env,
     owner: &HumanAddr,
     amount: Uint128,
+    memo: Option<String>,
 ) -> StdResult<HandleResponse> {
     let config = ReadonlyConfig::from_storage(&deps.storage);
     let constants = config.constants()?;
@@ -972,6 +1001,7 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
         &spender_address,
         amount,
         constants.symbol,
+        memo,
         &env.block,
     )?;
 
@@ -1135,6 +1165,7 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     amount: Uint128,
+    memo: Option<String>,
 ) -> StdResult<HandleResponse> {
     let config = ReadonlyConfig::from_storage(&deps.storage);
     let constants = config.constants()?;
@@ -1178,6 +1209,7 @@ fn try_burn<S: Storage, A: Api, Q: Querier>(
         &sender_address,
         amount,
         constants.symbol,
+        memo,
         &env.block,
     )?;
 
@@ -1512,6 +1544,7 @@ mod tests {
         let handle_msg = HandleMsg::Transfer {
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(1000),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -1532,6 +1565,7 @@ mod tests {
         let handle_msg = HandleMsg::Transfer {
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(10000),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -1562,6 +1596,7 @@ mod tests {
         let handle_msg = HandleMsg::Send {
             recipient: HumanAddr("contract".to_string()),
             amount: Uint128(100),
+            memo: Some("my memo".to_string()),
             padding: None,
             msg: Some(to_binary("hey hey you you").unwrap()),
         };
@@ -1575,6 +1610,7 @@ mod tests {
                 HumanAddr("bob".to_string()),
                 HumanAddr("bob".to_string()),
                 Uint128(100),
+                Some("my memo".to_string()),
                 Some(to_binary("hey hey you you").unwrap())
             )
             .into_binary()
@@ -1711,6 +1747,7 @@ mod tests {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(2500),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
@@ -1734,6 +1771,7 @@ mod tests {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(2500),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
@@ -1745,6 +1783,7 @@ mod tests {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(2000),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(
@@ -1775,6 +1814,7 @@ mod tests {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(2000),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
@@ -1805,6 +1845,7 @@ mod tests {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(1),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
@@ -1829,6 +1870,7 @@ mod tests {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(2500),
+            memo: None,
             msg: None,
             padding: None,
         };
@@ -1853,6 +1895,7 @@ mod tests {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(2500),
+            memo: None,
             msg: None,
             padding: None,
         };
@@ -1876,12 +1919,14 @@ mod tests {
             HumanAddr("alice".to_string()),
             HumanAddr("bob".to_string()),
             Uint128(2000),
+            Some("my memo".to_string()),
             Some(send_msg.clone()),
         );
         let handle_msg = HandleMsg::SendFrom {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("contract".to_string()),
             amount: Uint128(2000),
+            memo: Some("my memo".to_string()),
             msg: Some(send_msg),
             padding: None,
         };
@@ -1918,6 +1963,7 @@ mod tests {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(1),
+            memo: None,
             msg: None,
             padding: None,
         };
@@ -1958,6 +2004,7 @@ mod tests {
         let handle_msg = HandleMsg::BurnFrom {
             owner: HumanAddr("bob".to_string()),
             amount: Uint128(2500),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps_for_failure, mock_env("alice", &[]), handle_msg);
@@ -1968,6 +2015,7 @@ mod tests {
         let handle_msg = HandleMsg::BurnFrom {
             owner: HumanAddr("bob".to_string()),
             amount: Uint128(2500),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
@@ -1990,6 +2038,7 @@ mod tests {
         let handle_msg = HandleMsg::BurnFrom {
             owner: HumanAddr("bob".to_string()),
             amount: Uint128(2500),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
@@ -2000,6 +2049,7 @@ mod tests {
         let handle_msg = HandleMsg::BurnFrom {
             owner: HumanAddr("bob".to_string()),
             amount: Uint128(2000),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
@@ -2022,6 +2072,7 @@ mod tests {
         let handle_msg = HandleMsg::BurnFrom {
             owner: HumanAddr("bob".to_string()),
             amount: Uint128(1),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
@@ -2422,6 +2473,7 @@ mod tests {
         // test when burn disabled
         let handle_msg = HandleMsg::Burn {
             amount: Uint128(100),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps_for_failure, mock_env("lebron", &[]), handle_msg);
@@ -2432,6 +2484,7 @@ mod tests {
         let burn_amount: u128 = 100;
         let handle_msg = HandleMsg::Burn {
             amount: Uint128(burn_amount),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("lebron", &[]), handle_msg);
@@ -2477,6 +2530,7 @@ mod tests {
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("lebron".to_string()),
             amount: Uint128(mint_amount),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps_for_failure, mock_env("admin", &[]), handle_msg);
@@ -2488,6 +2542,7 @@ mod tests {
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("lebron".to_string()),
             amount: Uint128(mint_amount),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
@@ -2596,6 +2651,7 @@ mod tests {
         let send_msg = HandleMsg::Transfer {
             recipient: HumanAddr("account".to_string()),
             amount: Uint128(123),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), send_msg);
@@ -2645,6 +2701,7 @@ mod tests {
         let send_msg = HandleMsg::Transfer {
             recipient: HumanAddr("account".to_string()),
             amount: Uint128(123),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), send_msg);
@@ -2721,6 +2778,7 @@ mod tests {
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -2729,6 +2787,7 @@ mod tests {
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
@@ -2790,6 +2849,7 @@ mod tests {
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -2798,6 +2858,7 @@ mod tests {
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
@@ -2858,6 +2919,7 @@ mod tests {
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -2867,6 +2929,7 @@ mod tests {
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
@@ -2884,6 +2947,7 @@ mod tests {
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -2893,6 +2957,7 @@ mod tests {
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
@@ -3481,6 +3546,7 @@ mod tests {
         let handle_msg = HandleMsg::Transfer {
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(1000),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -3489,6 +3555,7 @@ mod tests {
         let handle_msg = HandleMsg::Transfer {
             recipient: HumanAddr("banana".to_string()),
             amount: Uint128(500),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -3497,6 +3564,7 @@ mod tests {
         let handle_msg = HandleMsg::Transfer {
             recipient: HumanAddr("mango".to_string()),
             amount: Uint128(2500),
+            memo: None,
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -3586,6 +3654,7 @@ mod tests {
 
         let handle_msg = HandleMsg::Burn {
             amount: Uint128(1),
+            memo: Some("my burn message".to_string()),
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -3610,6 +3679,7 @@ mod tests {
         let handle_msg = HandleMsg::Mint {
             recipient: HumanAddr("bob".to_string()),
             amount: Uint128(100),
+            memo: Some("my mint message".to_string()),
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
@@ -3636,6 +3706,7 @@ mod tests {
         let handle_msg = HandleMsg::Transfer {
             recipient: HumanAddr("alice".to_string()),
             amount: Uint128(1000),
+            memo: Some("my transfer message #1".to_string()),
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -3645,6 +3716,7 @@ mod tests {
         let handle_msg = HandleMsg::Transfer {
             recipient: HumanAddr("banana".to_string()),
             amount: Uint128(500),
+            memo: Some("my transfer message #2".to_string()),
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -3654,6 +3726,7 @@ mod tests {
         let handle_msg = HandleMsg::Transfer {
             recipient: HumanAddr("mango".to_string()),
             amount: Uint128(2500),
+            memo: Some("my transfer message #3".to_string()),
             padding: None,
         };
         let handle_result = handle(&mut deps, mock_env("bob", &[]), handle_msg);
@@ -3698,6 +3771,7 @@ mod tests {
                     denom: "SECSEC".to_string(),
                     amount: Uint128(2500),
                 },
+                memo: Some("my transfer message #3".to_string()),
                 timestamp: 1571797419,
                 block_height: 12345,
             },
@@ -3712,6 +3786,7 @@ mod tests {
                     denom: "SECSEC".to_string(),
                     amount: Uint128(500),
                 },
+                memo: Some("my transfer message #2".to_string()),
                 timestamp: 1571797419,
                 block_height: 12345,
             },
@@ -3726,6 +3801,7 @@ mod tests {
                     denom: "SECSEC".to_string(),
                     amount: Uint128(1000),
                 },
+                memo: Some("my transfer message #1".to_string()),
                 timestamp: 1571797419,
                 block_height: 12345,
             },
@@ -3736,6 +3812,7 @@ mod tests {
                     denom: "uscrt".to_string(),
                     amount: Uint128(1000),
                 },
+                memo: None,
                 timestamp: 1571797419,
                 block_height: 12345,
             },
@@ -3749,6 +3826,7 @@ mod tests {
                     denom: "SECSEC".to_string(),
                     amount: Uint128(100),
                 },
+                memo: Some("my mint message".to_string()),
                 timestamp: 1571797419,
                 block_height: 12345,
             },
@@ -3759,6 +3837,7 @@ mod tests {
                     denom: "SECSEC".to_string(),
                     amount: Uint128(1000),
                 },
+                memo: None,
                 timestamp: 1571797419,
                 block_height: 12345,
             },
@@ -3772,6 +3851,7 @@ mod tests {
                     denom: "SECSEC".to_string(),
                     amount: Uint128(1),
                 },
+                memo: Some("my burn message".to_string()),
                 timestamp: 1571797419,
                 block_height: 12345,
             },
@@ -3785,6 +3865,8 @@ mod tests {
                     denom: "SECSEC".to_string(),
                     amount: Uint128(10000),
                 },
+
+                memo: Some("Initial Balance".to_string()),
                 timestamp: 1571797419,
                 block_height: 12345,
             },

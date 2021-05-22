@@ -22,6 +22,7 @@ pub enum HandleMsg {
         sender: HumanAddr,
         from: HumanAddr,
         amount: Uint128,
+        memo: Option<String>,
         msg: Binary,
     },
     Redeem {

@@ -93,16 +93,19 @@ pub enum HandleMsg {
     Transfer {
         recipient: HumanAddr,
         amount: Uint128,
+        memo: Option<String>,
         padding: Option<String>,
     },
     Send {
         recipient: HumanAddr,
         amount: Uint128,
         msg: Option<Binary>,
+        memo: Option<String>,
         padding: Option<String>,
     },
     Burn {
         amount: Uint128,
+        memo: Option<String>,
         padding: Option<String>,
     },
     RegisterReceive {
@@ -135,6 +138,7 @@ pub enum HandleMsg {
         owner: HumanAddr,
         recipient: HumanAddr,
         amount: Uint128,
+        memo: Option<String>,
         padding: Option<String>,
     },
     SendFrom {
@@ -142,11 +146,13 @@ pub enum HandleMsg {
         recipient: HumanAddr,
         amount: Uint128,
         msg: Option<Binary>,
+        memo: Option<String>,
         padding: Option<String>,
     },
     BurnFrom {
         owner: HumanAddr,
         amount: Uint128,
+        memo: Option<String>,
         padding: Option<String>,
     },
 
@@ -154,6 +160,7 @@ pub enum HandleMsg {
     Mint {
         recipient: HumanAddr,
         amount: Uint128,
+        memo: Option<String>,
         padding: Option<String>,
     },
     AddMinters {

@@ -1034,7 +1034,7 @@ function test_send_from() {
     receiver_msg="$(base64 <<<"$receiver_msg")"
     local send_message='{"send_from":{"owner":"'"${ADDRESS[a]}"'","recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
     local send_response
-    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[b]} --gas 301000)"
+    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[b]} --gas 302000)"
     send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
     assert_eq \
         "$(jq -r '.output_log[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
@@ -1121,11 +1121,11 @@ function main() {
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
     test_viewing_key "$contract_addr"
-    test_deposit "$contract_addr"
-    test_transfer "$contract_addr"
+#    test_deposit "$contract_addr"
+#    test_transfer "$contract_addr"
     test_send "$contract_addr"
-    test_burn "$contract_addr"
-    test_transfer_from "$contract_addr"
+#    test_burn "$contract_addr"
+#    test_transfer_from "$contract_addr"
     test_send_from "$contract_addr"
 
     log 'Tests completed successfully'
