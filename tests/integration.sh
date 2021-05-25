@@ -113,7 +113,10 @@ function wait_for_tx() {
     # log out-of-gas events
     if jq -e '.raw_log | startswith("execute contract failed: Out of gas: ") or startswith("out of gas:")' <<<"$result" >/dev/null; then
         log "$(jq -r '.raw_log' <<<"$result")"
+        return 1
     fi
+
+    log "gas used: $(jq -r '.gas_used' <<<"$result") / $(jq -r '.gas_wanted' <<<"$result")"
 
     echo "$result"
 }
@@ -189,7 +192,7 @@ function upload_code() {
     local tx_hash
     local code_id
 
-    tx_hash="$(tx_of secretcli tx compute store "code/$directory/contract.wasm.gz" ${FROM[a]} --gas 10000000)"
+    tx_hash="$(tx_of secretcli tx compute store "code/$directory/contract.wasm.gz" ${FROM[a]} --gas 5000000)"
     code_id="$(
         wait_for_tx "$tx_hash" 'waiting for contract upload' |
             jq -r '.logs[0].events[0].attributes[] | select(.key == "code_id") | .value'
@@ -209,7 +212,7 @@ function instantiate() {
     log "${init_msg@Q}"
 
     local tx_hash
-    tx_hash="$(tx_of secretcli tx compute instantiate "$code_id" "$init_msg" --label "$(label_by_id "$code_id")" ${FROM[a]} --gas 10000000)"
+    tx_hash="$(tx_of secretcli tx compute instantiate "$code_id" "$init_msg" --label "$(label_by_id "$code_id")" ${FROM[a]} --gas 200000)"
     wait_for_tx "$tx_hash" 'waiting for init to complete'
 }
 
@@ -242,7 +245,7 @@ function deposit() {
     local deposit_message='{"deposit":{"padding":":::::::::::::::::"}}'
     local tx_hash
     local deposit_response
-    tx_hash="$(compute_execute "$contract_addr" "$deposit_message" --amount "${amount}uscrt" ${FROM[$key]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$deposit_message" --amount "${amount}uscrt" ${FROM[$key]} --gas 160000)"
     deposit_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for deposit to \"$key\" to process")"
     assert_eq "$deposit_response" "$(pad_space '{"deposit":{"status":"success"}}')"
     log "deposited ${amount}uscrt to \"$key\" successfully"
@@ -257,7 +260,7 @@ function burn() {
     local burn_message='{"burn":{"amount":"'"$amount"'"}}'
     local tx_hash
     local burn_response
-    tx_hash="$(compute_execute "$contract_addr" "$burn_message" ${FROM[$key]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$burn_message" ${FROM[$key]} --gas 140000)"
     burn_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for burn for \"$key\" to process")"
     echo "$burn_response"
     assert_eq "$burn_response" "$(pad_space '{"burn":{"status":"success"}}')"
@@ -294,7 +297,7 @@ function redeem() {
 
     log "redeeming \"$key\""
     redeem_message='{"redeem":{"amount":"'"$amount"'"}}'
-    tx_hash="$(compute_execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 155000)"
     redeem_tx="$(wait_for_tx "$tx_hash" "waiting for redeem from \"$key\" to process")"
     transfer_attributes="$(jq -r '.logs[0].events[] | select(.type == "transfer") | .attributes' <<<"$redeem_tx")"
     assert_eq "$(jq -r '.[] | select(.key == "recipient") | .value' <<<"$transfer_attributes")" "${ADDRESS[$key]}"
@@ -326,7 +329,7 @@ function increase_allowance() {
     local allowance_message='{"increase_allowance":{"spender":"'"$spender_address"'","amount":"'"$amount"'"}}'
     local allowance_response
 
-    tx_hash="$(compute_execute "$contract_addr" "$allowance_message" ${FROM[$owner_key]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$allowance_message" ${FROM[$owner_key]} --gas 120000)"
     allowance_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for the increase of \"$spender_key\"'s allowance to \"$owner_key\"'s funds to process")"
     assert_eq "$(jq -r '.increase_allowance.spender' <<<"$allowance_response")" "$spender_address"
     assert_eq "$(jq -r '.increase_allowance.owner' <<<"$allowance_response")" "$owner_address"
@@ -346,7 +349,7 @@ function decrease_allowance() {
     local allowance_message='{"decrease_allowance":{"spender":"'"$spender_address"'","amount":"'"$amount"'"}}'
     local allowance_response
 
-    tx_hash="$(compute_execute "$contract_addr" "$allowance_message" ${FROM[$owner_key]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$allowance_message" ${FROM[$owner_key]} --gas 120000)"
     allowance_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for the decrease of \"$spender_key\"'s allowance to \"$owner_key\"'s funds to process")"
     assert_eq "$(jq -r '.decrease_allowance.spender' <<<"$allowance_response")" "$spender_address"
     assert_eq "$(jq -r '.decrease_allowance.owner' <<<"$allowance_response")" "$owner_address"
@@ -403,7 +406,7 @@ function test_viewing_key() {
     local viewing_key_response
     for key in "${KEY[@]}"; do
         log "creating viewing key for \"$key\""
-        tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[$key]} --gas 1400000)"
+        tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[$key]} --gas 120000)"
         viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for viewing key for \"$key\" to be created")"
         VK[$key]="$(jq -er '.create_viewing_key.key' <<<"$viewing_key_response")"
         log "viewing key for \"$key\" set to ${VK[$key]}"
@@ -505,7 +508,7 @@ function test_deposit() {
     for key in "${KEY[@]}"; do
         overdraft="$((deposits[$key] + 1))"
         redeem_message='{"redeem":{"amount":"'"$overdraft"'"}}'
-        tx_hash="$(compute_execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 150000)"
+        tx_hash="$(compute_execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 110000)"
         # Notice the `!` before the command - it is EXPECTED to fail.
         ! redeem_response="$(wait_for_compute_tx "$tx_hash" "waiting for overdraft from \"$key\" to process")"
         log "trying to overdraft from \"$key\" was rejected"
@@ -602,7 +605,7 @@ function test_transfer() {
     log 'transferring funds from "a" to "b", but more than "a" has'
     local transfer_message='{"transfer":{"recipient":"'"${ADDRESS[b]}"'","amount":"1000001"}}'
     local transfer_response
-    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 110000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     log "trying to overdraft from \"a\" to transfer to \"b\" was rejected"
@@ -695,7 +698,7 @@ function redeem_receiver() {
     snip20_hash="$(secretcli query compute contract-hash "$snip20_addr")"
 
     local redeem_message='{"redeem":{"addr":"'"$snip20_addr"'","hash":"'"${snip20_hash:2}"'","to":"'"$to_addr"'","amount":"'"$amount"'"}}'
-    tx_hash="$(compute_execute "$receiver_addr" "$redeem_message" ${FROM[a]} --gas 300000)"
+    tx_hash="$(compute_execute "$receiver_addr" "$redeem_message" ${FROM[a]} --gas 220000)"
     redeem_tx="$(wait_for_tx "$tx_hash" "waiting for redeem from receiver at \"$receiver_addr\" to process")"
     # log "$redeem_tx"
     transfer_attributes="$(jq -r '.logs[0].events[] | select(.type == "transfer") | .attributes' <<<"$redeem_tx")"
@@ -717,7 +720,7 @@ function register_receiver() {
 
     log 'registering with snip20'
     local register_message='{"register":{"reg_addr":"'"$snip20_addr"'","reg_hash":"'"${snip20_hash:2}"'"}}'
-    tx_hash="$(compute_execute "$receiver_addr" "$register_message" ${FROM[a]} --gas 200000)"
+    tx_hash="$(compute_execute "$receiver_addr" "$register_message" ${FROM[a]} --gas 170000)"
     # we throw away the output since we know it's empty
     local register_tx
     register_tx="$(wait_for_compute_tx "$tx_hash" 'Waiting for receiver registration')"
@@ -751,7 +754,7 @@ function test_send() {
     log 'sending funds from "a" to "b", but more than "a" has'
     local send_message='{"send":{"recipient":"'"${ADDRESS[b]}"'","amount":"1000001"}}'
     local send_response
-    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 110000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
     log "trying to overdraft from \"a\" to send to \"b\" was rejected"
@@ -781,7 +784,7 @@ function test_send() {
     receiver_msg="$(base64 <<<"$receiver_msg")"
     local send_message='{"send":{"recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
     local send_response
-    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 300000)"
+    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 260000)"
     send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
     assert_eq \
         "$(jq -r '.output_log[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
@@ -816,7 +819,7 @@ function test_send() {
     receiver_msg='{"fail":{}}'
     receiver_msg="$(base64 <<<"$receiver_msg")"
     send_message='{"send":{"recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
-    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 300000)"
+    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 240000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
     assert_eq "$(get_generic_err "$send_response")" 'intentional failure' # This comes from the receiver contract
@@ -853,7 +856,7 @@ function test_burn() {
     local burn_message='{"burn":{"amount":"10000000"}}' # 110%
     local tx_hash
     local burn_response
-    tx_hash="$(compute_execute "$contract_addr" "$burn_message" ${FROM[a]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$burn_message" ${FROM[a]} --gas 110000)"
     ! burn_response="$(wait_for_compute_tx "$tx_hash" 'waiting for burn for "a" to process')"
     assert_eq "$(get_generic_err "$burn_response")" 'insufficient funds to burn: balance=1000000, required=10000000'
 
@@ -907,7 +910,7 @@ function test_transfer_from() {
     log 'transferring funds from "a" to "c" using "b", but more than "a" has allowed'
     local transfer_message='{"transfer_from":{"owner":"'"${ADDRESS[a]}"'","recipient":"'"${ADDRESS[c]}"'","amount":"1000001"}}'
     local transfer_response
-    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[b]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[b]} --gas 110000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "c" by "b" to process')"
     log "trying to overdraft from \"a\" to transfer to \"c\" using \"b\" was rejected"
@@ -1004,7 +1007,7 @@ function test_send_from() {
     log 'sending funds from "a" to "c" using "b", but more than "a" has allowed'
     local send_message='{"send_from":{"owner":"'"${ADDRESS[a]}"'","recipient":"'"${ADDRESS[c]}"'","amount":"1000001"}}'
     local send_response
-    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[b]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[b]} --gas 110000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "c" by "b" to process')"
     log "trying to overdraft from \"a\" to send to \"c\" using \"b\" was rejected"
@@ -1081,7 +1084,7 @@ function test_send_from() {
     receiver_msg='{"fail":{}}'
     receiver_msg="$(base64 <<<"$receiver_msg")"
     send_message='{"send_from":{"owner":"'"${ADDRESS[a]}"'", "recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
-    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[b]} --gas 300000)"
+    tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[b]} --gas 280000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
     assert_eq "$(get_generic_err "$send_response")" 'intentional failure' # This comes from the receiver contract
@@ -1121,10 +1124,10 @@ function main() {
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
     test_viewing_key "$contract_addr"
-    test_deposit "$contract_addr"
-    test_transfer "$contract_addr"
-    test_send "$contract_addr"
-    test_burn "$contract_addr"
+#    test_deposit "$contract_addr"
+#    test_transfer "$contract_addr"
+#    test_send "$contract_addr"
+#    test_burn "$contract_addr"
     test_transfer_from "$contract_addr"
     test_send_from "$contract_addr"
 

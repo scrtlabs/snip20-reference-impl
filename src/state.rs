@@ -297,10 +297,11 @@ impl<'a, S: ReadonlyStorage> ReadonlyBalancesImpl<'a, S> {
 
 // Allowances
 
+use crate::expiration::StoredExpiration;
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Default, JsonSchema)]
 pub struct Allowance {
     pub amount: u128,
-    pub expiration: Option<u64>,
+    pub expiration: StoredExpiration,
 }
 
 pub fn read_allowance<S: Storage>(
@@ -338,6 +339,18 @@ pub fn write_viewing_key<S: Storage>(store: &mut S, owner: &CanonicalAddr, key: 
 pub fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<Vec<u8>> {
     let balance_store = ReadonlyPrefixedStorage::new(PREFIX_VIEW_KEY, store);
     balance_store.get(owner.as_slice())
+}
+
+// Block Height for Queries
+
+const BLOCK_KEY: &[u8] = b"block";
+
+pub fn write_block<S: Storage>(store: &mut S, block: &cosmwasm_std::BlockInfo) -> StdResult<()> {
+    set_bin_data(store, BLOCK_KEY, block)
+}
+
+pub fn read_block<S: ReadonlyStorage>(store: &S) -> StdResult<cosmwasm_std::BlockInfo> {
+    get_bin_data(store, BLOCK_KEY)
 }
 
 // Receiver Interface

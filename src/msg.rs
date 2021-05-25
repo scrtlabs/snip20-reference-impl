@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
 
 use crate::batch;
+use crate::expiration::Expiration;
 use crate::transaction_history::{RichTx, Tx};
 use crate::viewing_key::ViewingKey;
 
@@ -143,6 +144,18 @@ pub enum HandleMsg {
         expiration: Option<u64>,
         padding: Option<String>,
     },
+    IncreaseAllowanceEx {
+        spender: HumanAddr,
+        amount: Uint128,
+        expiration: Option<Expiration>,
+        padding: Option<String>,
+    },
+    DecreaseAllowanceEx {
+        spender: HumanAddr,
+        amount: Uint128,
+        expiration: Option<Expiration>,
+        padding: Option<String>,
+    },
     TransferFrom {
         owner: HumanAddr,
         recipient: HumanAddr,
@@ -260,6 +273,16 @@ pub enum HandleAnswer {
         owner: HumanAddr,
         allowance: Uint128,
     },
+    IncreaseAllowanceEx {
+        spender: HumanAddr,
+        owner: HumanAddr,
+        allowance: Uint128,
+    },
+    DecreaseAllowanceEx {
+        spender: HumanAddr,
+        owner: HumanAddr,
+        allowance: Uint128,
+    },
     TransferFrom {
         status: ResponseStatus,
     },
@@ -316,6 +339,11 @@ pub enum QueryMsg {
         spender: HumanAddr,
         key: String,
     },
+    AllowanceEx {
+        owner: HumanAddr,
+        spender: HumanAddr,
+        key: String,
+    },
     Balance {
         address: HumanAddr,
         key: String,
@@ -338,12 +366,18 @@ pub enum QueryMsg {
 impl QueryMsg {
     pub fn get_validation_params(&self) -> (Vec<&HumanAddr>, ViewingKey) {
         match self {
-            Self::Balance { address, key } => (vec![address], ViewingKey(key.clone())),
-            Self::TransferHistory { address, key, .. } => (vec![address], ViewingKey(key.clone())),
-            Self::TransactionHistory { address, key, .. } => {
+            Self::Balance { address, key }
+            | Self::TransferHistory { address, key, .. }
+            | Self::TransactionHistory { address, key, .. } => {
                 (vec![address], ViewingKey(key.clone()))
             }
             Self::Allowance {
+                owner,
+                spender,
+                key,
+                ..
+            }
+            | Self::AllowanceEx {
                 owner,
                 spender,
                 key,
@@ -378,7 +412,15 @@ pub enum QueryAnswer {
         spender: HumanAddr,
         owner: HumanAddr,
         allowance: Uint128,
+        available: Option<Uint128>,
         expiration: Option<u64>,
+    },
+    AllowanceEx {
+        spender: HumanAddr,
+        owner: HumanAddr,
+        allowance: Uint128,
+        available: Option<Uint128>,
+        expiration: Expiration,
     },
     Balance {
         amount: Uint128,

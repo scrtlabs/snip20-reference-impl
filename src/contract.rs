@@ -7,6 +7,7 @@ use cosmwasm_std::{
 };
 
 use crate::batch;
+use crate::expiration::{Expiration, StoredExpiration};
 use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
@@ -14,8 +15,9 @@ use crate::msg::{
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    get_receiver_hash, read_allowance, read_viewing_key, set_receiver_hash, write_allowance,
-    write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
+    get_receiver_hash, read_allowance, read_block, read_viewing_key, set_receiver_hash,
+    write_allowance, write_block, write_viewing_key, Balances, Config, Constants, ReadonlyBalances,
+    ReadonlyConfig,
 };
 use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
@@ -99,6 +101,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         Vec::new()
     };
     config.set_minters(minters)?;
+    write_block(&mut deps.storage, &env.block)?;
 
     Ok(InitResponse::default())
 }
@@ -118,6 +121,9 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: HandleMsg,
 ) -> StdResult<HandleResponse> {
+    // grab a copy of the block that we'll use at the end of `handle`.
+    let block = env.block.clone();
+
     let contract_status = ReadonlyConfig::from_storage(&deps.storage).contract_status();
 
     match contract_status {
@@ -177,6 +183,18 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             expiration,
             ..
         } => try_decrease_allowance(deps, env, spender, amount, expiration),
+        HandleMsg::IncreaseAllowanceEx {
+            spender,
+            amount,
+            expiration,
+            ..
+        } => try_increase_allowance_ex(deps, env, spender, amount, expiration),
+        HandleMsg::DecreaseAllowanceEx {
+            spender,
+            amount,
+            expiration,
+            ..
+        } => try_decrease_allowance_ex(deps, env, spender, amount, expiration),
         HandleMsg::TransferFrom {
             owner,
             recipient,
@@ -220,6 +238,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
         HandleMsg::SetMinters { minters, .. } => set_minters(deps, env, minters),
     };
+
+    write_block(&mut deps.storage, &block)?;
 
     pad_response(response)
 }
@@ -266,6 +286,9 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
                     ..
                 } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
                 QueryMsg::Allowance { owner, spender, .. } => query_allowance(deps, owner, spender),
+                QueryMsg::AllowanceEx { owner, spender, .. } => {
+                    query_allowance_ex(deps, owner, spender)
+                }
                 _ => panic!("This query type does not require authentication"),
             };
         }
@@ -602,21 +625,65 @@ fn set_contract_status<S: Storage, A: Api, Q: Querier>(
     })
 }
 
+fn query_allowance_impl<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    owner: &HumanAddr,
+    spender: &HumanAddr,
+) -> StdResult<(Expiration, u128, u128)> {
+    let owner_address = deps.api.canonical_address(owner)?;
+    let spender_address = deps.api.canonical_address(spender)?;
+
+    let allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+
+    let block = read_block(&deps.storage)?;
+    let available = if allowance.expiration.is_expired(&block) {
+        0
+    } else {
+        let balances = ReadonlyBalances::from_storage(&deps.storage);
+        let owner = deps.api.canonical_address(&owner)?;
+        let owner_balance = balances.account_amount(&owner);
+        std::cmp::min(owner_balance, allowance.amount)
+    };
+
+    Ok((
+        allowance.expiration.to_expiration(),
+        allowance.amount,
+        available,
+    ))
+}
+
 pub fn query_allowance<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     owner: HumanAddr,
     spender: HumanAddr,
 ) -> StdResult<Binary> {
-    let owner_address = deps.api.canonical_address(&owner)?;
-    let spender_address = deps.api.canonical_address(&spender)?;
+    let (expiration, amount, available) = query_allowance_impl(deps, &owner, &spender)?;
 
-    let allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+    let expiration = expiration.as_some_time();
 
     let response = QueryAnswer::Allowance {
         owner,
         spender,
-        allowance: Uint128(allowance.amount),
-        expiration: allowance.expiration,
+        allowance: Uint128(amount),
+        available: Some(Uint128(available)),
+        expiration,
+    };
+    to_binary(&response)
+}
+
+pub fn query_allowance_ex<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    owner: HumanAddr,
+    spender: HumanAddr,
+) -> StdResult<Binary> {
+    let (expiration, amount, available) = query_allowance_impl(deps, &owner, &spender)?;
+
+    let response = QueryAnswer::AllowanceEx {
+        owner,
+        spender,
+        allowance: Uint128(amount),
+        available: Some(Uint128(available)),
+        expiration,
     };
     to_binary(&response)
 }
@@ -984,9 +1051,7 @@ fn use_allowance<S: Storage>(
 ) -> StdResult<()> {
     let mut allowance = read_allowance(storage, owner, spender)?;
 
-    if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) && allowance.amount != 0 {
-        allowance.amount = 0;
-        write_allowance(storage, owner, spender, allowance)?;
+    if allowance.expiration.is_expired(&env.block) {
         return Err(insufficient_allowance(0, amount));
     }
     if let Some(new_allowance) = allowance.amount.checked_sub(amount) {
@@ -1329,10 +1394,24 @@ fn try_increase_allowance<S: Storage, A: Api, Q: Querier>(
     let spender_address = deps.api.canonical_address(&spender)?;
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
-    allowance.amount = allowance.amount.saturating_add(amount.u128());
-    if expiration.is_some() {
-        allowance.expiration = expiration;
+
+    // If the previous allowance has expired, reset the allowance.
+    // Without this users can take advantage of an expired allowance given to
+    // them long ago.
+    if allowance.expiration.is_expired(&env.block) {
+        allowance.amount = amount.u128();
+        allowance.expiration = StoredExpiration::never();
+    } else {
+        allowance.amount = allowance.amount.saturating_add(amount.u128());
     }
+
+    // Only change the expiration if user specified it.
+    // If this is the first time allowance is specified
+    // for this pair of addresses the expiration would default to Never
+    if expiration.is_some() {
+        allowance.expiration = StoredExpiration::at_some_time(expiration);
+    }
+
     let new_amount = allowance.amount;
     write_allowance(
         &mut deps.storage,
@@ -1364,10 +1443,122 @@ fn try_decrease_allowance<S: Storage, A: Api, Q: Querier>(
     let spender_address = deps.api.canonical_address(&spender)?;
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
-    allowance.amount = allowance.amount.saturating_sub(amount.u128());
-    if expiration.is_some() {
-        allowance.expiration = expiration;
+
+    // If the previous allowance has expired, reset the allowance.
+    // Without this users can take advantage of an expired allowance given to
+    // them long ago.
+    if allowance.expiration.is_expired(&env.block) {
+        allowance.amount = 0;
+        allowance.expiration = StoredExpiration::never();
+    } else {
+        allowance.amount = allowance.amount.saturating_sub(amount.u128());
     }
+
+    // Only change the expiration if user specified it.
+    // If this is the first time allowance is specified
+    // for this pair of addresses the expiration would default to Never
+    if expiration.is_some() {
+        allowance.expiration = StoredExpiration::at_some_time(expiration);
+    }
+
+    let new_amount = allowance.amount;
+    write_allowance(
+        &mut deps.storage,
+        &owner_address,
+        &spender_address,
+        allowance,
+    )?;
+
+    let res = HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::DecreaseAllowance {
+            owner: env.message.sender,
+            spender,
+            allowance: Uint128(new_amount),
+        })?),
+    };
+    Ok(res)
+}
+
+fn try_increase_allowance_ex<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    spender: HumanAddr,
+    amount: Uint128,
+    expiration: Option<Expiration>,
+) -> StdResult<HandleResponse> {
+    let owner_address = deps.api.canonical_address(&env.message.sender)?;
+    let spender_address = deps.api.canonical_address(&spender)?;
+
+    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+
+    // If the previous allowance has expired, reset the allowance.
+    // Without this users can take advantage of an expired allowance given to
+    // them long ago.
+    if allowance.expiration.is_expired(&env.block) {
+        allowance.amount = amount.u128();
+        allowance.expiration = StoredExpiration::never();
+    } else {
+        allowance.amount = allowance.amount.saturating_add(amount.u128());
+    }
+
+    // Only change the expiration if user specified it.
+    // If this is the first time allowance is specified
+    // for this pair of addresses the expiration would default to Never
+    if let Some(expiration) = expiration {
+        allowance.expiration = expiration.to_stored_expiration();
+    }
+
+    let new_amount = allowance.amount;
+    write_allowance(
+        &mut deps.storage,
+        &owner_address,
+        &spender_address,
+        allowance,
+    )?;
+
+    let res = HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::IncreaseAllowance {
+            owner: env.message.sender,
+            spender,
+            allowance: Uint128(new_amount),
+        })?),
+    };
+    Ok(res)
+}
+
+fn try_decrease_allowance_ex<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    spender: HumanAddr,
+    amount: Uint128,
+    expiration: Option<Expiration>,
+) -> StdResult<HandleResponse> {
+    let owner_address = deps.api.canonical_address(&env.message.sender)?;
+    let spender_address = deps.api.canonical_address(&spender)?;
+
+    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+
+    // If the previous allowance has expired, reset the allowance.
+    // Without this users can take advantage of an expired allowance given to
+    // them long ago.
+    if allowance.expiration.is_expired(&env.block) {
+        allowance.amount = 0;
+        allowance.expiration = StoredExpiration::never();
+    } else {
+        allowance.amount = allowance.amount.saturating_sub(amount.u128());
+    }
+
+    // Only change the expiration if user specified it.
+    // If this is the first time allowance is specified
+    // for this pair of addresses the expiration would default to Never
+    if let Some(expiration) = expiration {
+        allowance.expiration = expiration.to_stored_expiration();
+    }
+
     let new_amount = allowance.amount;
     write_allowance(
         &mut deps.storage,
@@ -2595,7 +2786,7 @@ mod tests {
             allowance,
             crate::state::Allowance {
                 amount: 0,
-                expiration: None
+                expiration: StoredExpiration { kind: 2, target: 0 },
             }
         );
 
@@ -2630,7 +2821,7 @@ mod tests {
             allowance,
             crate::state::Allowance {
                 amount: 1950,
-                expiration: None
+                expiration: StoredExpiration { kind: 2, target: 0 },
             }
         );
     }
@@ -2674,7 +2865,7 @@ mod tests {
             allowance,
             crate::state::Allowance {
                 amount: 2000,
-                expiration: None
+                expiration: StoredExpiration { kind: 2, target: 0 },
             }
         );
 
@@ -2696,7 +2887,7 @@ mod tests {
             allowance,
             crate::state::Allowance {
                 amount: 4000,
-                expiration: None
+                expiration: StoredExpiration { kind: 2, target: 0 },
             }
         );
     }

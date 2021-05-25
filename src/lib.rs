@@ -1,5 +1,6 @@
 mod batch;
 pub mod contract;
+mod expiration;
 pub mod msg;
 mod rand;
 pub mod receiver;
