@@ -1,3 +1,4 @@
+mod batch;
 pub mod contract;
 pub mod msg;
 mod rand;

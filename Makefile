@@ -24,7 +24,11 @@ test: unit-test unit-test-receiver integration-test
 
 .PHONY: unit-test
 unit-test:
-	cargo test
+	RUST_BACKTRACE=1 cargo test
+
+.PHONY: unit-test-nocapture
+unit-test-nocapture:
+	RUST_BACKTRACE=1 cargo test -- --nocapture
 
 .PHONY: unit-test-receiver
 unit-test-receiver:
