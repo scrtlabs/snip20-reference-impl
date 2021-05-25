@@ -79,6 +79,25 @@
     {
       "type": "object",
       "required": [
+        "contract_status"
+      ],
+      "properties": {
+        "contract_status": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ContractStatusLevel"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "exchange_rate"
       ],
       "properties": {
@@ -270,6 +289,14 @@
           "type": "string"
         }
       }
+    },
+    "ContractStatusLevel": {
+      "type": "string",
+      "enum": [
+        "normal_run",
+        "stop_all_but_redeems",
+        "stop_all"
+      ]
     },
     "HumanAddr": {
       "type": "string"

@@ -27,6 +27,17 @@
     {
       "type": "object",
       "required": [
+        "contract_status"
+      ],
+      "properties": {
+        "contract_status": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "exchange_rate"
       ],
       "properties": {

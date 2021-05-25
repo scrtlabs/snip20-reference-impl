@@ -228,6 +228,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
     match msg {
         QueryMsg::TokenInfo {} => query_token_info(&deps.storage),
         QueryMsg::TokenConfig {} => query_token_config(&deps.storage),
+        QueryMsg::ContractStatus {} => query_contract_status(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage),
         QueryMsg::Minters { .. } => query_minters(deps),
         _ => authenticated_queries(deps, msg),
@@ -328,6 +329,14 @@ fn query_token_config<S: ReadonlyStorage>(storage: &S) -> QueryResult {
         redeem_enabled: constants.redeem_is_enabled,
         mint_enabled: constants.mint_is_enabled,
         burn_enabled: constants.burn_is_enabled,
+    })
+}
+
+fn query_contract_status<S: ReadonlyStorage>(storage: &S) -> QueryResult {
+    let config = ReadonlyConfig::from_storage(storage);
+
+    to_binary(&QueryAnswer::ContractStatus {
+        status: config.contract_status(),
     })
 }
 

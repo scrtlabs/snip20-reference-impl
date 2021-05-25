@@ -310,6 +310,7 @@ pub enum HandleAnswer {
 pub enum QueryMsg {
     TokenInfo {},
     TokenConfig {},
+    ContractStatus {},
     ExchangeRate {},
     Allowance {
         owner: HumanAddr,
@@ -369,6 +370,9 @@ pub enum QueryAnswer {
         redeem_enabled: bool,
         mint_enabled: bool,
         burn_enabled: bool,
+    },
+    ContractStatus {
+        status: ContractStatusLevel,
     },
     ExchangeRate {
         rate: Uint128,
