@@ -32,7 +32,7 @@ unit-test-receiver:
 
 .PHONY: integration-test
 integration-test: compile-optimized compile-optimized-receiver
-	tests/integration.sh
+	if tests/integration.sh; then echo -n '\a'; else echo -n '\a'; sleep 0.125; echo -n '\a'; fi
 
 compile-optimized-receiver:
 	$(MAKE) -C tests/example-receiver compile-optimized
@@ -69,7 +69,7 @@ start-server: # CTRL+C to stop
 	docker run -it --rm \
 		-p 26657:26657 -p 26656:26656 -p 1317:1317 \
 		-v $$(pwd):/root/code \
-		--name secretdev enigmampc/secret-network-sw-dev:v1.0.2
+		--name secretdev enigmampc/secret-network-sw-dev:v1.0.4-3
 
 .PHONY: schema
 schema:

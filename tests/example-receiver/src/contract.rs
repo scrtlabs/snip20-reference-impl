@@ -37,6 +37,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             from,
             amount,
             msg,
+            memo: _,
         } => try_receive(deps, env, sender, from, amount, msg),
         HandleMsg::Redeem {
             addr,
