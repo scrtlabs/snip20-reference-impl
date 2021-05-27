@@ -303,6 +303,15 @@ pub struct Allowance {
     pub expiration: Option<u64>,
 }
 
+impl Allowance {
+    pub fn is_expired_at(&self, block: &cosmwasm_std::BlockInfo) -> bool {
+        match self.expiration {
+            Some(time) => block.time >= time,
+            None => false, // allowance has no expiration
+        }
+    }
+}
+
 pub fn read_allowance<S: Storage>(
     store: &S,
     owner: &CanonicalAddr,
