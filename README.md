@@ -1,6 +1,7 @@
 # SNIP-20 Reference Implementation
 
-This is an implementation of a SNIP-20 compliant token contract.  At the time of token creation you may configure:
+This is an implementation of a [SNIP-20](https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md), [SNIP-21](https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-21.md), and [SNIP-22](https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-22.md) compliant token contract.
+At the time of token creation you may configure:
 * Public Total Supply:  If you enable this, the token's total supply will be displayed whenever a TokenInfo query is performed.  DEFAULT: false
 * Enable Deposit: If you enable this, you will be able to convert from SCRT to the token.*  DEFAULT: false
 * Enable Redeem: If you enable this, you will be able to redeem your token for SCRT.*  It should be noted that if you have redeem enabled, but deposit disabled, all redeem attempts will fail unless someone has sent SCRT to the token contract.  DEFAULT: false
