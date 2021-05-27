@@ -993,9 +993,7 @@ fn use_allowance<S: Storage>(
 ) -> StdResult<()> {
     let mut allowance = read_allowance(storage, owner, spender)?;
 
-    if allowance.expiration.map(|ex| ex < env.block.time) == Some(true) && allowance.amount != 0 {
-        allowance.amount = 0;
-        write_allowance(storage, owner, spender, allowance)?;
+    if allowance.is_expired_at(&env.block) {
         return Err(insufficient_allowance(0, amount));
     }
     if let Some(new_allowance) = allowance.amount.checked_sub(amount) {
@@ -1338,7 +1336,17 @@ fn try_increase_allowance<S: Storage, A: Api, Q: Querier>(
     let spender_address = deps.api.canonical_address(&spender)?;
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
-    allowance.amount = allowance.amount.saturating_add(amount.u128());
+
+    // If the previous allowance has expired, reset the allowance.
+    // Without this users can take advantage of an expired allowance given to
+    // them long ago.
+    if allowance.is_expired_at(&env.block) {
+        allowance.amount = amount.u128();
+        allowance.expiration = None;
+    } else {
+        allowance.amount = allowance.amount.saturating_add(amount.u128());
+    }
+
     if expiration.is_some() {
         allowance.expiration = expiration;
     }
@@ -1373,7 +1381,17 @@ fn try_decrease_allowance<S: Storage, A: Api, Q: Querier>(
     let spender_address = deps.api.canonical_address(&spender)?;
 
     let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
-    allowance.amount = allowance.amount.saturating_sub(amount.u128());
+
+    // If the previous allowance has expired, reset the allowance.
+    // Without this users can take advantage of an expired allowance given to
+    // them long ago.
+    if allowance.is_expired_at(&env.block) {
+        allowance.amount = 0;
+        allowance.expiration = None;
+    } else {
+        allowance.amount = allowance.amount.saturating_sub(amount.u128());
+    }
+
     if expiration.is_some() {
         allowance.expiration = expiration;
     }
