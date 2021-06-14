@@ -160,8 +160,8 @@ impl StoredTxAction {
     fn burn(owner: CanonicalAddr, burner: CanonicalAddr) -> Self {
         Self {
             tx_type: TxCode::Burn.to_u8(),
-            address1: Some(owner),
-            address2: Some(burner),
+            address1: Some(burner),
+            address2: Some(owner),
             address3: None,
         }
     }
