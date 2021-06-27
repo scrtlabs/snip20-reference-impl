@@ -152,11 +152,12 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         } => try_transfer(deps, env, recipient, amount, memo),
         HandleMsg::Send {
             recipient,
+            recipient_code_hash,
             amount,
             msg,
             memo,
             ..
-        } => try_send(deps, env, recipient, amount, memo, msg),
+        } => try_send(deps, env, recipient, recipient_code_hash, amount, memo, msg),
         HandleMsg::BatchTransfer { actions, .. } => try_batch_transfer(deps, env, actions),
         HandleMsg::BatchSend { actions, .. } => try_batch_send(deps, env, actions),
         HandleMsg::Burn { amount, memo, .. } => try_burn(deps, env, amount, memo),
@@ -187,11 +188,21 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::SendFrom {
             owner,
             recipient,
+            recipient_code_hash,
             amount,
             msg,
             memo,
             ..
-        } => try_send_from(deps, env, owner, recipient, amount, memo, msg),
+        } => try_send_from(
+            deps,
+            env,
+            owner,
+            recipient,
+            recipient_code_hash,
+            amount,
+            memo,
+            msg,
+        ),
         HandleMsg::BatchTransferFrom { actions, .. } => {
             try_batch_transfer_from(deps, &env, actions)
         }
@@ -847,12 +858,21 @@ fn try_add_receiver_api_callback<S: ReadonlyStorage>(
     storage: &S,
     messages: &mut Vec<CosmosMsg>,
     recipient: HumanAddr,
+    recipient_code_hash: Option<String>,
     msg: Option<Binary>,
     sender: HumanAddr,
     from: HumanAddr,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<()> {
+    if let Some(receiver_hash) = recipient_code_hash {
+        let receiver_msg = Snip20ReceiveMsg::new(sender, from, amount, memo, msg);
+        let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient)?;
+
+        messages.push(callback_msg);
+        return Ok(());
+    }
+
     let receiver_hash = get_receiver_hash(storage, &recipient);
     if let Some(receiver_hash) = receiver_hash {
         let receiver_hash = receiver_hash?;
@@ -871,6 +891,7 @@ fn try_send_impl<S: Storage, A: Api, Q: Querier>(
     sender: HumanAddr,
     sender_canon: &CanonicalAddr, // redundant but more efficient
     recipient: HumanAddr,
+    recipient_code_hash: Option<String>,
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
@@ -890,6 +911,7 @@ fn try_send_impl<S: Storage, A: Api, Q: Querier>(
         &deps.storage,
         messages,
         recipient,
+        recipient_code_hash,
         msg,
         sender.clone(),
         sender,
@@ -904,6 +926,7 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     recipient: HumanAddr,
+    recipient_code_hash: Option<String>,
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
@@ -917,6 +940,7 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
         sender,
         &sender_canon,
         recipient,
+        recipient_code_hash,
         amount,
         memo,
         msg,
@@ -946,6 +970,7 @@ fn try_batch_send<S: Storage, A: Api, Q: Querier>(
             sender.clone(),
             &sender_canon,
             action.recipient,
+            action.recipient_code_hash,
             action.amount,
             action.memo,
             action.msg,
@@ -1097,6 +1122,7 @@ fn try_send_from_impl<S: Storage, A: Api, Q: Querier>(
     spender_canon: &CanonicalAddr, // redundant but more efficient
     owner: HumanAddr,
     recipient: HumanAddr,
+    recipient_code_hash: Option<String>,
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
@@ -1117,6 +1143,7 @@ fn try_send_from_impl<S: Storage, A: Api, Q: Querier>(
         &deps.storage,
         messages,
         recipient,
+        recipient_code_hash,
         msg,
         env.message.sender,
         owner,
@@ -1132,6 +1159,7 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
     env: Env,
     owner: HumanAddr,
     recipient: HumanAddr,
+    recipient_code_hash: Option<String>,
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
@@ -1147,6 +1175,7 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
         &spender_canon,
         owner,
         recipient,
+        recipient_code_hash,
         amount,
         memo,
         msg,
@@ -1177,6 +1206,7 @@ fn try_batch_send_from<S: Storage, A: Api, Q: Querier>(
             &spender_canon,
             action.owner,
             action.recipient,
+            action.recipient_code_hash,
             action.amount,
             action.memo,
             action.msg,
@@ -1926,6 +1956,7 @@ mod tests {
 
         let handle_msg = HandleMsg::Send {
             recipient: HumanAddr("contract".to_string()),
+            recipient_code_hash: None,
             amount: Uint128(100),
             memo: Some("my memo".to_string()),
             padding: None,
@@ -2200,6 +2231,7 @@ mod tests {
         let handle_msg = HandleMsg::SendFrom {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("alice".to_string()),
+            recipient_code_hash: None,
             amount: Uint128(2500),
             memo: None,
             msg: None,
@@ -2225,6 +2257,7 @@ mod tests {
         let handle_msg = HandleMsg::SendFrom {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("alice".to_string()),
+            recipient_code_hash: None,
             amount: Uint128(2500),
             memo: None,
             msg: None,
@@ -2256,6 +2289,7 @@ mod tests {
         let handle_msg = HandleMsg::SendFrom {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("contract".to_string()),
+            recipient_code_hash: None,
             amount: Uint128(2000),
             memo: Some("my memo".to_string()),
             msg: Some(send_msg),
@@ -2293,6 +2327,7 @@ mod tests {
         let handle_msg = HandleMsg::SendFrom {
             owner: HumanAddr("bob".to_string()),
             recipient: HumanAddr("alice".to_string()),
+            recipient_code_hash: None,
             amount: Uint128(1),
             memo: None,
             msg: None,
