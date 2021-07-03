@@ -126,34 +126,18 @@ pub fn try_receive<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    let state = config_read(&deps.storage).load()?;
-    if !state.known_snip_20.contains(&env.message.sender) {
-        return Err(StdError::generic_err(format!(
-            "{} is not a known SNIP-20 coin that this contract registered to",
-            env.message.sender
-        )));
-    }
-
     /* use sender & amount */
     handle(deps, env, msg)
 }
 
 fn try_redeem<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+    _deps: &Extern<S, A, Q>,
     env: Env,
     addr: HumanAddr,
     hash: String,
     to: HumanAddr,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let state = config_read(&deps.storage).load()?;
-    if !state.known_snip_20.contains(&addr) {
-        return Err(StdError::generic_err(format!(
-            "{} is not a known SNIP-20 coin that this contract registered to",
-            addr
-        )));
-    }
-
     let msg = to_binary(&Snip20Msg::redeem(amount))?;
     let secret_redeem = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: addr,
