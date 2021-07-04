@@ -953,10 +953,12 @@ function test_send() {
 
     log_test_header
 
-    local receiver_addr="$(create_receiver_contract)"
-    local receiver_hash="$(secretcli q compute contract-hash $receiver_addr | sed 's/^0x//')"
+    local receiver_addr
+    receiver_addr="$(create_receiver_contract)"
+    local receiver_hash
+    receiver_hash="$(secretcli q compute contract-hash $receiver_addr | sed 's/^0x//')"
 
-    if [ "$skip_register_receiver" != "true" ]; then
+    if [ "$skip_register_receiver" != "skip-register" ]; then
         register_receiver "$receiver_addr" "$contract_addr"
     fi
 
@@ -971,7 +973,8 @@ function test_send() {
 
     # Try to send more than "a" has
     log 'sending funds from "a" to "b", but more than "a" has'
-    local send_message='{"send":{"recipient":"'"${ADDRESS[b]}"'","amount":"1000001"}}'
+    local send_message
+    send_message='{"send":{"recipient":"'"${ADDRESS[b]}"'","amount":"1000001"}}'
     local send_response
     tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 150000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
@@ -1002,7 +1005,7 @@ function test_send() {
     local receiver_msg='{"increment":{}}'
     receiver_msg="$(base64 <<<"$receiver_msg")"
     
-    if [ "$skip_register_receiver" = "true" ]; then
+    if [ "$skip_register_receiver" = "skip-register" ]; then
         send_message='{"send":{"recipient":"'"$receiver_addr"'","recipient_code_hash":"'"$receiver_hash"'","amount":"400000","msg":"'$receiver_msg'"}}'
     else
         send_message='{"send":{"recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
@@ -1051,7 +1054,7 @@ function test_send() {
     receiver_msg='{"fail":{}}'
     receiver_msg="$(base64 <<<"$receiver_msg")"
 
-    if [ "$skip_register_receiver" = "true" ]; then
+    if [ "$skip_register_receiver" = "skip-register" ]; then
         send_message='{"send":{"recipient":"'"$receiver_addr"'","recipient_code_hash":"'"$receiver_hash"'","amount":"400000","msg":"'$receiver_msg'"}}'
     else
         send_message='{"send":{"recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
@@ -1285,10 +1288,12 @@ function test_send_from() {
 
     log_test_header
 
-    local receiver_addr="$(create_receiver_contract)"
-    local receiver_hash="$(secretcli q compute contract-hash $receiver_addr | sed 's/^0x//')"
+    local receiver_addr
+    receiver_addr="$(create_receiver_contract)"
+    local receiver_hash
+    receiver_hash="$(secretcli q compute contract-hash $receiver_addr | sed 's/^0x//')"
 
-    if [ "$skip_register_receiver" != "true" ]; then
+    if [ "$skip_register_receiver" != "skip-register" ]; then
         register_receiver "$receiver_addr" "$contract_addr"
     fi
 
@@ -1342,7 +1347,8 @@ function test_send_from() {
     local receiver_msg='{"increment":{}}'
     receiver_msg="$(base64 <<<"$receiver_msg")"
 
-    if [ "$skip_register_receiver" = "true" ]; then
+    local send_message
+    if [ "$skip_register_receiver" = "skip-register" ]; then
         send_message='{"send_from":{"owner":"'"${ADDRESS[a]}"'","recipient":"'"$receiver_addr"'","recipient_code_hash":"'"$receiver_hash"'","amount":"400000","msg":"'$receiver_msg'"}}'
     else
         send_message='{"send_from":{"owner":"'"${ADDRESS[a]}"'","recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
@@ -1403,7 +1409,7 @@ function test_send_from() {
     receiver_msg='{"fail":{}}'
     receiver_msg="$(base64 <<<"$receiver_msg")"
 
-    if [ "$skip_register_receiver" = "true" ]; then
+    if [ "$skip_register_receiver" = "skip-register" ]; then
         send_message='{"send_from":{"owner":"'"${ADDRESS[a]}"'","recipient":"'"$receiver_addr"'","recipient_code_hash":"'"$receiver_hash"'","amount":"400000","msg":"'$receiver_msg'"}}'
     else
         send_message='{"send_from":{"owner":"'"${ADDRESS[a]}"'","recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
@@ -1451,12 +1457,12 @@ function main() {
     test_viewing_key "$contract_addr"
     test_deposit "$contract_addr"
     test_transfer "$contract_addr"
-    test_send "$contract_addr"
-    test_send "$contract_addr" true
+    test_send "$contract_addr" register
+    test_send "$contract_addr" skip-register
     test_burn "$contract_addr"
     test_transfer_from "$contract_addr"
-    test_send_from "$contract_addr"
-    test_send_from "$contract_addr" true
+    test_send_from "$contract_addr" register
+    test_send_from "$contract_addr" skip-register
 
     log 'Tests completed successfully'
 
