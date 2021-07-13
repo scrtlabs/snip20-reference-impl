@@ -30,7 +30,7 @@ overflow-checks = true
 # for quicker tests, cargo test --lib
 # for more explicit tests, cargo test --features=backtraces
 #default = ["debug-print"]
-backtraces = ["cosmwasm-std/backtraces", "cosmwasm-vm/backtraces"]
+backtraces = ["cosmwasm-std/backtraces"]
 debug-print = ["cosmwasm-std/debug-print"]
 
 [dependencies]
@@ -50,5 +50,4 @@ rand_core = { version =  "0.5.1", default-features = false }
 sha2 = { version = "0.9.1", default-features = false }
 
 [dev-dependencies]
-cosmwasm-vm = { package = "cosmwasm-sgx-vm", git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.0" }
 cosmwasm-schema = { version = "0.9.2" }
