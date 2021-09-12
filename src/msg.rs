@@ -99,6 +99,7 @@ pub enum HandleMsg {
     },
     Send {
         recipient: HumanAddr,
+        recipient_code_hash: Option<String>,
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
@@ -153,6 +154,7 @@ pub enum HandleMsg {
     SendFrom {
         owner: HumanAddr,
         recipient: HumanAddr,
+        recipient_code_hash: Option<String>,
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
