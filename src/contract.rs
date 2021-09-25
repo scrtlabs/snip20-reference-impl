@@ -5,17 +5,22 @@ use cosmwasm_std::{
     HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
     StdResult, Storage, Uint128,
 };
+use ripemd160::{Digest, Ripemd160};
+use secp256k1::Secp256k1;
+use sha2::Sha256;
 
 use crate::batch;
 use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
 };
+use crate::msg::{Signature, SignedPermit};
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     get_receiver_hash, read_allowance, read_viewing_key, set_receiver_hash, write_allowance,
     write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
+    QUERY_BALANCE_PERMIT_MSG,
 };
 use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
@@ -90,6 +95,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         redeem_is_enabled: init_config.redeem_enabled(),
         mint_is_enabled: init_config.mint_enabled(),
         burn_is_enabled: init_config.burn_enabled(),
+        query_balance_permit_msg: QUERY_BALANCE_PERMIT_MSG.to_string(),
     })?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
@@ -242,8 +248,90 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         QueryMsg::ContractStatus {} => query_contract_status(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage),
         QueryMsg::Minters { .. } => query_minters(deps),
+        QueryMsg::BalanceWithPermit { signed, signature } => {
+            query_balance_with_permit(deps, signed, signature)
+        }
         _ => authenticated_queries(deps, msg),
     }
+}
+
+fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    signed: SignedPermit,
+    signature: Signature,
+) -> Result<Binary, StdError> {
+    if signed.msgs.len() != 1 {
+        return Err(StdError::generic_err(format!(
+            "Must sign exactly 1 permit message, got: {:?}.",
+            signed.msgs.len()
+        )));
+    }
+
+    if signed.msgs[0].r#type != "query_balance_permit" {
+        return Err(StdError::generic_err(format!(
+            "Permit message type must be 'query_balance_permit', got: {:?}.",
+            signed.msgs[0].r#type
+        )));
+    }
+
+    let permit = &signed.msgs[0].value;
+
+    // Validate permit_id
+    let _permit_id = permit.permit_id;
+    // TODO fail if permit_id is revoked
+
+    // Validate that account is derived from pubkey
+    let pubkey = signature.pub_key.value;
+    let account_from_pubkey = deps.api.human_address(&pubkey_to_account(&pubkey))?;
+
+    if account_from_pubkey != permit.account {
+        return Err(StdError::generic_err(format!(
+            "Input account {:?} not the same as account {:?} that was derived from pubkey {:?}.",
+            permit.account,
+            account_from_pubkey,
+            pubkey.clone()
+        )));
+    }
+
+    // Validate signature, source: https://github.com/enigmampc/SecretNetwork/blob/master/cosmwasm/packages/wasmi-runtime/src/crypto/secp256k1.rs#L49-L82
+    let signed_bytes = &to_binary(&signed)?.0;
+
+    let signed_bytes_hash = Sha256::digest(signed_bytes);
+    let msg = secp256k1::Message::from_slice(signed_bytes_hash.as_slice()).map_err(|err| {
+        StdError::generic_err(format!(
+            "Failed to create a secp256k1 message from signed_bytes: {:?}",
+            err
+        ))
+    })?;
+
+    let verifier = Secp256k1::verification_only();
+
+    // Create `secp256k1`'s types
+    let secp256k1_signature = secp256k1::Signature::from_compact(&signature.signature.0)
+        .map_err(|err| StdError::generic_err(format!("Malformed signature: {:?}", err)))?;
+    let secp256k1_pubkey = secp256k1::PublicKey::from_slice(pubkey.0.as_slice())
+        .map_err(|err| StdError::generic_err(format!("Malformed pubkey: {:?}", err)))?;
+
+    verifier
+        .verify(&msg, &secp256k1_signature, &secp256k1_pubkey)
+        .map_err(|err| {
+            StdError::generic_err(format!(
+                "Failed to verify signatures for the given permit: {:?}",
+                err
+            ))
+        })?;
+
+    let amount = Uint128(
+        ReadonlyBalances::from_storage(&deps.storage)
+            .account_amount(&deps.api.canonical_address(&permit.account)?),
+    );
+    to_binary(&QueryAnswer::Balance { amount })
+}
+
+fn pubkey_to_account(pubkey: &Binary) -> CanonicalAddr {
+    let mut hasher = Ripemd160::new();
+    hasher.update(Sha256::digest(&pubkey.0));
+    CanonicalAddr(Binary(hasher.finalize().to_vec()))
 }
 
 pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
@@ -327,6 +415,7 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
         symbol: constants.symbol,
         decimals: constants.decimals,
         total_supply,
+        query_balance_permit_msg: constants.query_balance_permit_msg,
     })
 }
 
@@ -3609,11 +3698,16 @@ mod tests {
                 symbol,
                 decimals,
                 total_supply,
+                query_balance_permit_msg,
             } => {
                 assert_eq!(name, init_name);
                 assert_eq!(symbol, init_symbol);
                 assert_eq!(decimals, init_decimals);
                 assert_eq!(total_supply, Some(Uint128(5000)));
+                assert_eq!(
+                    query_balance_permit_msg,
+                    QUERY_BALANCE_PERMIT_MSG.to_string()
+                );
             }
             _ => panic!("unexpected"),
         }

@@ -28,6 +28,8 @@ pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 
+pub const QUERY_BALANCE_PERMIT_MSG: &str = "This signature is a permit to query my balance.";
+
 // Config
 
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -47,6 +49,7 @@ pub struct Constants {
     pub mint_is_enabled: bool,
     // is burn enabled
     pub burn_is_enabled: bool,
+    pub query_balance_permit_msg: String,
 }
 
 pub struct ReadonlyConfig<'a, S: ReadonlyStorage> {

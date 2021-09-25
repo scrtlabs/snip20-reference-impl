@@ -323,6 +323,10 @@ pub enum QueryMsg {
         address: HumanAddr,
         key: String,
     },
+    BalanceWithPermit {
+        signed: SignedPermit,
+        signature: Signature,
+    },
     TransferHistory {
         address: HumanAddr,
         key: String,
@@ -365,6 +369,7 @@ pub enum QueryAnswer {
         symbol: String,
         decimals: u8,
         total_supply: Option<Uint128>,
+        query_balance_permit_msg: String,
     },
     TokenConfig {
         public_total_supply: bool,
@@ -454,6 +459,59 @@ pub fn space_pad(block_size: usize, message: &mut Vec<u8>) -> &mut Vec<u8> {
     message.reserve(missing);
     message.extend(std::iter::repeat(b' ').take(missing));
     message
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct Signature {
+    pub pub_key: PubKey,
+    pub signature: Binary,
+}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct PubKey {
+    pub r#type: String, // must be "tendermint/PubKeySecp256k1",
+    pub value: Binary,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct SignedPermit {
+    pub chain_id: String,        // ignored, no Env in query
+    pub account_number: Uint128, // ignored
+    pub sequence: Uint128,       // ignored
+    pub fee: Fee,                // ignored
+    pub msgs: Vec<PermitMsg>,    // the signed message
+    pub memo: String,            // ignored
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct Fee {
+    pub gas: Uint128,
+    pub amount: Vec<Coin>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct Coin {
+    pub denom: String,
+    pub amount: Uint128,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct PermitMsg {
+    pub r#type: String,
+    pub value: PermitContent,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct PermitContent {
+    pub permit_id: Uint128,
+    pub account: HumanAddr,
+    pub message: String,
 }
 
 #[cfg(test)]
