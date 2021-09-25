@@ -509,7 +509,7 @@ pub struct PermitMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct PermitContent {
-    pub permit_id: Uint128,
+    pub permit_user_id: String,
     pub account: HumanAddr,
     pub message: String,
 }

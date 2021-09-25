@@ -269,16 +269,27 @@ fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
 
     if signed.msgs[0].r#type != "query_balance_permit" {
         return Err(StdError::generic_err(format!(
-            "Permit message type must be 'query_balance_permit', got: {:?}.",
+            "Type must be 'query_balance_permit', got: {:?}.",
             signed.msgs[0].r#type
         )));
     }
 
     let permit = &signed.msgs[0].value;
 
-    // Validate permit_id
-    let _permit_id = permit.permit_id;
-    // TODO fail if permit_id is revoked
+    // Validate permit_user_id
+    let _permit_user_id = &permit.permit_user_id;
+    // TODO fail if permit_user_id is revoked
+
+    // Validate permit message
+    let query_balance_permit_msg = ReadonlyConfig::from_storage(&deps.storage)
+        .constants()?
+        .query_balance_permit_msg;
+    if permit.message != query_balance_permit_msg {
+        return Err(StdError::generic_err(format!(
+            "Message must be '{:?}', got: '{:?}'.",
+            query_balance_permit_msg, permit.message
+        )));
+    }
 
     // Validate that account is derived from pubkey
     let pubkey = signature.pub_key.value;
