@@ -510,7 +510,7 @@ pub struct PermitMsg {
 #[serde(rename_all = "snake_case")]
 pub struct PermitContent {
     pub permit_user_id: String,
-    pub account: HumanAddr,
+    pub query_balance_of: HumanAddr,
     pub message: String,
 }
 

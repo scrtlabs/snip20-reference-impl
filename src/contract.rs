@@ -295,10 +295,10 @@ fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
     let pubkey = signature.pub_key.value;
     let account_from_pubkey = deps.api.human_address(&pubkey_to_account(&pubkey))?;
 
-    if account_from_pubkey != permit.account {
+    if account_from_pubkey != permit.query_balance_of {
         return Err(StdError::generic_err(format!(
             "Input account {:?} not the same as account {:?} that was derived from pubkey {:?}.",
-            permit.account,
+            permit.query_balance_of,
             account_from_pubkey,
             pubkey.clone()
         )));
@@ -334,7 +334,7 @@ fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
 
     let amount = Uint128(
         ReadonlyBalances::from_storage(&deps.storage)
-            .account_amount(&deps.api.canonical_address(&permit.account)?),
+            .account_amount(&deps.api.canonical_address(&permit.query_balance_of)?),
     );
     to_binary(&QueryAnswer::Balance { amount })
 }
