@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
 
 use crate::batch;
-use crate::permit::{Permit, PermitSignature, SignedPermit};
+use crate::permit::Permit;
 use crate::transaction_history::{RichTx, Tx};
 use crate::viewing_key::ViewingKey;
 
@@ -213,6 +213,11 @@ pub enum HandleMsg {
         level: ContractStatusLevel,
         padding: Option<String>,
     },
+
+    // Permit
+    RevokePermit {
+        permit_name: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -304,6 +309,11 @@ pub enum HandleAnswer {
         status: ResponseStatus,
     },
     SetContractStatus {
+        status: ResponseStatus,
+    },
+
+    // Permit
+    RevokePemit {
         status: ResponseStatus,
     },
 }

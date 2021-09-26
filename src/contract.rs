@@ -15,12 +15,13 @@ use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
 };
-use crate::permit::{Permit, PermitSignature, SignedPermit};
+use crate::permit::Permit;
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     get_receiver_hash, read_allowance, read_viewing_key, set_receiver_hash, write_allowance,
     write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
+    ReadonlyRevokedPermits, RevokedPemits,
 };
 use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
@@ -236,6 +237,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::AddMinters { minters, .. } => add_minters(deps, env, minters),
         HandleMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
         HandleMsg::SetMinters { minters, .. } => set_minters(deps, env, minters),
+        HandleMsg::RevokePermit { permit_name, .. } => revoke_permit(deps, env, permit_name),
     };
 
     pad_response(response)
@@ -274,11 +276,7 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
 
     let permit_content = &permit.signed.msgs[0].value;
 
-    // Validate permit_name
-    let _permit_name = &permit_content.permit_name;
-    // TODO fail if permit_name is revoked
-
-    // Validate permit message
+    // Validate permit content
     let token_address = ReadonlyConfig::from_storage(&deps.storage)
         .constants()?
         .contract_address;
@@ -293,6 +291,17 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
     // Derive account from pubkey
     let pubkey = permit.signature.pub_key.value;
     let account = deps.api.human_address(&pubkey_to_account(&pubkey))?;
+
+    // Validate permit_name
+    let permit_name = &permit_content.permit_name;
+    let is_permit_revoked = ReadonlyRevokedPermits::from_storage(&deps.storage)
+        .is_permit_revoked(&account, &permit_name);
+    if is_permit_revoked {
+        return Err(StdError::generic_err(format!(
+            "Permit '{:?}' was revoked by account {:?}",
+            permit_name, account
+        )));
+    }
 
     // Validate signature, reference: https://github.com/enigmampc/SecretNetwork/blob/f591ed0cb3af28608df3bf19d6cfb733cca48100/cosmwasm/packages/wasmi-runtime/src/crypto/secp256k1.rs#L49-L82
     let signed_bytes = &to_binary(&permit.signed)?.0;
@@ -321,6 +330,7 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
             ))
         })?;
 
+    // We're verified! We can now execute the query
     match query {
         QueryWithPermit::Balance {} => query_balance(&deps, &account),
         QueryWithPermit::TransferHistory { page, page_size } => {
@@ -1702,6 +1712,20 @@ fn perform_transfer<T: Storage>(
     balances.set_account_balance(to, to_balance);
 
     Ok(())
+}
+
+fn revoke_permit<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    permit_name: String,
+) -> StdResult<HandleResponse> {
+    RevokedPemits::from_storage(&mut deps.storage).revoke_permit(&env.message.sender, &permit_name);
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::RevokePemit { status: Success })?),
+    })
 }
 
 fn is_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<bool> {

@@ -28,6 +28,8 @@ pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 
+pub const PREFIX_REVOKED_PERMITS: &[u8] = b"revoked_permits";
+
 // Config
 
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -293,6 +295,65 @@ impl<'a, S: ReadonlyStorage> ReadonlyBalancesImpl<'a, S> {
             // This unwrap is ok because we know we stored things correctly
             Some(balance_bytes) => slice_to_u128(&balance_bytes).unwrap(),
             None => 0,
+        }
+    }
+}
+
+pub struct ReadonlyRevokedPermits<'a, S: ReadonlyStorage> {
+    storage: ReadonlyPrefixedStorage<'a, S>,
+}
+
+impl<'a, S: ReadonlyStorage> ReadonlyRevokedPermits<'a, S> {
+    pub fn from_storage(storage: &'a S) -> Self {
+        Self {
+            storage: ReadonlyPrefixedStorage::new(PREFIX_REVOKED_PERMITS, storage),
+        }
+    }
+
+    fn as_readonly(&self) -> ReadonlyRevokedPermitsImpl<ReadonlyPrefixedStorage<S>> {
+        ReadonlyRevokedPermitsImpl(&self.storage)
+    }
+
+    pub fn is_permit_revoked(&self, account: &HumanAddr, permit_name: &String) -> bool {
+        self.as_readonly().is_permit_revoked(account, permit_name)
+    }
+}
+
+pub struct RevokedPemits<'a, S: Storage> {
+    storage: PrefixedStorage<'a, S>,
+}
+
+impl<'a, S: Storage> RevokedPemits<'a, S> {
+    pub fn from_storage(storage: &'a mut S) -> Self {
+        Self {
+            storage: PrefixedStorage::new(PREFIX_REVOKED_PERMITS, storage),
+        }
+    }
+
+    fn as_readonly(&self) -> ReadonlyRevokedPermitsImpl<PrefixedStorage<S>> {
+        ReadonlyRevokedPermitsImpl(&self.storage)
+    }
+
+    pub fn is_permit_revoked(&self, account: &HumanAddr, permit_name: &String) -> bool {
+        self.as_readonly().is_permit_revoked(account, permit_name)
+    }
+
+    pub fn revoke_permit(&mut self, account: &HumanAddr, permit_name: &String) {
+        let storage_key = account.to_string() + permit_name;
+
+        self.storage.set(storage_key.as_bytes(), &[])
+    }
+}
+
+struct ReadonlyRevokedPermitsImpl<'a, S: ReadonlyStorage>(&'a S);
+
+impl<'a, S: ReadonlyStorage> ReadonlyRevokedPermitsImpl<'a, S> {
+    pub fn is_permit_revoked(&self, account: &HumanAddr, permit_name: &String) -> bool {
+        let storage_key = account.to_string() + permit_name;
+
+        match self.0.get(storage_key.as_bytes()) {
+            Some(_) => true,
+            None => false,
         }
     }
 }
