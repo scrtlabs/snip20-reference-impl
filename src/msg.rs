@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
 
 use crate::batch;
+use crate::permit::{PermitSignature, Permit};
 use crate::transaction_history::{RichTx, Tx};
 use crate::viewing_key::ViewingKey;
 
@@ -324,8 +325,8 @@ pub enum QueryMsg {
         key: String,
     },
     BalanceWithPermit {
-        signed: SignedPermit,
-        signature: Signature,
+        signed: Permit,
+        signature: PermitSignature,
     },
     TransferHistory {
         address: HumanAddr,
@@ -369,7 +370,6 @@ pub enum QueryAnswer {
         symbol: String,
         decimals: u8,
         total_supply: Option<Uint128>,
-        query_balance_permit_msg: String,
     },
     TokenConfig {
         public_total_supply: bool,
@@ -459,72 +459,6 @@ pub fn space_pad(block_size: usize, message: &mut Vec<u8>) -> &mut Vec<u8> {
     message.reserve(missing);
     message.extend(std::iter::repeat(b' ').take(missing));
     message
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct Signature {
-    pub pub_key: PubKey,
-    pub signature: Binary,
-}
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct PubKey {
-    /// ignored, but must be "tendermint/PubKeySecp256k1"
-    pub r#type: String,
-    /// Secp256k1 PubKey
-    pub value: Binary,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-// Note: The order of fields in this struct is important for the permit signature verification!
-pub struct SignedPermit {
-    /// ignored
-    pub account_number: Uint128,
-    /// ignored, no Env in query
-    pub chain_id: String,
-    /// ignored
-    pub fee: Fee,
-    /// ignored
-    pub memo: String,
-    /// the signed message
-    pub msgs: Vec<PermitMsg>,
-    /// ignored
-    pub sequence: Uint128,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-// Note: The order of fields in this struct is important for the permit signature verification!
-pub struct Fee {
-    pub amount: Vec<Coin>,
-    pub gas: Uint128,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-// Note: The order of fields in this struct is important for the permit signature verification!
-pub struct Coin {
-    pub amount: Uint128,
-    pub denom: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-// Note: The order of fields in this struct is important for the permit signature verification!
-pub struct PermitMsg {
-    pub r#type: String,
-    pub value: PermitContent,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-// Note: The order of fields in this struct is important for the permit signature verification!
-pub struct PermitContent {
-    pub message: String,
-    pub permit_user_id: String,
-    pub query_balance_of: HumanAddr,
 }
 
 #[cfg(test)]

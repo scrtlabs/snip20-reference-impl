@@ -14,13 +14,12 @@ use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
 };
-use crate::msg::{Signature, SignedPermit};
+use crate::permit::{PermitSignature, Permit};
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     get_receiver_hash, read_allowance, read_viewing_key, set_receiver_hash, write_allowance,
     write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
-    QUERY_BALANCE_PERMIT_MSG,
 };
 use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
@@ -95,7 +94,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         redeem_is_enabled: init_config.redeem_enabled(),
         mint_is_enabled: init_config.mint_enabled(),
         burn_is_enabled: init_config.burn_enabled(),
-        query_balance_permit_msg: QUERY_BALANCE_PERMIT_MSG.to_string(),
+        contract_address: env.contract.address,
     })?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
@@ -257,8 +256,8 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
 
 fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
-    signed: SignedPermit,
-    signature: Signature,
+    signed: Permit,
+    signature: PermitSignature,
 ) -> Result<Binary, StdError> {
     if signed.msgs.len() != 1 {
         return Err(StdError::generic_err(format!(
@@ -267,44 +266,36 @@ fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
         )));
     }
 
-    if signed.msgs[0].r#type != "query_balance_permit" {
+    if signed.msgs[0].r#type != "query_permit" {
         return Err(StdError::generic_err(format!(
-            "Type must be 'query_balance_permit', got: {:?}.",
+            "Type must be 'query_permit', got: {:?}.",
             signed.msgs[0].r#type
         )));
     }
 
     let permit = &signed.msgs[0].value;
 
-    // Validate permit_user_id
-    let _permit_user_id = &permit.permit_user_id;
-    // TODO fail if permit_user_id is revoked
+    // Validate permit_name
+    let _permit_name = &permit.permit_name;
+    // TODO fail if permit_name is revoked
 
     // Validate permit message
-    let query_balance_permit_msg = ReadonlyConfig::from_storage(&deps.storage)
+    let token_address = ReadonlyConfig::from_storage(&deps.storage)
         .constants()?
-        .query_balance_permit_msg;
-    if permit.message != query_balance_permit_msg {
+        .contract_address;
+
+    if !permit.allowed_tokens.contains(&token_address) {
         return Err(StdError::generic_err(format!(
-            "Message must be '{:?}', got: '{:?}'.",
-            query_balance_permit_msg, permit.message
+            "Permit doesn't apply to token {:?}, allowed tokens: {:?}",
+            token_address, permit.allowed_tokens
         )));
     }
 
-    // Validate that account is derived from pubkey
+    // Derive account from pubkey
     let pubkey = signature.pub_key.value;
     let account_from_pubkey = deps.api.human_address(&pubkey_to_account(&pubkey))?;
 
-    if account_from_pubkey != permit.query_balance_of {
-        return Err(StdError::generic_err(format!(
-            "Input account {:?} not the same as account {:?} that was derived from pubkey {:?}.",
-            permit.query_balance_of,
-            account_from_pubkey,
-            pubkey.clone()
-        )));
-    }
-
-    // Validate signature, source: https://github.com/enigmampc/SecretNetwork/blob/master/cosmwasm/packages/wasmi-runtime/src/crypto/secp256k1.rs#L49-L82
+    // Validate signature, reference: https://github.com/enigmampc/SecretNetwork/blob/f591ed0cb3af28608df3bf19d6cfb733cca48100/cosmwasm/packages/wasmi-runtime/src/crypto/secp256k1.rs#L49-L82
     let signed_bytes = &to_binary(&signed)?.0;
 
     let signed_bytes_hash = Sha256::digest(signed_bytes);
@@ -334,7 +325,7 @@ fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
 
     let amount = Uint128(
         ReadonlyBalances::from_storage(&deps.storage)
-            .account_amount(&deps.api.canonical_address(&permit.query_balance_of)?),
+            .account_amount(&deps.api.canonical_address(&account_from_pubkey)?),
     );
     to_binary(&QueryAnswer::Balance { amount })
 }
@@ -426,7 +417,6 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
         symbol: constants.symbol,
         decimals: constants.decimals,
         total_supply,
-        query_balance_permit_msg: constants.query_balance_permit_msg,
     })
 }
 
@@ -3709,16 +3699,11 @@ mod tests {
                 symbol,
                 decimals,
                 total_supply,
-                query_balance_permit_msg,
             } => {
                 assert_eq!(name, init_name);
                 assert_eq!(symbol, init_symbol);
                 assert_eq!(decimals, init_decimals);
                 assert_eq!(total_supply, Some(Uint128(5000)));
-                assert_eq!(
-                    query_balance_permit_msg,
-                    QUERY_BALANCE_PERMIT_MSG.to_string()
-                );
             }
             _ => panic!("unexpected"),
         }

@@ -73,7 +73,7 @@ start-server: # CTRL+C to stop
 	docker run -it --rm \
 		-p 26657:26657 -p 26656:26656 -p 1337:1337 \
 		-v $$(pwd):/root/code \
-		--name secretdev enigmampc/secret-network-sw-dev:latest
+		--name secretdev enigmampc/secret-network-sw-dev:v1.0.4-4
 
 .PHONY: schema
 schema:
@@ -84,3 +84,7 @@ clean:
 	cargo clean
 	rm -f ./contract.wasm ./contract.wasm.gz
 	$(MAKE) -C tests/example-receiver clean
+
+.PHONY: integration-test
+permit-setup: compile-optimized
+	if tests/integration.sh; then echo -n '\a'; else echo -n '\a'; sleep 0.125; echo -n '\a'; fi
