@@ -10,11 +10,12 @@ use secp256k1::Secp256k1;
 use sha2::Sha256;
 
 use crate::batch;
+use crate::msg::QueryWithPermit;
 use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
 };
-use crate::permit::{PermitSignature, SignedPermit};
+use crate::permit::{Permit, PermitSignature, SignedPermit};
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
@@ -247,36 +248,34 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         QueryMsg::ContractStatus {} => query_contract_status(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage),
         QueryMsg::Minters { .. } => query_minters(deps),
-        QueryMsg::BalanceWithPermit { signed, signature } => {
-            query_balance_with_permit(deps, signed, signature)
-        }
+        QueryMsg::WithPermit { permit, query } => query_with_permit(deps, permit, query),
         _ => authenticated_queries(deps, msg),
     }
 }
 
-fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
+fn query_with_permit<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
-    signed: SignedPermit,
-    signature: PermitSignature,
+    permit: Permit,
+    query: QueryWithPermit,
 ) -> Result<Binary, StdError> {
-    if signed.msgs.len() != 1 {
+    if permit.signed.msgs.len() != 1 {
         return Err(StdError::generic_err(format!(
             "Must sign exactly 1 permit message, got: {:?}.",
-            signed.msgs.len()
+            permit.signed.msgs.len()
         )));
     }
 
-    if signed.msgs[0].r#type != "query_permit" {
+    if permit.signed.msgs[0].r#type != "query_permit" {
         return Err(StdError::generic_err(format!(
             "Type must be 'query_permit', got: {:?}.",
-            signed.msgs[0].r#type
+            permit.signed.msgs[0].r#type
         )));
     }
 
-    let permit = &signed.msgs[0].value;
+    let permit_content = &permit.signed.msgs[0].value;
 
     // Validate permit_name
-    let _permit_name = &permit.permit_name;
+    let _permit_name = &permit_content.permit_name;
     // TODO fail if permit_name is revoked
 
     // Validate permit message
@@ -284,19 +283,19 @@ fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
         .constants()?
         .contract_address;
 
-    if !permit.allowed_tokens.contains(&token_address) {
+    if !permit_content.allowed_tokens.contains(&token_address) {
         return Err(StdError::generic_err(format!(
             "Permit doesn't apply to token {:?}, allowed tokens: {:?}",
-            token_address, permit.allowed_tokens
+            token_address, permit_content.allowed_tokens
         )));
     }
 
     // Derive account from pubkey
-    let pubkey = signature.pub_key.value;
+    let pubkey = permit.signature.pub_key.value;
     let account_from_pubkey = deps.api.human_address(&pubkey_to_account(&pubkey))?;
 
     // Validate signature, reference: https://github.com/enigmampc/SecretNetwork/blob/f591ed0cb3af28608df3bf19d6cfb733cca48100/cosmwasm/packages/wasmi-runtime/src/crypto/secp256k1.rs#L49-L82
-    let signed_bytes = &to_binary(&signed)?.0;
+    let signed_bytes = &to_binary(&permit.signed)?.0;
 
     let signed_bytes_hash = Sha256::digest(signed_bytes);
     let msg = secp256k1::Message::from_slice(signed_bytes_hash.as_slice()).map_err(|err| {
@@ -309,7 +308,7 @@ fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
     let verifier = Secp256k1::verification_only();
 
     // Create `secp256k1`'s types
-    let secp256k1_signature = secp256k1::Signature::from_compact(&signature.signature.0)
+    let secp256k1_signature = secp256k1::Signature::from_compact(&permit.signature.signature.0)
         .map_err(|err| StdError::generic_err(format!("Malformed signature: {:?}", err)))?;
     let secp256k1_pubkey = secp256k1::PublicKey::from_slice(pubkey.0.as_slice())
         .map_err(|err| StdError::generic_err(format!("Malformed pubkey: {:?}", err)))?;
@@ -323,11 +322,18 @@ fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
             ))
         })?;
 
-    let amount = Uint128(
-        ReadonlyBalances::from_storage(&deps.storage)
-            .account_amount(&deps.api.canonical_address(&account_from_pubkey)?),
-    );
-    to_binary(&QueryAnswer::Balance { amount })
+    return match query {
+        QueryWithPermit::Balance {} => query_balance(&deps, &account_from_pubkey),
+        QueryWithPermit::TransferHistory { page, page_size } => {
+            query_transfers(&deps, &account_from_pubkey, page.unwrap_or(0), page_size)
+        }
+        QueryWithPermit::TransactionHistory { page, page_size } => {
+            query_transactions(&deps, &account_from_pubkey, page.unwrap_or(0), page_size)
+        }
+        QueryWithPermit::Allowance { spender } => {
+            query_allowance(deps, account_from_pubkey, spender)
+        }
+    };
 }
 
 fn pubkey_to_account(pubkey: &Binary) -> CanonicalAddr {

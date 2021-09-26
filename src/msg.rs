@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
 
 use crate::batch;
-use crate::permit::{SignedPermit, PermitSignature};
+use crate::permit::{Permit, PermitSignature, SignedPermit};
 use crate::transaction_history::{RichTx, Tx};
 use crate::viewing_key::ViewingKey;
 
@@ -324,10 +324,6 @@ pub enum QueryMsg {
         address: HumanAddr,
         key: String,
     },
-    BalanceWithPermit {
-        signed: SignedPermit,
-        signature: PermitSignature,
-    },
     TransferHistory {
         address: HumanAddr,
         key: String,
@@ -341,6 +337,10 @@ pub enum QueryMsg {
         page_size: u32,
     },
     Minters {},
+    WithPermit {
+        permit: Permit,
+        query: QueryWithPermit,
+    },
 }
 
 impl QueryMsg {
@@ -360,6 +360,15 @@ impl QueryMsg {
             _ => panic!("This query type does not require authentication"),
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryWithPermit {
+    Allowance { spender: HumanAddr },
+    Balance {},
+    TransferHistory { page: Option<u32>, page_size: u32 },
+    TransactionHistory { page: Option<u32>, page_size: u32 },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
