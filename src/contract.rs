@@ -249,7 +249,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage),
         QueryMsg::Minters { .. } => query_minters(deps),
         QueryMsg::WithPermit { permit, query } => query_with_permit(deps, permit, query),
-        _ => authenticated_queries(deps, msg),
+        _ => viewing_keys_queries(deps, msg),
     }
 }
 
@@ -292,29 +292,28 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
 
     // Derive account from pubkey
     let pubkey = permit.signature.pub_key.value;
-    let account_from_pubkey = deps.api.human_address(&pubkey_to_account(&pubkey))?;
+    let account = deps.api.human_address(&pubkey_to_account(&pubkey))?;
 
     // Validate signature, reference: https://github.com/enigmampc/SecretNetwork/blob/f591ed0cb3af28608df3bf19d6cfb733cca48100/cosmwasm/packages/wasmi-runtime/src/crypto/secp256k1.rs#L49-L82
     let signed_bytes = &to_binary(&permit.signed)?.0;
-
     let signed_bytes_hash = Sha256::digest(signed_bytes);
-    let msg = secp256k1::Message::from_slice(signed_bytes_hash.as_slice()).map_err(|err| {
-        StdError::generic_err(format!(
-            "Failed to create a secp256k1 message from signed_bytes: {:?}",
-            err
-        ))
-    })?;
+    let secp256k1_msg =
+        secp256k1::Message::from_slice(signed_bytes_hash.as_slice()).map_err(|err| {
+            StdError::generic_err(format!(
+                "Failed to create a secp256k1 message from signed_bytes: {:?}",
+                err
+            ))
+        })?;
 
-    let verifier = Secp256k1::verification_only();
+    let secp256k1_verifier = Secp256k1::verification_only();
 
-    // Create `secp256k1`'s types
     let secp256k1_signature = secp256k1::Signature::from_compact(&permit.signature.signature.0)
         .map_err(|err| StdError::generic_err(format!("Malformed signature: {:?}", err)))?;
     let secp256k1_pubkey = secp256k1::PublicKey::from_slice(pubkey.0.as_slice())
         .map_err(|err| StdError::generic_err(format!("Malformed pubkey: {:?}", err)))?;
 
-    verifier
-        .verify(&msg, &secp256k1_signature, &secp256k1_pubkey)
+    secp256k1_verifier
+        .verify(&secp256k1_msg, &secp256k1_signature, &secp256k1_pubkey)
         .map_err(|err| {
             StdError::generic_err(format!(
                 "Failed to verify signatures for the given permit: {:?}",
@@ -322,18 +321,16 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
             ))
         })?;
 
-    return match query {
-        QueryWithPermit::Balance {} => query_balance(&deps, &account_from_pubkey),
+    match query {
+        QueryWithPermit::Balance {} => query_balance(&deps, &account),
         QueryWithPermit::TransferHistory { page, page_size } => {
-            query_transfers(&deps, &account_from_pubkey, page.unwrap_or(0), page_size)
+            query_transfers(&deps, &account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::TransactionHistory { page, page_size } => {
-            query_transactions(&deps, &account_from_pubkey, page.unwrap_or(0), page_size)
+            query_transactions(&deps, &account, page.unwrap_or(0), page_size)
         }
-        QueryWithPermit::Allowance { spender } => {
-            query_allowance(deps, account_from_pubkey, spender)
-        }
-    };
+        QueryWithPermit::Allowance { spender } => query_allowance(deps, account, spender),
+    }
 }
 
 fn pubkey_to_account(pubkey: &Binary) -> CanonicalAddr {
@@ -342,7 +339,7 @@ fn pubkey_to_account(pubkey: &Binary) -> CanonicalAddr {
     CanonicalAddr(Binary(hasher.finalize().to_vec()))
 }
 
-pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
+pub fn viewing_keys_queries<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     msg: QueryMsg,
 ) -> QueryResult {
