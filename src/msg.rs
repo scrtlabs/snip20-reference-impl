@@ -470,37 +470,49 @@ pub struct Signature {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct PubKey {
-    pub r#type: String, // must be "tendermint/PubKeySecp256k1",
+    /// ignored, but must be "tendermint/PubKeySecp256k1"
+    pub r#type: String,
+    /// Secp256k1 PubKey
     pub value: Binary,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+// Note: The order of fields in this struct is important for the permit signature verification!
 pub struct SignedPermit {
-    pub chain_id: String,        // ignored, no Env in query
-    pub account_number: Uint128, // ignored
-    pub sequence: Uint128,       // ignored
-    pub fee: Fee,                // ignored
-    pub msgs: Vec<PermitMsg>,    // the signed message
-    pub memo: String,            // ignored
+    /// ignored
+    pub account_number: Uint128,
+    /// ignored, no Env in query
+    pub chain_id: String,
+    /// ignored
+    pub fee: Fee,
+    /// ignored
+    pub memo: String,
+    /// the signed message
+    pub msgs: Vec<PermitMsg>,
+    /// ignored
+    pub sequence: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+// Note: The order of fields in this struct is important for the permit signature verification!
 pub struct Fee {
-    pub gas: Uint128,
     pub amount: Vec<Coin>,
+    pub gas: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+// Note: The order of fields in this struct is important for the permit signature verification!
 pub struct Coin {
-    pub denom: String,
     pub amount: Uint128,
+    pub denom: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+// Note: The order of fields in this struct is important for the permit signature verification!
 pub struct PermitMsg {
     pub r#type: String,
     pub value: PermitContent,
@@ -508,10 +520,11 @@ pub struct PermitMsg {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+// Note: The order of fields in this struct is important for the permit signature verification!
 pub struct PermitContent {
+    pub message: String,
     pub permit_user_id: String,
     pub query_balance_of: HumanAddr,
-    pub message: String,
 }
 
 #[cfg(test)]
