@@ -371,6 +371,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "remain"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70ba1e78fa68412cb93ef642fd4d20b9a941be49ee9333875ebaf13112673ea7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "ripemd160"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -622,6 +633,7 @@ dependencies = [
  "hex",
  "rand_chacha",
  "rand_core",
+ "remain",
  "ripemd160",
  "schemars",
  "secp256k1",

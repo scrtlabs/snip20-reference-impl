@@ -21,10 +21,11 @@ pub struct PubKey {
     pub value: Binary,
 }
 
+#[remain::sorted]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 // Note: The order of fields in this struct is important for the permit signature verification!
-pub struct Permit {
+pub struct SignedPermit {
     /// ignored
     pub account_number: Uint128,
     /// ignored, no Env in query
@@ -39,6 +40,7 @@ pub struct Permit {
     pub sequence: Uint128,
 }
 
+#[remain::sorted]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 // Note: The order of fields in this struct is important for the permit signature verification!
@@ -47,6 +49,7 @@ pub struct Fee {
     pub gas: Uint128,
 }
 
+#[remain::sorted]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 // Note: The order of fields in this struct is important for the permit signature verification!
@@ -55,6 +58,7 @@ pub struct Coin {
     pub denom: String,
 }
 
+#[remain::sorted]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 // Note: The order of fields in this struct is important for the permit signature verification!
@@ -63,6 +67,7 @@ pub struct PermitMsg {
     pub value: PermitContent,
 }
 
+#[remain::sorted]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 // Note: The order of fields in this struct is important for the permit signature verification!

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
 
 use crate::batch;
-use crate::permit::{PermitSignature, Permit};
+use crate::permit::{SignedPermit, PermitSignature};
 use crate::transaction_history::{RichTx, Tx};
 use crate::viewing_key::ViewingKey;
 
@@ -325,7 +325,7 @@ pub enum QueryMsg {
         key: String,
     },
     BalanceWithPermit {
-        signed: Permit,
+        signed: SignedPermit,
         signature: PermitSignature,
     },
     TransferHistory {

@@ -14,7 +14,7 @@ use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
 };
-use crate::permit::{PermitSignature, Permit};
+use crate::permit::{PermitSignature, SignedPermit};
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
@@ -256,7 +256,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
 
 fn query_balance_with_permit<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
-    signed: Permit,
+    signed: SignedPermit,
     signature: PermitSignature,
 ) -> Result<Binary, StdError> {
     if signed.msgs.len() != 1 {
