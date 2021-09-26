@@ -84,7 +84,3 @@ clean:
 	cargo clean
 	rm -f ./contract.wasm ./contract.wasm.gz
 	$(MAKE) -C tests/example-receiver clean
-
-.PHONY: integration-test
-permit-setup: compile-optimized
-	if tests/integration.sh; then echo -n '\a'; else echo -n '\a'; sleep 0.125; echo -n '\a'; fi
