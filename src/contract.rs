@@ -21,7 +21,7 @@ use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     get_receiver_hash, read_allowance, read_viewing_key, set_receiver_hash, write_allowance,
     write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
-    ReadonlyRevokedPermits, RevokedPemits,
+    RevokedPemits,
 };
 use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
@@ -294,8 +294,7 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
 
     // Validate permit_name
     let permit_name = &permit_content.permit_name;
-    let is_permit_revoked = ReadonlyRevokedPermits::from_storage(&deps.storage)
-        .is_permit_revoked(&account, &permit_name);
+    let is_permit_revoked = RevokedPemits::is_permit_revoked(&deps.storage, &account, &permit_name);
     if is_permit_revoked {
         return Err(StdError::generic_err(format!(
             "Permit '{:?}' was revoked by account {:?}",
@@ -1719,7 +1718,7 @@ fn revoke_permit<S: Storage, A: Api, Q: Querier>(
     env: Env,
     permit_name: String,
 ) -> StdResult<HandleResponse> {
-    RevokedPemits::from_storage(&mut deps.storage).revoke_permit(&env.message.sender, &permit_name);
+    RevokedPemits::revoke_permit(&mut deps.storage, &env.message.sender, &permit_name);
 
     Ok(HandleResponse {
         messages: vec![],
