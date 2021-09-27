@@ -299,7 +299,7 @@ impl<'a, S: ReadonlyStorage> ReadonlyBalancesImpl<'a, S> {
     }
 }
 
-pub struct RevokedPemits {}
+pub struct RevokedPemits;
 
 impl RevokedPemits {
     pub fn is_permit_revoked(
