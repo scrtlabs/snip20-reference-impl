@@ -18,6 +18,7 @@ pub struct PermitParams {
     pub allowed_tokens: Vec<HumanAddr>,
     pub permit_name: String,
     pub chain_id: String,
+    pub permissions: Vec<Permission>,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -56,7 +57,7 @@ pub struct SignedPermit {
 }
 
 impl SignedPermit {
-    pub fn from_params(params: PermitParams) -> Self {
+    pub fn from_params(params: &PermitParams) -> Self {
         Self {
             account_number: Uint128::zero(),
             chain_id: params.chain_id.clone(),
@@ -128,14 +129,24 @@ impl PermitMsg {
 #[serde(rename_all = "snake_case")]
 pub struct PermitContent {
     pub allowed_tokens: Vec<HumanAddr>,
+    pub permissions: Vec<Permission>,
     pub permit_name: String,
 }
 
 impl PermitContent {
-    pub fn from_params(params: PermitParams) -> Self {
+    pub fn from_params(params: &PermitParams) -> Self {
         Self {
-            allowed_tokens: params.allowed_tokens,
-            permit_name: params.permit_name,
+            allowed_tokens: params.allowed_tokens.clone(),
+            permit_name: params.permit_name.clone(),
+            permissions: params.permissions.clone(),
         }
     }
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Permission {
+    Balance,
+    History,
+    Allowance,
 }

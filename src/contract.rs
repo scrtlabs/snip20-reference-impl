@@ -15,7 +15,7 @@ use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
 };
-use crate::permit::{Permit, SignedPermit};
+use crate::permit::{Permission, Permit, SignedPermit};
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
@@ -287,7 +287,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
     }
 
     // Validate signature, reference: https://github.com/enigmampc/SecretNetwork/blob/f591ed0cb3af28608df3bf19d6cfb733cca48100/cosmwasm/packages/wasmi-runtime/src/crypto/secp256k1.rs#L49-L82
-    let signed_bytes = to_binary(&SignedPermit::from_params(permit.params))?;
+    let signed_bytes = to_binary(&SignedPermit::from_params(&permit.params))?;
     let signed_bytes_hash = Sha256::digest(signed_bytes.as_slice());
     let secp256k1_msg =
         secp256k1::Message::from_slice(signed_bytes_hash.as_slice()).map_err(|err| {
@@ -315,22 +315,52 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
 
     // Permit validated! We can now execute the query.
     match query {
-        QueryWithPermit::Balance {} => query_balance(deps, &account),
+        QueryWithPermit::Balance {} => {
+            if !permit.params.permissions.contains(&Permission::Balance) {
+                return Err(StdError::generic_err(format!(
+                    "No permission to query balance, got permissions {:?}",
+                    permit.params.permissions
+                )));
+            }
+
+            query_balance(deps, &account)
+        }
         QueryWithPermit::TransferHistory { page, page_size } => {
+            if !permit.params.permissions.contains(&Permission::History) {
+                return Err(StdError::generic_err(format!(
+                    "No permission to query history, got permissions {:?}",
+                    permit.params.permissions
+                )));
+            }
+
             query_transfers(deps, &account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::TransactionHistory { page, page_size } => {
+            if !permit.params.permissions.contains(&Permission::History) {
+                return Err(StdError::generic_err(format!(
+                    "No permission to query history, got permissions {:?}",
+                    permit.params.permissions
+                )));
+            }
+
             query_transactions(deps, &account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::Allowance { owner, spender } => {
-            if owner == account || spender == account {
-                query_allowance(deps, owner, spender)
-            } else {
+            if !permit.params.permissions.contains(&Permission::Allowance) {
+                return Err(StdError::generic_err(format!(
+                    "No permission to query allowance, got permissions {:?}",
+                    permit.params.permissions
+                )));
+            }
+
+            if account != owner && account != spender {
                 return Err(StdError::generic_err(format!(
                     "Cannot query allowance. Requires permit for either owner {:?} or spender {:?}, got permit for {:?}",
                     owner, spender, account
                 )));
             }
+
+            query_allowance(deps, owner, spender)
         }
     }
 }
