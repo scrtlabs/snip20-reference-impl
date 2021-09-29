@@ -15,7 +15,7 @@ use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
 };
-use crate::permit::Permit;
+use crate::permit::{Permit, SignedPermit};
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
@@ -260,31 +260,15 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
     permit: Permit,
     query: QueryWithPermit,
 ) -> Result<Binary, StdError> {
-    if permit.signed.msgs.len() != 1 {
-        return Err(StdError::generic_err(format!(
-            "Must sign exactly 1 permit message, got: {:?}.",
-            permit.signed.msgs.len()
-        )));
-    }
-
-    if permit.signed.msgs[0].r#type != "query_permit" {
-        return Err(StdError::generic_err(format!(
-            "Type must be 'query_permit', got: {:?}.",
-            permit.signed.msgs[0].r#type
-        )));
-    }
-
-    let permit_content = &permit.signed.msgs[0].value;
-
     // Validate permit content
     let token_address = ReadonlyConfig::from_storage(&deps.storage)
         .constants()?
         .contract_address;
 
-    if !permit_content.allowed_tokens.contains(&token_address) {
+    if !permit.signed.allowed_tokens.contains(&token_address) {
         return Err(StdError::generic_err(format!(
             "Permit doesn't apply to token {:?}, allowed tokens: {:?}",
-            token_address, permit_content.allowed_tokens
+            token_address, permit.signed.allowed_tokens
         )));
     }
 
@@ -293,8 +277,8 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
     let account = deps.api.human_address(&pubkey_to_account(&pubkey))?;
 
     // Validate permit_name
-    let permit_name = &permit_content.permit_name;
-    let is_permit_revoked = RevokedPemits::is_permit_revoked(&deps.storage, &account, &permit_name);
+    let permit_name = &permit.signed.permit_name;
+    let is_permit_revoked = RevokedPemits::is_permit_revoked(&deps.storage, &account, permit_name);
     if is_permit_revoked {
         return Err(StdError::generic_err(format!(
             "Permit '{:?}' was revoked by account {:?}",
@@ -303,8 +287,8 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
     }
 
     // Validate signature, reference: https://github.com/enigmampc/SecretNetwork/blob/f591ed0cb3af28608df3bf19d6cfb733cca48100/cosmwasm/packages/wasmi-runtime/src/crypto/secp256k1.rs#L49-L82
-    let signed_bytes = &to_binary(&permit.signed)?.0;
-    let signed_bytes_hash = Sha256::digest(signed_bytes);
+    let signed_bytes = to_binary(&SignedPermit::from_params(permit.signed))?;
+    let signed_bytes_hash = Sha256::digest(signed_bytes.as_slice());
     let secp256k1_msg =
         secp256k1::Message::from_slice(signed_bytes_hash.as_slice()).map_err(|err| {
             StdError::generic_err(format!(
@@ -331,12 +315,12 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
 
     // Permit validated! We can now execute the query.
     match query {
-        QueryWithPermit::Balance {} => query_balance(&deps, &account),
+        QueryWithPermit::Balance {} => query_balance(deps, &account),
         QueryWithPermit::TransferHistory { page, page_size } => {
-            query_transfers(&deps, &account, page.unwrap_or(0), page_size)
+            query_transfers(deps, &account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::TransactionHistory { page, page_size } => {
-            query_transactions(&deps, &account, page.unwrap_or(0), page_size)
+            query_transactions(deps, &account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::Allowance { owner, spender } => {
             if owner == account || spender == account {
@@ -375,28 +359,28 @@ pub fn viewing_keys_queries<S: Storage, A: Api, Q: Querier>(
         } else if key.check_viewing_key(expected_key.unwrap().as_slice()) {
             return match msg {
                 // Base
-                QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
+                QueryMsg::Balance { address, .. } => query_balance(deps, &address),
                 QueryMsg::TransferHistory {
                     address,
                     page,
                     page_size,
                     ..
-                } => query_transfers(&deps, &address, page.unwrap_or(0), page_size),
+                } => query_transfers(deps, &address, page.unwrap_or(0), page_size),
                 QueryMsg::TransactionHistory {
                     address,
                     page,
                     page_size,
                     ..
-                } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
+                } => query_transactions(deps, &address, page.unwrap_or(0), page_size),
                 QueryMsg::Allowance { owner, spender, .. } => query_allowance(deps, owner, spender),
                 _ => panic!("This query type does not require authentication"),
             };
         }
     }
 
-    Ok(to_binary(&QueryAnswer::ViewingKeyError {
+    to_binary(&QueryAnswer::ViewingKeyError {
         msg: "Wrong viewing key for this address or viewing key not set".to_string(),
-    })?)
+    })
 }
 
 fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> QueryResult {
