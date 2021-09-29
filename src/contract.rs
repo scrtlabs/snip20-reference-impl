@@ -250,12 +250,12 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         QueryMsg::ContractStatus {} => query_contract_status(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage),
         QueryMsg::Minters { .. } => query_minters(deps),
-        QueryMsg::WithPermit { permit, query } => query_with_permit(deps, permit, query),
+        QueryMsg::WithPermit { permit, query } => permit_queries(deps, permit, query),
         _ => viewing_keys_queries(deps, msg),
     }
 }
 
-fn query_with_permit<S: Storage, A: Api, Q: Querier>(
+fn permit_queries<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     permit: Permit,
     query: QueryWithPermit,
