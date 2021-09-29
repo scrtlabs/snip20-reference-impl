@@ -309,10 +309,7 @@ impl RevokedPemits {
     ) -> bool {
         let storage_key = account.to_string() + permit_name;
 
-        match storgae.get(storage_key.as_bytes()) {
-            Some(_) => true,
-            None => false,
-        }
+        storgae.get(storage_key.as_bytes()).is_some()
     }
 
     pub fn revoke_permit(storage: &mut dyn Storage, account: &HumanAddr, permit_name: &str) {
