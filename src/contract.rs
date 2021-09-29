@@ -329,7 +329,7 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
             ))
         })?;
 
-    // We're verified! We can now execute the query
+    // Permit validated! We can now execute the query.
     match query {
         QueryWithPermit::Balance {} => query_balance(&deps, &account),
         QueryWithPermit::TransferHistory { page, page_size } => {
