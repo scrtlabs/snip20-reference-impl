@@ -210,61 +210,29 @@
       "description": "Binary is a wrapper around Vec<u8> to add base64 de/serialization with serde. It also adds some helper methods to help encode inline.\n\nThis is only needed as serde-json-{core,wasm} has a horrible encoding for Vec<u8>",
       "type": "string"
     },
-    "Coin": {
-      "type": "object",
-      "required": [
-        "amount",
-        "denom"
-      ],
-      "properties": {
-        "amount": {
-          "$ref": "#/definitions/Uint128"
-        },
-        "denom": {
-          "type": "string"
-        }
-      }
-    },
-    "Fee": {
-      "type": "object",
-      "required": [
-        "amount",
-        "gas"
-      ],
-      "properties": {
-        "amount": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/Coin"
-          }
-        },
-        "gas": {
-          "$ref": "#/definitions/Uint128"
-        }
-      }
-    },
     "HumanAddr": {
       "type": "string"
     },
     "Permit": {
       "type": "object",
       "required": [
-        "signature",
-        "signed"
+        "params",
+        "signature"
       ],
       "properties": {
+        "params": {
+          "$ref": "#/definitions/PermitParams"
+        },
         "signature": {
           "$ref": "#/definitions/PermitSignature"
-        },
-        "signed": {
-          "$ref": "#/definitions/PermitParams"
         }
       }
     },
-    "PermitContent": {
+    "PermitParams": {
       "type": "object",
       "required": [
         "allowed_tokens",
+        "chain_id",
         "permit_name"
       ],
       "properties": {
@@ -274,75 +242,11 @@
             "$ref": "#/definitions/HumanAddr"
           }
         },
+        "chain_id": {
+          "type": "string"
+        },
         "permit_name": {
           "type": "string"
-        }
-      }
-    },
-    "PermitMsg": {
-      "type": "object",
-      "required": [
-        "type",
-        "value"
-      ],
-      "properties": {
-        "type": {
-          "type": "string"
-        },
-        "value": {
-          "$ref": "#/definitions/PermitContent"
-        }
-      }
-    },
-    "PermitParams": {
-      "type": "object",
-      "required": [
-        "account_number",
-        "chain_id",
-        "fee",
-        "memo",
-        "msgs",
-        "sequence"
-      ],
-      "properties": {
-        "account_number": {
-          "description": "ignored",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Uint128"
-            }
-          ]
-        },
-        "chain_id": {
-          "description": "ignored, no Env in query",
-          "type": "string"
-        },
-        "fee": {
-          "description": "ignored",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Fee"
-            }
-          ]
-        },
-        "memo": {
-          "description": "ignored",
-          "type": "string"
-        },
-        "msgs": {
-          "description": "the signed message",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/PermitMsg"
-          }
-        },
-        "sequence": {
-          "description": "ignored",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Uint128"
-            }
-          ]
         }
       }
     },
@@ -477,9 +381,6 @@
           }
         }
       ]
-    },
-    "Uint128": {
-      "type": "string"
     }
   }
 }
