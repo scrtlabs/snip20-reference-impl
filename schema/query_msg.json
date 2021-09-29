@@ -180,10 +180,305 @@
           "type": "object"
         }
       }
+    },
+    {
+      "type": "object",
+      "required": [
+        "with_permit"
+      ],
+      "properties": {
+        "with_permit": {
+          "type": "object",
+          "required": [
+            "permit",
+            "query"
+          ],
+          "properties": {
+            "permit": {
+              "$ref": "#/definitions/Permit"
+            },
+            "query": {
+              "$ref": "#/definitions/QueryWithPermit"
+            }
+          }
+        }
+      }
     }
   ],
   "definitions": {
+    "Binary": {
+      "description": "Binary is a wrapper around Vec<u8> to add base64 de/serialization with serde. It also adds some helper methods to help encode inline.\n\nThis is only needed as serde-json-{core,wasm} has a horrible encoding for Vec<u8>",
+      "type": "string"
+    },
+    "Coin": {
+      "type": "object",
+      "required": [
+        "amount",
+        "denom"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "denom": {
+          "type": "string"
+        }
+      }
+    },
+    "Fee": {
+      "type": "object",
+      "required": [
+        "amount",
+        "gas"
+      ],
+      "properties": {
+        "amount": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Coin"
+          }
+        },
+        "gas": {
+          "$ref": "#/definitions/Uint128"
+        }
+      }
+    },
     "HumanAddr": {
+      "type": "string"
+    },
+    "Permit": {
+      "type": "object",
+      "required": [
+        "signature",
+        "signed"
+      ],
+      "properties": {
+        "signature": {
+          "$ref": "#/definitions/PermitSignature"
+        },
+        "signed": {
+          "$ref": "#/definitions/PermitParams"
+        }
+      }
+    },
+    "PermitContent": {
+      "type": "object",
+      "required": [
+        "allowed_tokens",
+        "permit_name"
+      ],
+      "properties": {
+        "allowed_tokens": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/HumanAddr"
+          }
+        },
+        "permit_name": {
+          "type": "string"
+        }
+      }
+    },
+    "PermitMsg": {
+      "type": "object",
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/PermitContent"
+        }
+      }
+    },
+    "PermitParams": {
+      "type": "object",
+      "required": [
+        "account_number",
+        "chain_id",
+        "fee",
+        "memo",
+        "msgs",
+        "sequence"
+      ],
+      "properties": {
+        "account_number": {
+          "description": "ignored",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uint128"
+            }
+          ]
+        },
+        "chain_id": {
+          "description": "ignored, no Env in query",
+          "type": "string"
+        },
+        "fee": {
+          "description": "ignored",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Fee"
+            }
+          ]
+        },
+        "memo": {
+          "description": "ignored",
+          "type": "string"
+        },
+        "msgs": {
+          "description": "the signed message",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PermitMsg"
+          }
+        },
+        "sequence": {
+          "description": "ignored",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uint128"
+            }
+          ]
+        }
+      }
+    },
+    "PermitSignature": {
+      "type": "object",
+      "required": [
+        "pub_key",
+        "signature"
+      ],
+      "properties": {
+        "pub_key": {
+          "$ref": "#/definitions/PubKey"
+        },
+        "signature": {
+          "$ref": "#/definitions/Binary"
+        }
+      }
+    },
+    "PubKey": {
+      "type": "object",
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "description": "ignored, but must be \"tendermint/PubKeySecp256k1\" otherwise the verification will fail",
+          "type": "string"
+        },
+        "value": {
+          "description": "Secp256k1 PubKey",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Binary"
+            }
+          ]
+        }
+      }
+    },
+    "QueryWithPermit": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "allowance"
+          ],
+          "properties": {
+            "allowance": {
+              "type": "object",
+              "required": [
+                "owner",
+                "spender"
+              ],
+              "properties": {
+                "owner": {
+                  "$ref": "#/definitions/HumanAddr"
+                },
+                "spender": {
+                  "$ref": "#/definitions/HumanAddr"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "balance"
+          ],
+          "properties": {
+            "balance": {
+              "type": "object"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "transfer_history"
+          ],
+          "properties": {
+            "transfer_history": {
+              "type": "object",
+              "required": [
+                "page_size"
+              ],
+              "properties": {
+                "page": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint32",
+                  "minimum": 0.0
+                },
+                "page_size": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0.0
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "transaction_history"
+          ],
+          "properties": {
+            "transaction_history": {
+              "type": "object",
+              "required": [
+                "page_size"
+              ],
+              "properties": {
+                "page": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint32",
+                  "minimum": 0.0
+                },
+                "page_size": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0.0
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Uint128": {
       "type": "string"
     }
   }
