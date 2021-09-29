@@ -8,7 +8,7 @@ use cosmwasm_std::{Binary, HumanAddr, Uint128};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct Permit {
-    pub signed: SignedPermit,
+    pub signed: PermitParams,
     pub signature: PermitSignature,
 }
 
@@ -32,7 +32,7 @@ pub struct PubKey {
 #[remain::sorted]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct SignedPermit {
+pub struct PermitParams {
     /// ignored
     pub account_number: Uint128,
     /// ignored, no Env in query
