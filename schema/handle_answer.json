@@ -492,6 +492,25 @@
           }
         }
       }
+    },
+    {
+      "type": "object",
+      "required": [
+        "revoke_pemit"
+      ],
+      "properties": {
+        "revoke_pemit": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
     }
   ],
   "definitions": {
