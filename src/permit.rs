@@ -8,7 +8,7 @@ use cosmwasm_std::{Binary, HumanAddr, Uint128};
 #[derive(Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct Permit {
-    pub signed: PermitParams,
+    pub params: PermitParams,
     pub signature: PermitSignature,
 }
 
