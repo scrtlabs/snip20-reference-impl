@@ -375,10 +375,19 @@ impl QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryWithPermit {
-    Allowance { spender: HumanAddr },
+    Allowance {
+        owner: HumanAddr,
+        spender: HumanAddr,
+    },
     Balance {},
-    TransferHistory { page: Option<u32>, page_size: u32 },
-    TransactionHistory { page: Option<u32>, page_size: u32 },
+    TransferHistory {
+        page: Option<u32>,
+        page_size: u32,
+    },
+    TransactionHistory {
+        page: Option<u32>,
+        page_size: u32,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]

@@ -338,7 +338,16 @@ fn query_with_permit<S: Storage, A: Api, Q: Querier>(
         QueryWithPermit::TransactionHistory { page, page_size } => {
             query_transactions(&deps, &account, page.unwrap_or(0), page_size)
         }
-        QueryWithPermit::Allowance { spender } => query_allowance(deps, account, spender),
+        QueryWithPermit::Allowance { owner, spender } => {
+            if owner == account || spender == account {
+                query_allowance(deps, owner, spender)
+            } else {
+                return Err(StdError::generic_err(format!(
+                    "Cannot query allowance. Requires permit for either owner {:?} or spender {:?}, got permit for {:?}",
+                    owner, spender, account
+                )));
+            }
+        }
     }
 }
 
