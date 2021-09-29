@@ -40,7 +40,7 @@ pub struct PubKey {
 #[remain::sorted]
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub struct PermitParams {
+pub struct SignedPermit {
     /// ignored
     pub account_number: Uint128,
     /// ignored, no Env in query
