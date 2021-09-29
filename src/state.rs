@@ -305,7 +305,7 @@ impl RevokedPemits {
     pub fn is_permit_revoked(
         storgae: &dyn Storage,
         account: &HumanAddr,
-        permit_name: &String,
+        permit_name: &str,
     ) -> bool {
         let storage_key = account.to_string() + permit_name;
 
@@ -315,7 +315,7 @@ impl RevokedPemits {
         }
     }
 
-    pub fn revoke_permit(storage: &mut dyn Storage, account: &HumanAddr, permit_name: &String) {
+    pub fn revoke_permit(storage: &mut dyn Storage, account: &HumanAddr, permit_name: &str) {
         let storage_key = account.to_string() + permit_name;
 
         storage.set(storage_key.as_bytes(), &[])
