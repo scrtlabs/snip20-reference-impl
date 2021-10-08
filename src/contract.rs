@@ -268,7 +268,13 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
     if !permit.params.allowed_tokens.contains(&token_address) {
         return Err(StdError::generic_err(format!(
             "Permit doesn't apply to token {:?}, allowed tokens: {:?}",
-            token_address, permit.params.allowed_tokens
+            token_address.as_str(),
+            permit
+                .params
+                .allowed_tokens
+                .iter()
+                .map(|a| a.as_str())
+                .collect::<Vec<&str>>()
         )));
     }
 
@@ -282,7 +288,8 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
     if is_permit_revoked {
         return Err(StdError::generic_err(format!(
             "Permit '{:?}' was revoked by account {:?}",
-            permit_name, account
+            permit_name,
+            account.as_str()
         )));
     }
 

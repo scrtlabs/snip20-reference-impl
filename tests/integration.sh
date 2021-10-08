@@ -526,6 +526,115 @@ function test_viewing_key() {
     fi
 }
 
+function test_permit() {
+    set -e
+    local contract_addr="$1"
+
+    log_test_header
+
+    # common variables
+    local result
+    local tx_hash
+
+    # query balance. should fail because of wrong contract.
+    secretcli keys delete banana -f || true
+    secretcli keys add banana
+    local wrong_contract=$(secretcli keys show -a banana)
+
+    local wrong_permit
+    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$wrong_contract"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    local permit_query
+    local expected_error="ERROR: query result: encrypted: Permit doesn't apply to token \"$contract_addr\", allowed tokens: [\"$wrong_contract\"]"
+    for key in "${KEY[@]}"; do
+        log "querying balance for \"$key\" with wrong permit for that contract"
+        wrong_permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$wrong_contract"'"],"permissions":["balance"]},"signature":'"$wrong_permit"'}}}'
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        assert_eq "$result" "$expected_error"
+    done
+
+    # Create permits
+    local create_viewing_key_message='{"create_viewing_key":{"entropy":"MyPassword123"}}'
+    local viewing_key_response
+    for key in "${KEY[@]}"; do
+        log "creating viewing key for \"$key\""
+        tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[$key]} --gas 1400000)"
+        viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for viewing key for \"$key\" to be created")"
+        VK[$key]="$(jq -er '.create_viewing_key.key' <<<"$viewing_key_response")"
+        log "viewing key for \"$key\" set to ${VK[$key]}"
+        if [[ "${VK[$key]}" =~ ^api_key_ ]]; then
+            log "viewing key \"$key\" seems valid"
+        else
+            log 'viewing key is invalid'
+            return 1
+        fi
+    done
+
+    # Check that all viewing keys are different despite using the same entropy
+    assert_ne "${VK[a]}" "${VK[b]}"
+    assert_ne "${VK[b]}" "${VK[c]}"
+    assert_ne "${VK[c]}" "${VK[d]}"
+
+    # query balance. Should succeed.
+    local permit_query
+    for key in "${KEY[@]}"; do
+        permit_query='{"balance":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'"}}'
+        log "querying balance for \"$key\" with correct viewing key"
+        result="$(compute_query "$contract_addr" "$permit_query")"
+        if ! silent jq -e '.balance.amount | tonumber' <<<"$result"; then
+            log "Balance query returned unexpected response: ${result@Q}"
+            return 1
+        fi
+    done
+
+    # Change viewing keys
+    local vk2_a
+
+    log 'creating new viewing key for "a"'
+    tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[a]} --gas 1400000)"
+    viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be created')"
+    vk2_a="$(jq -er '.create_viewing_key.key' <<<"$viewing_key_response")"
+    log "viewing key for \"a\" set to $vk2_a"
+    assert_ne "${VK[a]}" "$vk2_a"
+
+    # query balance with old keys. Should fail.
+    log 'querying balance for "a" with old viewing key'
+    local permit_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
+    result="$(compute_query "$contract_addr" "$permit_query_a")"
+    assert_eq "$result" "$expected_error"
+
+    # query balance with new keys. Should succeed.
+    log 'querying balance for "a" with new viewing key'
+    permit_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"$vk2_a"'"}}'
+    result="$(compute_query "$contract_addr" "$permit_query_a")"
+    if ! silent jq -e '.balance.amount | tonumber' <<<"$result"; then
+        log "Balance query returned unexpected response: ${result@Q}"
+        return 1
+    fi
+
+    # Set the vk for "a" to the original vk
+    log 'setting the viewing key for "a" back to the first one'
+    local set_viewing_key_message='{"set_viewing_key":{"key":"'"${VK[a]}"'"}}'
+    tx_hash="$(compute_execute "$contract_addr" "$set_viewing_key_message" ${FROM[a]} --gas 1400000)"
+    viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be set')"
+    assert_eq "$viewing_key_response" "$(pad_space '{"set_viewing_key":{"status":"success"}}')"
+
+    # try to use the new key - should fail
+    log 'querying balance for "a" with new viewing key'
+    permit_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"$vk2_a"'"}}'
+    result="$(compute_query "$contract_addr" "$permit_query_a")"
+    assert_eq "$result" "$expected_error"
+
+    # try to use the old key - should succeed
+    log 'querying balance for "a" with old viewing key'
+    permit_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
+    result="$(compute_query "$contract_addr" "$permit_query_a")"
+    if ! silent jq -e '.balance.amount | tonumber' <<<"$result"; then
+        log "Balance query returned unexpected response: ${result@Q}"
+        return 1
+    fi
+}
+
 function test_deposit() {
     set -e
     local contract_addr="$1"
@@ -1454,15 +1563,16 @@ function main() {
     log "contract address: $contract_addr"
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
-    test_viewing_key "$contract_addr"
-    test_deposit "$contract_addr"
-    test_transfer "$contract_addr"
-    test_send "$contract_addr" register
-    test_send "$contract_addr" skip-register
-    test_burn "$contract_addr"
-    test_transfer_from "$contract_addr"
-    test_send_from "$contract_addr" register
-    test_send_from "$contract_addr" skip-register
+    # test_viewing_key "$contract_addr"
+    test_permit "$contract_addr"
+    # test_deposit "$contract_addr"
+    # test_transfer "$contract_addr"
+    # test_send "$contract_addr" register
+    # test_send "$contract_addr" skip-register
+    # test_burn "$contract_addr"
+    # test_transfer_from "$contract_addr"
+    # test_send_from "$contract_addr" register
+    # test_send_from "$contract_addr" skip-register
 
     log 'Tests completed successfully'
 

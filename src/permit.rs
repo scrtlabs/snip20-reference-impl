@@ -146,7 +146,7 @@ impl PermitContent {
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
+    Allowance,
     Balance,
     History,
-    Allowance,
 }
