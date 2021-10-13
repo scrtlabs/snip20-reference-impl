@@ -646,14 +646,52 @@ function test_permit() {
 
     # succeed balance query
     local permit
-    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    local good_permit
+    good_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit_query
     local expected_output
     for key in "${KEY[@]}"; do
         log "permit querying balance for \"$key\""
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$good_permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_output="{\"balance\":{\"amount\":\"0\"}}"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        assert_eq "$result" "$expected_output"
+    done
+
+    # succeed history queries
+    local permit
+    local good_permit
+    good_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    local permit_query
+    local expected_output
+    for key in "${KEY[@]}"; do
+        log "permit querying history for \"$key\""
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$good_permit"') --from '$key'")
+
+        permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
+        expected_output="{\"transfer_history\":{\"txs\":[],\"total\":0}}"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        assert_eq "$result" "$expected_output"
+
+        permit_query='{"with_permit":{"query":{"transaction_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
+        expected_output="{\"transaction_history\":{\"txs\":[],\"total\":0}}"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        assert_eq "$result" "$expected_output"
+    done
+
+    # succeed allowance query
+    local permit
+    local good_permit
+    good_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["allowance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    local permit_query
+    local expected_output
+    for key in "${KEY[@]}"; do
+        log "permit querying history for \"$key\""
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$good_permit"') --from '$key'")
+
+        permit_query='{"with_permit":{"query":{"allowance":{"owner":"'"${ADDRESS[$key]}"'","spender":"'"${ADDRESS[$key]}"'"}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["allowance"]},"signature":'"$permit"'}}}'
+        expected_output="{\"allowance\":{\"spender\":\"${ADDRESS[$key]}\",\"owner\":\"${ADDRESS[$key]}\",\"allowance\":\"0\",\"expiration\":null}}"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
         assert_eq "$result" "$expected_output"
     done
