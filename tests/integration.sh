@@ -536,103 +536,113 @@ function test_permit() {
     local result
     local tx_hash
 
-    # query balance. should fail because of wrong contract.
+    # fail due to token not in permit
     secretcli keys delete banana -f || true
     secretcli keys add banana
     local wrong_contract=$(secretcli keys show -a banana)
 
-    local wrong_permit
-    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$wrong_contract"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    local permit
+    permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$wrong_contract"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit_query
     local expected_error="ERROR: query result: encrypted: Permit doesn't apply to token \"$contract_addr\", allowed tokens: [\"$wrong_contract\"]"
     for key in "${KEY[@]}"; do
-        log "querying balance for \"$key\" with wrong permit for that contract"
-        wrong_permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
-        permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$wrong_contract"'"],"permissions":["balance"]},"signature":'"$wrong_permit"'}}}'
+        log "permit querying balance for \"$key\" with wrong permit for that contract"
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$permit"') --from '$key'")
+        permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$wrong_contract"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
         assert_eq "$result" "$expected_error"
     done
 
-    # Create permits
-    local create_viewing_key_message='{"create_viewing_key":{"entropy":"MyPassword123"}}'
-    local viewing_key_response
-    for key in "${KEY[@]}"; do
-        log "creating viewing key for \"$key\""
-        tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[$key]} --gas 1400000)"
-        viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for viewing key for \"$key\" to be created")"
-        VK[$key]="$(jq -er '.create_viewing_key.key' <<<"$viewing_key_response")"
-        log "viewing key for \"$key\" set to ${VK[$key]}"
-        if [[ "${VK[$key]}" =~ ^api_key_ ]]; then
-            log "viewing key \"$key\" seems valid"
-        else
-            log 'viewing key is invalid'
-            return 1
-        fi
-    done
-
-    # Check that all viewing keys are different despite using the same entropy
-    assert_ne "${VK[a]}" "${VK[b]}"
-    assert_ne "${VK[b]}" "${VK[c]}"
-    assert_ne "${VK[c]}" "${VK[d]}"
-
-    # query balance. Should succeed.
+    # fail due to revoked permit
+    local permit
+    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"to_be_revoked","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit_query
+    local expected_error
     for key in "${KEY[@]}"; do
-        permit_query='{"balance":{"address":"'"${ADDRESS[$key]}"'","key":"'"${VK[$key]}"'"}}'
-        log "querying balance for \"$key\" with correct viewing key"
-        result="$(compute_query "$contract_addr" "$permit_query")"
-        if ! silent jq -e '.balance.amount | tonumber' <<<"$result"; then
-            log "Balance query returned unexpected response: ${result@Q}"
-            return 1
-        fi
+        log "permit querying balance for \"$key\" with a revoked permit"
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        tx_hash="$(compute_execute "$contract_addr" '{"revoke_permit":{"permit_name":"to_be_revoked"}}' ${FROM[$key]} --gas 250000)"
+        wait_for_compute_tx "$tx_hash" "waiting for revoke_permit from \"$key\" to process"
+
+        permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"to_be_revoked","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
+        expected_error="ERROR: query result: encrypted: Permit \"to_be_revoked\" was revoked by account \"${ADDRESS[$key]}\""
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        assert_eq "$result" "$expected_error"
     done
 
-    # Change viewing keys
-    local vk2_a
+    # fail due to params not matching params that were signed on
+    local permit
+    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    local permit_query
+    local expected_error
+    for key in "${KEY[@]}"; do
+        log "permit querying balance for \"$key\" with params not matching permit"
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"not_blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
+        expected_error="ERROR: query result: encrypted: Failed to verify signatures for the given permit: IncorrectSignature"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        assert_eq "$result" "$expected_error"
+    done
 
-    log 'creating new viewing key for "a"'
-    tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[a]} --gas 1400000)"
-    viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be created')"
-    vk2_a="$(jq -er '.create_viewing_key.key' <<<"$viewing_key_response")"
-    log "viewing key for \"a\" set to $vk2_a"
-    assert_ne "${VK[a]}" "$vk2_a"
+    # fail balance query due to no balance permission
+    local permit
+    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    local permit_query
+    local expected_error
+    for key in "${KEY[@]}"; do
+        log "permit querying balance for \"$key\" without the right permission"
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
+        expected_error="ERROR: query result: encrypted: No permission to query balance, got permissions [History]"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        assert_eq "$result" "$expected_error"
+    done
 
-    # query balance with old keys. Should fail.
-    log 'querying balance for "a" with old viewing key'
-    local permit_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
-    result="$(compute_query "$contract_addr" "$permit_query_a")"
+    # fail history query due to no history permission
+    local permit
+    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    local permit_query
+    local expected_error
+    for key in "${KEY[@]}"; do
+        log "permit querying history for \"$key\" without the right permission"
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        
+        permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
+        expected_error="ERROR: query result: encrypted: No permission to query history, got permissions [Balance]"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        assert_eq "$result" "$expected_error"
+
+        permit_query='{"with_permit":{"query":{"transaction_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
+        expected_error="ERROR: query result: encrypted: No permission to query history, got permissions [Balance]"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        assert_eq "$result" "$expected_error"
+    done
+
+    # fail allowance query due to no allowance permission
+    local permit
+    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    local permit_query
+    local expected_error
+    for key in "${KEY[@]}"; do
+        log "permit querying allowance for \"$key\" without the right permission"
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit_query='{"with_permit":{"query":{"allowance":{"owner":"'"${ADDRESS[$key]}"'","spender":"'"${ADDRESS[$key]}"'"}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
+        expected_error="ERROR: query result: encrypted: No permission to query allowance, got permissions [History]"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        assert_eq "$result" "$expected_error"
+    done
+
+    # fail allowance query due to no permit signer not owner or spender
+    local permit
+    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["allowance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    local permit_query
+    local expected_error
+    log "permit querying allowance without signer being the owner or spender"
+    permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from a")
+    permit_query='{"with_permit":{"query":{"allowance":{"owner":"'"$wrong_contract"'","spender":"'"$wrong_contract"'"}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["allowance"]},"signature":'"$permit"'}}}'
+    expected_error="ERROR: query result: encrypted: Cannot query allowance. Requires permit for either owner \"$wrong_contract\" or spender \"$wrong_contract\", got permit for \"${ADDRESS[a]}\""
+    result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
     assert_eq "$result" "$expected_error"
-
-    # query balance with new keys. Should succeed.
-    log 'querying balance for "a" with new viewing key'
-    permit_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"$vk2_a"'"}}'
-    result="$(compute_query "$contract_addr" "$permit_query_a")"
-    if ! silent jq -e '.balance.amount | tonumber' <<<"$result"; then
-        log "Balance query returned unexpected response: ${result@Q}"
-        return 1
-    fi
-
-    # Set the vk for "a" to the original vk
-    log 'setting the viewing key for "a" back to the first one'
-    local set_viewing_key_message='{"set_viewing_key":{"key":"'"${VK[a]}"'"}}'
-    tx_hash="$(compute_execute "$contract_addr" "$set_viewing_key_message" ${FROM[a]} --gas 1400000)"
-    viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be set')"
-    assert_eq "$viewing_key_response" "$(pad_space '{"set_viewing_key":{"status":"success"}}')"
-
-    # try to use the new key - should fail
-    log 'querying balance for "a" with new viewing key'
-    permit_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"$vk2_a"'"}}'
-    result="$(compute_query "$contract_addr" "$permit_query_a")"
-    assert_eq "$result" "$expected_error"
-
-    # try to use the old key - should succeed
-    log 'querying balance for "a" with old viewing key'
-    permit_query_a='{"balance":{"address":"'"${ADDRESS[a]}"'","key":"'"${VK[a]}"'"}}'
-    result="$(compute_query "$contract_addr" "$permit_query_a")"
-    if ! silent jq -e '.balance.amount | tonumber' <<<"$result"; then
-        log "Balance query returned unexpected response: ${result@Q}"
-        return 1
-    fi
 }
 
 function test_deposit() {
