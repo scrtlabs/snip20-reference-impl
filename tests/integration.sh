@@ -1625,16 +1625,16 @@ function main() {
     log "contract address: $contract_addr"
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
-    # test_viewing_key "$contract_addr"
+    test_viewing_key "$contract_addr"
     test_permit "$contract_addr"
-    # test_deposit "$contract_addr"
-    # test_transfer "$contract_addr"
-    # test_send "$contract_addr" register
-    # test_send "$contract_addr" skip-register
-    # test_burn "$contract_addr"
-    # test_transfer_from "$contract_addr"
-    # test_send_from "$contract_addr" register
-    # test_send_from "$contract_addr" skip-register
+    test_deposit "$contract_addr"
+    test_transfer "$contract_addr"
+    test_send "$contract_addr" register
+    test_send "$contract_addr" skip-register
+    test_burn "$contract_addr"
+    test_transfer_from "$contract_addr"
+    test_send_from "$contract_addr" register
+    test_send_from "$contract_addr" skip-register
 
     log 'Tests completed successfully'
 
