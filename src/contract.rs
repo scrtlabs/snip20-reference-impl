@@ -287,7 +287,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
     let is_permit_revoked = RevokedPemits::is_permit_revoked(&deps.storage, &account, permit_name);
     if is_permit_revoked {
         return Err(StdError::generic_err(format!(
-            "Permit '{:?}' was revoked by account {:?}",
+            "Permit {:?} was revoked by account {:?}",
             permit_name,
             account.as_str()
         )));
@@ -363,7 +363,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
             if account != owner && account != spender {
                 return Err(StdError::generic_err(format!(
                     "Cannot query allowance. Requires permit for either owner {:?} or spender {:?}, got permit for {:?}",
-                    owner, spender, account
+                    owner.as_str(), spender.as_str(), account.as_str()
                 )));
             }
 
