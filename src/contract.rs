@@ -5,9 +5,6 @@ use cosmwasm_std::{
     HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
     StdResult, Storage, Uint128,
 };
-use ripemd160::{Digest, Ripemd160};
-use secp256k1::Secp256k1;
-use sha2::Sha256;
 
 use crate::batch;
 use crate::msg::QueryWithPermit;
@@ -15,18 +12,17 @@ use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
 };
-use crate::permit::{Permission, Permit, SignedPermit};
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     get_receiver_hash, read_allowance, read_viewing_key, set_receiver_hash, write_allowance,
     write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
-    RevokedPemits,
 };
 use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
 };
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
+use secret_toolkit::permit::{validate_permit, Permission, Permit, RevokedPemits};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -265,60 +261,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
         .constants()?
         .contract_address;
 
-    if !permit.params.allowed_tokens.contains(&token_address) {
-        return Err(StdError::generic_err(format!(
-            "Permit doesn't apply to token {:?}, allowed tokens: {:?}",
-            token_address.as_str(),
-            permit
-                .params
-                .allowed_tokens
-                .iter()
-                .map(|a| a.as_str())
-                .collect::<Vec<&str>>()
-        )));
-    }
-
-    // Derive account from pubkey
-    let pubkey = permit.signature.pub_key.value;
-    let account = deps.api.human_address(&pubkey_to_account(&pubkey))?;
-
-    // Validate permit_name
-    let permit_name = &permit.params.permit_name;
-    let is_permit_revoked = RevokedPemits::is_permit_revoked(&deps.storage, &account, permit_name);
-    if is_permit_revoked {
-        return Err(StdError::generic_err(format!(
-            "Permit {:?} was revoked by account {:?}",
-            permit_name,
-            account.as_str()
-        )));
-    }
-
-    // Validate signature, reference: https://github.com/enigmampc/SecretNetwork/blob/f591ed0cb3af28608df3bf19d6cfb733cca48100/cosmwasm/packages/wasmi-runtime/src/crypto/secp256k1.rs#L49-L82
-    let signed_bytes = to_binary(&SignedPermit::from_params(&permit.params))?;
-    let signed_bytes_hash = Sha256::digest(signed_bytes.as_slice());
-    let secp256k1_msg =
-        secp256k1::Message::from_slice(signed_bytes_hash.as_slice()).map_err(|err| {
-            StdError::generic_err(format!(
-                "Failed to create a secp256k1 message from signed_bytes: {:?}",
-                err
-            ))
-        })?;
-
-    let secp256k1_verifier = Secp256k1::verification_only();
-
-    let secp256k1_signature = secp256k1::Signature::from_compact(&permit.signature.signature.0)
-        .map_err(|err| StdError::generic_err(format!("Malformed signature: {:?}", err)))?;
-    let secp256k1_pubkey = secp256k1::PublicKey::from_slice(pubkey.0.as_slice())
-        .map_err(|err| StdError::generic_err(format!("Malformed pubkey: {:?}", err)))?;
-
-    secp256k1_verifier
-        .verify(&secp256k1_msg, &secp256k1_signature, &secp256k1_pubkey)
-        .map_err(|err| {
-            StdError::generic_err(format!(
-                "Failed to verify signatures for the given permit: {:?}",
-                err
-            ))
-        })?;
+    let account = validate_permit(deps, &permit, token_address)?;
 
     // Permit validated! We can now execute the query.
     match query {
@@ -370,12 +313,6 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
             query_allowance(deps, owner, spender)
         }
     }
-}
-
-fn pubkey_to_account(pubkey: &Binary) -> CanonicalAddr {
-    let mut hasher = Ripemd160::new();
-    hasher.update(Sha256::digest(&pubkey.0));
-    CanonicalAddr(Binary(hasher.finalize().to_vec()))
 }
 
 pub fn viewing_keys_queries<S: Storage, A: Api, Q: Querier>(

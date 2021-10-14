@@ -3,12 +3,11 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
-
 use crate::batch;
-use crate::permit::Permit;
 use crate::transaction_history::{RichTx, Tx};
 use crate::viewing_key::ViewingKey;
+use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
+use secret_toolkit::permit::Permit;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct InitialBalance {
