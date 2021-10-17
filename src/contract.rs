@@ -22,7 +22,7 @@ use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
 };
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
-use secret_toolkit::permit::{validate_permit, Permission, Permit, RevokedPemits};
+use secret_toolkit::permit::{validate, Permission, Permit, RevokedPemits};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -261,12 +261,12 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
         .constants()?
         .contract_address;
 
-    let account = validate_permit(deps, &permit, token_address)?;
+    let account = validate(deps, &permit, token_address)?;
 
     // Permit validated! We can now execute the query.
     match query {
         QueryWithPermit::Balance {} => {
-            if !permit.params.permissions.contains(&Permission::Balance) {
+            if !permit.check_permission(&Permission::Balance) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query balance, got permissions {:?}",
                     permit.params.permissions
@@ -276,7 +276,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
             query_balance(deps, &account)
         }
         QueryWithPermit::TransferHistory { page, page_size } => {
-            if !permit.params.permissions.contains(&Permission::History) {
+            if !permit.check_permission(&Permission::History) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query history, got permissions {:?}",
                     permit.params.permissions
@@ -286,7 +286,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
             query_transfers(deps, &account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::TransactionHistory { page, page_size } => {
-            if !permit.params.permissions.contains(&Permission::History) {
+            if !permit.check_permission(&Permission::History) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query history, got permissions {:?}",
                     permit.params.permissions
@@ -296,7 +296,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
             query_transactions(deps, &account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::Allowance { owner, spender } => {
-            if !permit.params.permissions.contains(&Permission::Allowance) {
+            if !permit.check_permission(&Permission::Allowance) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query allowance, got permissions {:?}",
                     permit.params.permissions
