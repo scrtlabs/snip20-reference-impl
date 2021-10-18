@@ -34,7 +34,7 @@ debug-print = ["cosmwasm-std/debug-print"]
 [dependencies]
 cosmwasm-std = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.4-debug-print" }
 cosmwasm-storage = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.4-debug-print" }
-secret-toolkit = { git = "https://github.com/enigmampc/secret-toolkit", rev = "b264a14be1e97a90bf625338ffb0ea27bd4fdc94" }
+secret-toolkit = { git = "https://github.com/enigmampc/secret-toolkit", rev = "2ec91d7b7422ff4e3441bc374ee1f6faf09cae55" }
 schemars = "0.7"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }
 snafu = { version = "0.6.3" }

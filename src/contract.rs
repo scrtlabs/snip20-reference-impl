@@ -26,6 +26,7 @@ use secret_toolkit::permit::{validate, Permission, Permit, RevokedPemits};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
+pub const PREFIX_REVOKED_PERMITS: &str = "revoked_permits";
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -261,7 +262,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
         .constants()?
         .contract_address;
 
-    let account = validate(deps, &permit, token_address)?;
+    let account = validate(deps, PREFIX_REVOKED_PERMITS, &permit, token_address)?;
 
     // Permit validated! We can now execute the query.
     match query {
@@ -1685,7 +1686,12 @@ fn revoke_permit<S: Storage, A: Api, Q: Querier>(
     env: Env,
     permit_name: String,
 ) -> StdResult<HandleResponse> {
-    RevokedPemits::revoke_permit(&mut deps.storage, &env.message.sender, &permit_name);
+    RevokedPemits::revoke_permit(
+        &mut deps.storage,
+        PREFIX_REVOKED_PERMITS,
+        &env.message.sender,
+        &permit_name,
+    );
 
     Ok(HandleResponse {
         messages: vec![],
