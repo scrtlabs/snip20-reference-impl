@@ -321,18 +321,18 @@ pub fn store_transfer<S: Storage>(
 
     // Write to the owners history if it's different from the other two addresses
     if owner != sender && owner != receiver {
-        cosmwasm_std::debug_print("saving transaction history for owner");
+        // cosmwasm_std::debug_print("saving transaction history for owner");
         append_tx(store, &tx, owner)?;
         append_transfer(store, &transfer, owner)?;
     }
     // Write to the sender's history if it's different from the receiver
     if sender != receiver {
-        cosmwasm_std::debug_print("saving transaction history for sender");
+        // cosmwasm_std::debug_print("saving transaction history for sender");
         append_tx(store, &tx, sender)?;
         append_transfer(store, &transfer, sender)?;
     }
     // Always write to the recipient's history
-    cosmwasm_std::debug_print("saving transaction history for receiver");
+    // cosmwasm_std::debug_print("saving transaction history for receiver");
     append_tx(store, &tx, receiver)?;
     append_transfer(store, &transfer, receiver)?;
 
