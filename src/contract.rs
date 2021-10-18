@@ -22,7 +22,7 @@ use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
 };
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
-use secret_toolkit::permit::{validate, Permission, Permit, RevokedPemits};
+use secret_toolkit::permit::{validate, Permission, Permit, RevokedPermits};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -1686,7 +1686,7 @@ fn revoke_permit<S: Storage, A: Api, Q: Querier>(
     env: Env,
     permit_name: String,
 ) -> StdResult<HandleResponse> {
-    RevokedPemits::revoke_permit(
+    RevokedPermits::revoke_permit(
         &mut deps.storage,
         PREFIX_REVOKED_PERMITS,
         &env.message.sender,
