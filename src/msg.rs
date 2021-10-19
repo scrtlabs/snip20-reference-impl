@@ -3,11 +3,11 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
-
 use crate::batch;
 use crate::transaction_history::{RichTx, Tx};
 use crate::viewing_key::ViewingKey;
+use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
+use secret_toolkit::permit::Permit;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct InitialBalance {
@@ -212,6 +212,11 @@ pub enum HandleMsg {
         level: ContractStatusLevel,
         padding: Option<String>,
     },
+
+    // Permit
+    RevokePermit {
+        permit_name: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -305,9 +310,14 @@ pub enum HandleAnswer {
     SetContractStatus {
         status: ResponseStatus,
     },
+
+    // Permit
+    RevokePemit {
+        status: ResponseStatus,
+    },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     TokenInfo {},
@@ -336,6 +346,10 @@ pub enum QueryMsg {
         page_size: u32,
     },
     Minters {},
+    WithPermit {
+        permit: Permit,
+        query: QueryWithPermit,
+    },
 }
 
 impl QueryMsg {
@@ -355,6 +369,24 @@ impl QueryMsg {
             _ => panic!("This query type does not require authentication"),
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryWithPermit {
+    Allowance {
+        owner: HumanAddr,
+        spender: HumanAddr,
+    },
+    Balance {},
+    TransferHistory {
+        page: Option<u32>,
+        page_size: u32,
+    },
+    TransactionHistory {
+        page: Option<u32>,
+        page_size: u32,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]

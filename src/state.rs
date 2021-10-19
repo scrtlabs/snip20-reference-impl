@@ -47,6 +47,8 @@ pub struct Constants {
     pub mint_is_enabled: bool,
     // is burn enabled
     pub burn_is_enabled: bool,
+    // the address of this contract, used to validate query permits
+    pub contract_address: HumanAddr,
 }
 
 pub struct ReadonlyConfig<'a, S: ReadonlyStorage> {

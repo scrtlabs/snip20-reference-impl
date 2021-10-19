@@ -7,6 +7,7 @@ use cosmwasm_std::{
 };
 
 use crate::batch;
+use crate::msg::QueryWithPermit;
 use crate::msg::{
     space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
@@ -21,9 +22,11 @@ use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
 };
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
+use secret_toolkit::permit::{validate, Permission, Permit, RevokedPermits};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
+pub const PREFIX_REVOKED_PERMITS: &str = "revoked_permits";
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -90,6 +93,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         redeem_is_enabled: init_config.redeem_enabled(),
         mint_is_enabled: init_config.mint_enabled(),
         burn_is_enabled: init_config.burn_enabled(),
+        contract_address: env.contract.address,
     })?;
     config.set_total_supply(total_supply);
     config.set_contract_status(ContractStatusLevel::NormalRun);
@@ -230,6 +234,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::AddMinters { minters, .. } => add_minters(deps, env, minters),
         HandleMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
         HandleMsg::SetMinters { minters, .. } => set_minters(deps, env, minters),
+        HandleMsg::RevokePermit { permit_name, .. } => revoke_permit(deps, env, permit_name),
     };
 
     pad_response(response)
@@ -242,11 +247,76 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         QueryMsg::ContractStatus {} => query_contract_status(&deps.storage),
         QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage),
         QueryMsg::Minters { .. } => query_minters(deps),
-        _ => authenticated_queries(deps, msg),
+        QueryMsg::WithPermit { permit, query } => permit_queries(deps, permit, query),
+        _ => viewing_keys_queries(deps, msg),
     }
 }
 
-pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
+fn permit_queries<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    permit: Permit,
+    query: QueryWithPermit,
+) -> Result<Binary, StdError> {
+    // Validate permit content
+    let token_address = ReadonlyConfig::from_storage(&deps.storage)
+        .constants()?
+        .contract_address;
+
+    let account = validate(deps, PREFIX_REVOKED_PERMITS, &permit, token_address)?;
+
+    // Permit validated! We can now execute the query.
+    match query {
+        QueryWithPermit::Balance {} => {
+            if !permit.check_permission(&Permission::Balance) {
+                return Err(StdError::generic_err(format!(
+                    "No permission to query balance, got permissions {:?}",
+                    permit.params.permissions
+                )));
+            }
+
+            query_balance(deps, &account)
+        }
+        QueryWithPermit::TransferHistory { page, page_size } => {
+            if !permit.check_permission(&Permission::History) {
+                return Err(StdError::generic_err(format!(
+                    "No permission to query history, got permissions {:?}",
+                    permit.params.permissions
+                )));
+            }
+
+            query_transfers(deps, &account, page.unwrap_or(0), page_size)
+        }
+        QueryWithPermit::TransactionHistory { page, page_size } => {
+            if !permit.check_permission(&Permission::History) {
+                return Err(StdError::generic_err(format!(
+                    "No permission to query history, got permissions {:?}",
+                    permit.params.permissions
+                )));
+            }
+
+            query_transactions(deps, &account, page.unwrap_or(0), page_size)
+        }
+        QueryWithPermit::Allowance { owner, spender } => {
+            if !permit.check_permission(&Permission::Allowance) {
+                return Err(StdError::generic_err(format!(
+                    "No permission to query allowance, got permissions {:?}",
+                    permit.params.permissions
+                )));
+            }
+
+            if account != owner && account != spender {
+                return Err(StdError::generic_err(format!(
+                    "Cannot query allowance. Requires permit for either owner {:?} or spender {:?}, got permit for {:?}",
+                    owner.as_str(), spender.as_str(), account.as_str()
+                )));
+            }
+
+            query_allowance(deps, owner, spender)
+        }
+    }
+}
+
+pub fn viewing_keys_queries<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     msg: QueryMsg,
 ) -> QueryResult {
@@ -264,28 +334,28 @@ pub fn authenticated_queries<S: Storage, A: Api, Q: Querier>(
         } else if key.check_viewing_key(expected_key.unwrap().as_slice()) {
             return match msg {
                 // Base
-                QueryMsg::Balance { address, .. } => query_balance(&deps, &address),
+                QueryMsg::Balance { address, .. } => query_balance(deps, &address),
                 QueryMsg::TransferHistory {
                     address,
                     page,
                     page_size,
                     ..
-                } => query_transfers(&deps, &address, page.unwrap_or(0), page_size),
+                } => query_transfers(deps, &address, page.unwrap_or(0), page_size),
                 QueryMsg::TransactionHistory {
                     address,
                     page,
                     page_size,
                     ..
-                } => query_transactions(&deps, &address, page.unwrap_or(0), page_size),
+                } => query_transactions(deps, &address, page.unwrap_or(0), page_size),
                 QueryMsg::Allowance { owner, spender, .. } => query_allowance(deps, owner, spender),
                 _ => panic!("This query type does not require authentication"),
             };
         }
     }
 
-    Ok(to_binary(&QueryAnswer::ViewingKeyError {
+    to_binary(&QueryAnswer::ViewingKeyError {
         msg: "Wrong viewing key for this address or viewing key not set".to_string(),
-    })?)
+    })
 }
 
 fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> QueryResult {
@@ -1609,6 +1679,25 @@ fn perform_transfer<T: Storage>(
     balances.set_account_balance(to, to_balance);
 
     Ok(())
+}
+
+fn revoke_permit<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    permit_name: String,
+) -> StdResult<HandleResponse> {
+    RevokedPermits::revoke_permit(
+        &mut deps.storage,
+        PREFIX_REVOKED_PERMITS,
+        &env.message.sender,
+        &permit_name,
+    );
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::RevokePemit { status: Success })?),
+    })
 }
 
 fn is_admin<S: Storage>(config: &Config<S>, account: &HumanAddr) -> StdResult<bool> {

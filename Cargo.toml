@@ -3,7 +3,6 @@ name = "snip20-reference-impl"
 version = "0.1.0"
 authors = ["Itzik <itzik@keytango.io>"]
 edition = "2018"
-
 exclude = [
   # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.
   "contract.wasm",
@@ -11,7 +10,6 @@ exclude = [
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -31,12 +29,12 @@ overflow-checks = true
 # for more explicit tests, cargo test --features=backtraces
 #default = ["debug-print"]
 backtraces = ["cosmwasm-std/backtraces"]
-debug-print = ["cosmwasm-std/debug-print"]
 
+# debug-print = ["cosmwasm-std/debug-print"]
 [dependencies]
-cosmwasm-std = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.4-debug-print" }
-cosmwasm-storage = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.4-debug-print" }
-secret-toolkit = { git = "https://github.com/enigmampc/secret-toolkit", rev = "v0.1.1-debug-print" }
+cosmwasm-std = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.0" }
+cosmwasm-storage = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.0" }
+secret-toolkit = { git = "https://github.com/enigmampc/secret-toolkit", rev = "52df67c2becf98510fa55bdad5edf0e2dd11f5a6" }
 schemars = "0.7"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }
 snafu = { version = "0.6.3" }
@@ -44,10 +42,11 @@ bincode2 = "2.0.1"
 subtle = { version = "2.2.3", default-features = false }
 base64 = "0.12.3"
 hex = "0.4.2"
-
 rand_chacha = { version = "0.2.2", default-features = false }
-rand_core = { version =  "0.5.1", default-features = false }
+rand_core = { version = "0.5.1", default-features = false }
 sha2 = { version = "0.9.1", default-features = false }
+ripemd160 = "0.9.1"
+secp256k1 = "0.19.0"
 
 [dev-dependencies]
 cosmwasm-schema = { version = "0.9.2" }
