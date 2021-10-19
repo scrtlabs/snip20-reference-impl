@@ -213,6 +213,15 @@
     "HumanAddr": {
       "type": "string"
     },
+    "Permission": {
+      "type": "string",
+      "enum": [
+        "allowance",
+        "balance",
+        "history",
+        "owner"
+      ]
+    },
     "Permit": {
       "type": "object",
       "required": [
@@ -233,6 +242,7 @@
       "required": [
         "allowed_tokens",
         "chain_id",
+        "permissions",
         "permit_name"
       ],
       "properties": {
@@ -244,6 +254,12 @@
         },
         "chain_id": {
           "type": "string"
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Permission"
+          }
         },
         "permit_name": {
           "type": "string"
