@@ -216,6 +216,7 @@ pub enum HandleMsg {
     // Permit
     RevokePermit {
         permit_name: String,
+        padding: Option<String>,
     },
 }
 
@@ -312,12 +313,12 @@ pub enum HandleAnswer {
     },
 
     // Permit
-    RevokePemit {
+    RevokePermit {
         status: ResponseStatus,
     },
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     TokenInfo {},

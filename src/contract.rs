@@ -1696,7 +1696,7 @@ fn revoke_permit<S: Storage, A: Api, Q: Querier>(
     Ok(HandleResponse {
         messages: vec![],
         log: vec![],
-        data: Some(to_binary(&HandleAnswer::RevokePemit { status: Success })?),
+        data: Some(to_binary(&HandleAnswer::RevokePermit { status: Success })?),
     })
 }
 
