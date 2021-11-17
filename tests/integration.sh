@@ -18,7 +18,7 @@ declare -A FROM=(
 # In particular, it's not possible to dynamically expand aliases, but `tx_of` dynamically executes whatever
 # we specify in its arguments.
 function secretcli() {
-    docker exec secretdev /usr/bin/secretcli "$@"
+    docker exec secretdev /usr/bin/secretd "$@"
 }
 
 # Just like `echo`, but prints to stderr
@@ -547,7 +547,7 @@ function test_permit() {
     local expected_error="ERROR: query result: encrypted: Permit doesn't apply to token \"$contract_addr\", allowed tokens: [\"$wrong_contract\"]"
     for key in "${KEY[@]}"; do
         log "permit querying balance for \"$key\" with wrong permit for that contract"
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$wrong_contract"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
         assert_eq "$result" "$expected_error"

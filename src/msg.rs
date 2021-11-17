@@ -24,6 +24,7 @@ pub struct InitMsg {
     pub initial_balances: Option<Vec<InitialBalance>>,
     pub prng_seed: Binary,
     pub config: Option<InitConfig>,
+    pub supported_denoms: Option<Vec<String>>,
 }
 
 impl InitMsg {
@@ -83,7 +84,7 @@ pub enum HandleMsg {
     // Native coin interactions
     Redeem {
         amount: Uint128,
-        denom: Option<String>,
+        denom: String,
         padding: Option<String>,
     },
     Deposit {
@@ -212,6 +213,14 @@ pub enum HandleMsg {
         level: ContractStatusLevel,
         padding: Option<String>,
     },
+    /// Add deposit/redeem support for these coin denoms
+    AddSupportedDenoms {
+        denoms: Vec<String>,
+    },
+    /// Remove deposit/redeem support for these coin denoms
+    RemoveSupportedDenoms {
+        denoms: Vec<String>,
+    },
 
     // Permit
     RevokePermit {
@@ -311,6 +320,12 @@ pub enum HandleAnswer {
     SetContractStatus {
         status: ResponseStatus,
     },
+    AddSupportedDenoms {
+        status: ResponseStatus,
+    },
+    RemoveSupportedDenoms {
+        status: ResponseStatus,
+    },
 
     // Permit
     RevokePermit {
@@ -405,6 +420,7 @@ pub enum QueryAnswer {
         redeem_enabled: bool,
         mint_enabled: bool,
         burn_enabled: bool,
+        supported_denoms: Vec<String>,
     },
     ContractStatus {
         status: ContractStatusLevel,

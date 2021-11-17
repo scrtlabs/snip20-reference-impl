@@ -49,6 +49,8 @@ pub struct Constants {
     pub burn_is_enabled: bool,
     // the address of this contract, used to validate query permits
     pub contract_address: HumanAddr,
+    // coin denoms that are supported for deposit/redeem
+    pub supported_denoms: Vec<String>,
 }
 
 pub struct ReadonlyConfig<'a, S: ReadonlyStorage> {
