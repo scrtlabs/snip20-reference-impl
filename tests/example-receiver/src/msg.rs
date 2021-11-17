@@ -30,6 +30,7 @@ pub enum HandleMsg {
         hash: String,
         to: HumanAddr,
         amount: Uint128,
+        denom: String,
     },
     Fail {},
 }
@@ -57,6 +58,7 @@ pub enum Snip20Msg {
     },
     Redeem {
         amount: Uint128,
+        denom: String,
         padding: Option<String>,
     },
 }
@@ -69,9 +71,10 @@ impl Snip20Msg {
         }
     }
 
-    pub fn redeem(amount: Uint128) -> Self {
+    pub fn redeem(amount: Uint128, denom: String) -> Self {
         Snip20Msg::Redeem {
             amount,
+            denom,
             padding: None, // TODO add padding calculation
         }
     }

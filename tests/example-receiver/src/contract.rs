@@ -44,7 +44,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             hash,
             to,
             amount,
-        } => try_redeem(deps, env, addr, hash, to, amount),
+            denom,
+        } => try_redeem(deps, env, addr, hash, to, amount, denom),
         HandleMsg::Fail {} => try_fail(),
     }
 }
@@ -145,6 +146,7 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
     hash: String,
     to: HumanAddr,
     amount: Uint128,
+    denom: String,
 ) -> StdResult<HandleResponse> {
     // let state = config_read(&deps.storage).load()?;
     // if !state.known_snip_20.contains(&addr) {
@@ -154,7 +156,7 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
     //     )));
     // }
 
-    let msg = to_binary(&Snip20Msg::redeem(amount))?;
+    let msg = to_binary(&Snip20Msg::redeem(amount, denom))?;
     let secret_redeem = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: addr,
         callback_code_hash: hash,

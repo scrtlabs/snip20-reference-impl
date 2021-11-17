@@ -82,6 +82,26 @@ function assert_ne() {
     return 0
 }
 
+function assert_contains() {
+    set -e
+    local str="$1"
+    local substr="$2"
+    local message
+
+    if [[ "$str" == "$substr" ]]; then
+        if [ -z ${3+x} ]; then
+            local lineno="${BASH_LINENO[0]}"
+            message="assertion failed on line $lineno - str doesn't contain substr. str: ${str@Q}, substr: ${substr@Q}"
+        else
+            message="$3"
+        fi
+        log "$message"
+        return 1
+    fi
+
+    return 0
+}
+
 declare -A ADDRESS=(
     [a]="$(secretcli keys show --address a)"
     [b]="$(secretcli keys show --address b)"
@@ -317,7 +337,7 @@ function redeem() {
     local redeem_response
 
     log "redeeming \"$key\""
-    redeem_message='{"redeem":{"amount":"'"$amount"'"}}'
+    redeem_message='{"redeem":{"amount":"'"$amount"'","denom":"uscrt"}}'
     tx_hash="$(compute_execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 150000)"
     redeem_tx="$(wait_for_tx "$tx_hash" "waiting for redeem from \"$key\" to process")"
     transfer_attributes="$(jq -r '.logs[0].events[] | select(.type == "transfer") | .attributes' <<<"$redeem_tx")"
@@ -537,7 +557,7 @@ function test_permit() {
     local tx_hash
 
     # fail due to token not in permit
-    secretcli keys delete banana -f || true
+    secretcli keys delete banana -y || true
     secretcli keys add banana
     local wrong_contract=$(secretcli keys show -a banana)
 
@@ -550,7 +570,7 @@ function test_permit() {
         permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$wrong_contract"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
-        assert_eq "$result" "$expected_error"
+        assert_contains "$result" "$expected_error"
     done
 
     # fail due to revoked permit
@@ -560,14 +580,14 @@ function test_permit() {
     local expected_error
     for key in "${KEY[@]}"; do
         log "permit querying balance for \"$key\" with a revoked permit"
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
         tx_hash="$(compute_execute "$contract_addr" '{"revoke_permit":{"permit_name":"to_be_revoked"}}' ${FROM[$key]} --gas 250000)"
         wait_for_compute_tx "$tx_hash" "waiting for revoke_permit from \"$key\" to process"
 
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"to_be_revoked","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_error="ERROR: query result: encrypted: Permit \"to_be_revoked\" was revoked by account \"${ADDRESS[$key]}\""
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
-        assert_eq "$result" "$expected_error"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true | head -1)"
+        assert_contains "$result" "$expected_error"
     done
 
     # fail due to params not matching params that were signed on
@@ -577,11 +597,11 @@ function test_permit() {
     local expected_error
     for key in "${KEY[@]}"; do
         log "permit querying balance for \"$key\" with params not matching permit"
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"not_blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_error="ERROR: query result: encrypted: Failed to verify signatures for the given permit: IncorrectSignature"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
-        assert_eq "$result" "$expected_error"
+        assert_contains "$result" "$expected_error"
     done
 
     # fail balance query due to no balance permission
@@ -591,11 +611,11 @@ function test_permit() {
     local expected_error
     for key in "${KEY[@]}"; do
         log "permit querying balance for \"$key\" without the right permission"
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
         expected_error="ERROR: query result: encrypted: No permission to query balance, got permissions [History]"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
-        assert_eq "$result" "$expected_error"
+        assert_contains "$result" "$expected_error"
     done
 
     # fail history query due to no history permission
@@ -605,17 +625,17 @@ function test_permit() {
     local expected_error
     for key in "${KEY[@]}"; do
         log "permit querying history for \"$key\" without the right permission"
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
         
         permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_error="ERROR: query result: encrypted: No permission to query history, got permissions [Balance]"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
-        assert_eq "$result" "$expected_error"
+        assert_contains "$result" "$expected_error"
 
         permit_query='{"with_permit":{"query":{"transaction_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_error="ERROR: query result: encrypted: No permission to query history, got permissions [Balance]"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
-        assert_eq "$result" "$expected_error"
+        assert_contains "$result" "$expected_error"
     done
 
     # fail allowance query due to no allowance permission
@@ -625,11 +645,11 @@ function test_permit() {
     local expected_error
     for key in "${KEY[@]}"; do
         log "permit querying allowance for \"$key\" without the right permission"
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"allowance":{"owner":"'"${ADDRESS[$key]}"'","spender":"'"${ADDRESS[$key]}"'"}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
         expected_error="ERROR: query result: encrypted: No permission to query allowance, got permissions [History]"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
-        assert_eq "$result" "$expected_error"
+        assert_contains "$result" "$expected_error"
     done
 
     # fail allowance query due to no permit signer not owner or spender
@@ -638,11 +658,11 @@ function test_permit() {
     local permit_query
     local expected_error
     log "permit querying allowance without signer being the owner or spender"
-    permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$wrong_permit"') --from a")
+    permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from a")
     permit_query='{"with_permit":{"query":{"allowance":{"owner":"'"$wrong_contract"'","spender":"'"$wrong_contract"'"}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["allowance"]},"signature":'"$permit"'}}}'
     expected_error="ERROR: query result: encrypted: Cannot query allowance. Requires permit for either owner \"$wrong_contract\" or spender \"$wrong_contract\", got permit for \"${ADDRESS[a]}\""
     result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
-    assert_eq "$result" "$expected_error"
+    assert_contains "$result" "$expected_error"
 
     # succeed balance query
     local permit
@@ -652,7 +672,7 @@ function test_permit() {
     local expected_output
     for key in "${KEY[@]}"; do
         log "permit querying balance for \"$key\""
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$good_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$good_permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_output="{\"balance\":{\"amount\":\"0\"}}"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
@@ -667,7 +687,7 @@ function test_permit() {
     local expected_output
     for key in "${KEY[@]}"; do
         log "permit querying history for \"$key\""
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$good_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$good_permit"') --from '$key'")
 
         permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
         expected_output="{\"transfer_history\":{\"txs\":[],\"total\":0}}"
@@ -688,7 +708,7 @@ function test_permit() {
     local expected_output
     for key in "${KEY[@]}"; do
         log "permit querying history for \"$key\""
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretcli tx sign-doc <(echo '"$good_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$good_permit"') --from '$key'")
 
         permit_query='{"with_permit":{"query":{"allowance":{"owner":"'"${ADDRESS[$key]}"'","spender":"'"${ADDRESS[$key]}"'"}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["allowance"]},"signature":'"$permit"'}}}'
         expected_output="{\"allowance\":{\"spender\":\"${ADDRESS[$key]}\",\"owner\":\"${ADDRESS[$key]}\",\"allowance\":\"0\",\"expiration\":null}}"
@@ -729,7 +749,7 @@ function test_deposit() {
     local redeem_response
     for key in "${KEY[@]}"; do
         overdraft="$((deposits[$key] + 1))"
-        redeem_message='{"redeem":{"amount":"'"$overdraft"'"}}'
+        redeem_message='{"redeem":{"amount":"'"$overdraft"'","denom":"uscrt"}}'
         tx_hash="$(compute_execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 150000)"
         # Notice the `!` before the command - it is EXPECTED to fail.
         ! redeem_response="$(wait_for_compute_tx "$tx_hash" "waiting for overdraft from \"$key\" to process")"
@@ -1046,7 +1066,7 @@ function test_transfer() {
     redeem "$contract_addr" a 600000
     redeem "$contract_addr" b 400000
     # Send the funds back
-    quiet secretcli tx send b "${ADDRESS[a]}" 400000uscrt -y -b block
+    quiet secretcli tx bank send b "${ADDRESS[a]}" 400000uscrt -y -b block
 }
 
 RECEIVER_ADDRESS=''
@@ -1084,7 +1104,7 @@ function redeem_receiver() {
     local snip20_hash
     snip20_hash="$(secretcli query compute contract-hash "$snip20_addr")"
 
-    local redeem_message='{"redeem":{"addr":"'"$snip20_addr"'","hash":"'"${snip20_hash:2}"'","to":"'"$to_addr"'","amount":"'"$amount"'"}}'
+    local redeem_message='{"redeem":{"addr":"'"$snip20_addr"'","hash":"'"${snip20_hash:2}"'","to":"'"$to_addr"'","amount":"'"$amount"'","denom":"uscrt"}}'
     tx_hash="$(compute_execute "$receiver_addr" "$redeem_message" ${FROM[a]} --gas 300000)"
     redeem_tx="$(wait_for_tx "$tx_hash" "waiting for redeem from receiver at \"$receiver_addr\" to process")"
     # log "$redeem_tx"
@@ -1112,7 +1132,7 @@ function register_receiver() {
     local register_tx
     register_tx="$(wait_for_compute_tx "$tx_hash" 'Waiting for receiver registration')"
     assert_eq \
-        "$(jq -r '.output_log[] | select(.type == "wasm") | .attributes[] | select(.key == "register_status") | .value' <<<"$register_tx")" \
+        "$(jq -r '.output_logs[] | select(.type == "wasm") | .attributes[] | select(.key == "register_status") | .value' <<<"$register_tx")" \
         'success'
     log 'receiver registered successfully'
 }
@@ -1187,7 +1207,7 @@ function test_send() {
     tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 300000)"
     send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
     assert_eq \
-        "$(jq -r '.output_log[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
+        "$(jq -r '.output_logs[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
         "$((original_count + 1))"
     log 'received send response'
 
@@ -1449,7 +1469,7 @@ function test_transfer_from() {
     assert_eq "$(decrease_allowance "$contract_addr" 'a' 'b' 600000)" 0
     assert_eq "$(get_allowance "$contract_addr" 'a' 'b')" 0
     # Send the funds back
-    quiet secretcli tx send c "${ADDRESS[a]}" 400000uscrt -y -b block
+    quiet secretcli tx bank send c "${ADDRESS[a]}" 400000uscrt -y -b block > /dev/null
 }
 
 function test_send_from() {
@@ -1529,7 +1549,7 @@ function test_send_from() {
     tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[b]} --gas 302000)"
     send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
     assert_eq \
-        "$(jq -r '.output_log[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
+        "$(jq -r '.output_logs[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
         "$((original_count + 1))"
     log 'received send response'
 
@@ -1608,10 +1628,13 @@ function main() {
     log '              <####> Starting integration tests <####>'
     log "secretcli version in the docker image is: $(secretcli version)"
 
+    secretcli tx bank send a $(secretcli keys show -a c) 100000000000uscrt -y -b block > /dev/null
+    secretcli tx bank send a $(secretcli keys show -a d) 100000000000uscrt -y -b block > /dev/null
+
     local prng_seed
     prng_seed="$(base64 <<<'enigma-rocks')"
     local init_msg
-    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{"public_total_supply":true,"enable_deposit":true,"enable_redeem":true,"enable_mint":true,"enable_burn":true}}'
+    init_msg='{"name":"secret-secret","admin":"'"${ADDRESS[a]}"'","symbol":"SSCRT","decimals":6,"initial_balances":[],"prng_seed":"'"$prng_seed"'","config":{"public_total_supply":true,"enable_deposit":true,"enable_redeem":true,"enable_mint":true,"enable_burn":true},"supported_denoms":["uscrt"]}'
     contract_addr="$(create_contract '.' "$init_msg")"
 
     # To make testing faster, check the logs and try to reuse the deployed contract and VKs from previous runs.
