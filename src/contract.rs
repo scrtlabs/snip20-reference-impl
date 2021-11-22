@@ -787,7 +787,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     for coin in &env.message.sent_funds {
         if consts.supported_denoms.contains(&coin.denom) {
-            amount = coin.amount
+            amount += coin.amount
         } else {
             return Err(StdError::generic_err(format!(
                 "Tried to deposit an unsupported coin {}",
