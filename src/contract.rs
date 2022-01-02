@@ -627,8 +627,8 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     let recipient = &deps.api.canonical_address(&recipient)?;
     try_mint_impl(
         &mut deps.storage,
-        &minter,
-        &recipient,
+        minter,
+        recipient,
         amount,
         constants.symbol,
         memo,
@@ -683,8 +683,8 @@ fn try_batch_mint<S: Storage, A: Api, Q: Querier>(
         let recipient = &deps.api.canonical_address(&action.recipient)?;
         try_mint_impl(
             &mut deps.storage,
-            &minter,
-            &recipient,
+            minter,
+            recipient,
             action.amount,
             constants.symbol.clone(),
             action.memo,
@@ -904,10 +904,7 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
         )));
     }
 
-    let withdrawal_coins: Vec<Coin> = vec![Coin {
-        denom: denom,
-        amount,
-    }];
+    let withdrawal_coins: Vec<Coin> = vec![Coin { denom, amount }];
 
     store_redeem(
         &mut deps.storage,
@@ -938,15 +935,15 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
-    perform_transfer(&mut deps.storage, &sender, &recipient, amount.u128())?;
+    perform_transfer(&mut deps.storage, sender, recipient, amount.u128())?;
 
     let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
 
     store_transfer(
         &mut deps.storage,
-        &sender,
-        &sender,
-        &recipient,
+        sender,
+        sender,
+        recipient,
         amount,
         symbol,
         memo,
@@ -1048,7 +1045,7 @@ fn try_send_impl<S: Storage, A: Api, Q: Querier>(
     let recipient_canon = deps.api.canonical_address(&recipient)?;
     try_transfer_impl(
         deps,
-        &sender_canon,
+        sender_canon,
         &recipient_canon,
         amount,
         memo.clone(),
@@ -1280,7 +1277,7 @@ fn try_send_from_impl<S: Storage, A: Api, Q: Querier>(
     try_transfer_from_impl(
         deps,
         &env,
-        &spender_canon,
+        spender_canon,
         &owner_canon,
         &recipient_canon,
         amount,
