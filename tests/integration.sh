@@ -557,7 +557,7 @@ function test_permit() {
     local tx_hash
 
     # fail due to token not in permit
-    secretcli keys delete banana -y || true
+    secretcli keys delete banana -yf || true
     secretcli keys add banana
     local wrong_contract=$(secretcli keys show -a banana)
 
@@ -626,7 +626,7 @@ function test_permit() {
     for key in "${KEY[@]}"; do
         log "permit querying history for \"$key\" without the right permission"
         permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
-        
+
         permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_error="ERROR: query result: encrypted: No permission to query history, got permissions [Balance]"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
@@ -1195,7 +1195,7 @@ function test_send() {
     log 'sending funds from "a" to the Receiver, with message to the Receiver'
     local receiver_msg='{"increment":{}}'
     receiver_msg="$(base64 <<<"$receiver_msg")"
-    
+
     if [ "$skip_register_receiver" = "skip-register" ]; then
         send_message='{"send":{"recipient":"'"$receiver_addr"'","recipient_code_hash":"'"$receiver_hash"'","amount":"400000","msg":"'$receiver_msg'"}}'
     else
@@ -1203,7 +1203,7 @@ function test_send() {
     fi
 
     local send_response
-    
+
     tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 300000)"
     send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
     assert_eq \
@@ -1250,7 +1250,7 @@ function test_send() {
     else
         send_message='{"send":{"recipient":"'"$receiver_addr"'","amount":"400000","msg":"'$receiver_msg'"}}'
     fi
-    
+
     tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 300000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
@@ -1646,6 +1646,10 @@ function main() {
 #    VK[d]='api_key_WQYkuGOco/mSHgtKWG0f7b2UcrSG3s1fIqm1X/wIGDo='
 
     log "contract address: $contract_addr"
+
+    wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[b]}" 100000000uscrt -y)" "waiting for send to b"
+    wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[c]}" 100000000uscrt -y)" "waiting for send to c"
+    wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[d]}" 100000000uscrt -y)" "waiting for send to d"
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
     test_viewing_key "$contract_addr"
