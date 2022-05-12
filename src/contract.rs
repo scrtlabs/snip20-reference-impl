@@ -22,7 +22,7 @@ use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
 };
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
-use secret_toolkit::permit::{validate, Permission, Permit, RevokedPermits};
+use secret_toolkit::permit::{validate, Permit, RevokedPermits, TokenPermissions};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -262,12 +262,18 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
         .constants()?
         .contract_address;
 
-    let account = validate(deps, PREFIX_REVOKED_PERMITS, &permit, token_address)?;
+    let account = HumanAddr(validate(
+        deps,
+        PREFIX_REVOKED_PERMITS,
+        &permit,
+        token_address,
+        None,
+    )?);
 
     // Permit validated! We can now execute the query.
     match query {
         QueryWithPermit::Balance {} => {
-            if !permit.check_permission(&Permission::Balance) {
+            if !permit.check_permission(&TokenPermissions::Balance) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query balance, got permissions {:?}",
                     permit.params.permissions
@@ -277,7 +283,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
             query_balance(deps, &account)
         }
         QueryWithPermit::TransferHistory { page, page_size } => {
-            if !permit.check_permission(&Permission::History) {
+            if !permit.check_permission(&TokenPermissions::History) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query history, got permissions {:?}",
                     permit.params.permissions
@@ -287,7 +293,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
             query_transfers(deps, &account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::TransactionHistory { page, page_size } => {
-            if !permit.check_permission(&Permission::History) {
+            if !permit.check_permission(&TokenPermissions::History) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query history, got permissions {:?}",
                     permit.params.permissions
@@ -297,7 +303,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
             query_transactions(deps, &account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::Allowance { owner, spender } => {
-            if !permit.check_permission(&Permission::Allowance) {
+            if !permit.check_permission(&TokenPermissions::Allowance) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query allowance, got permissions {:?}",
                     permit.params.permissions
@@ -557,8 +563,8 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     }
     config.set_total_supply(total_supply);
 
-    let minter = &deps.api.canonical_address(&env.message.sender)?;
-    let recipient = &deps.api.canonical_address(&recipient)?;
+    let minter = deps.api.canonical_address(&env.message.sender)?;
+    let recipient = deps.api.canonical_address(&recipient)?;
     try_mint_impl(
         &mut deps.storage,
         &minter,
@@ -612,9 +618,9 @@ fn try_batch_mint<S: Storage, A: Api, Q: Querier>(
     }
     config.set_total_supply(total_supply);
 
-    let minter = &deps.api.canonical_address(&env.message.sender)?;
+    let minter = deps.api.canonical_address(&env.message.sender)?;
     for action in actions {
-        let recipient = &deps.api.canonical_address(&action.recipient)?;
+        let recipient = deps.api.canonical_address(&action.recipient)?;
         try_mint_impl(
             &mut deps.storage,
             &minter,
@@ -860,15 +866,15 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
-    perform_transfer(&mut deps.storage, &sender, &recipient, amount.u128())?;
+    perform_transfer(&mut deps.storage, sender, recipient, amount.u128())?;
 
     let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
 
     store_transfer(
         &mut deps.storage,
-        &sender,
-        &sender,
-        &recipient,
+        sender,
+        sender,
+        recipient,
         amount,
         symbol,
         memo,
@@ -970,7 +976,7 @@ fn try_send_impl<S: Storage, A: Api, Q: Querier>(
     let recipient_canon = deps.api.canonical_address(&recipient)?;
     try_transfer_impl(
         deps,
-        &sender_canon,
+        sender_canon,
         &recipient_canon,
         amount,
         memo.clone(),
@@ -1202,7 +1208,7 @@ fn try_send_from_impl<S: Storage, A: Api, Q: Querier>(
     try_transfer_from_impl(
         deps,
         &env,
-        &spender_canon,
+        spender_canon,
         &owner_canon,
         &recipient_canon,
         amount,
@@ -1224,6 +1230,7 @@ fn try_send_from_impl<S: Storage, A: Api, Q: Querier>(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_send_from<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,

@@ -17,7 +17,7 @@ jobs:
           command: rustup target add wasm32-unknown-unknown
       - run:
           name: Build
-          command: cargo wasm --locked
+          command: make compile-optimized
       - run:
           name: Unit tests
           env: RUST_BACKTRACE=1
