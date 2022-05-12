@@ -92,7 +92,7 @@ fn ser_bin_data<T: Serialize>(obj: &T) -> StdResult<Vec<u8>> {
 }
 
 fn deser_bin_data<T: DeserializeOwned>(data: &[u8]) -> StdResult<T> {
-    bincode2::deserialize::<T>(&data).map_err(|e| StdError::serialize_err(type_name::<T>(), e))
+    bincode2::deserialize::<T>(data).map_err(|e| StdError::serialize_err(type_name::<T>(), e))
 }
 
 fn set_bin_data<T: Serialize, S: Storage>(storage: &mut S, key: &[u8], data: &T) -> StdResult<()> {

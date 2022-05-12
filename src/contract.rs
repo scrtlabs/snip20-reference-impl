@@ -563,8 +563,8 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     }
     config.set_total_supply(total_supply);
 
-    let minter = &deps.api.canonical_address(&env.message.sender)?;
-    let recipient = &deps.api.canonical_address(&recipient)?;
+    let minter = deps.api.canonical_address(&env.message.sender)?;
+    let recipient = deps.api.canonical_address(&recipient)?;
     try_mint_impl(
         &mut deps.storage,
         &minter,
@@ -618,9 +618,9 @@ fn try_batch_mint<S: Storage, A: Api, Q: Querier>(
     }
     config.set_total_supply(total_supply);
 
-    let minter = &deps.api.canonical_address(&env.message.sender)?;
+    let minter = deps.api.canonical_address(&env.message.sender)?;
     for action in actions {
-        let recipient = &deps.api.canonical_address(&action.recipient)?;
+        let recipient = deps.api.canonical_address(&action.recipient)?;
         try_mint_impl(
             &mut deps.storage,
             &minter,
@@ -866,15 +866,15 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
-    perform_transfer(&mut deps.storage, &sender, &recipient, amount.u128())?;
+    perform_transfer(&mut deps.storage, sender, recipient, amount.u128())?;
 
     let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
 
     store_transfer(
         &mut deps.storage,
-        &sender,
-        &sender,
-        &recipient,
+        sender,
+        sender,
+        recipient,
         amount,
         symbol,
         memo,
@@ -976,7 +976,7 @@ fn try_send_impl<S: Storage, A: Api, Q: Querier>(
     let recipient_canon = deps.api.canonical_address(&recipient)?;
     try_transfer_impl(
         deps,
-        &sender_canon,
+        sender_canon,
         &recipient_canon,
         amount,
         memo.clone(),
@@ -1208,7 +1208,7 @@ fn try_send_from_impl<S: Storage, A: Api, Q: Querier>(
     try_transfer_from_impl(
         deps,
         &env,
-        &spender_canon,
+        spender_canon,
         &owner_canon,
         &recipient_canon,
         amount,
@@ -1230,6 +1230,7 @@ fn try_send_from_impl<S: Storage, A: Api, Q: Querier>(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_send_from<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
