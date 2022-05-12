@@ -277,24 +277,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "secp256k1"
-version = "0.21.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c42e6f1735c5f00f51e43e28d6634141f2bcad10931b2609ddd74a86d751260"
-dependencies = [
- "secp256k1-sys",
-]
-
-[[package]]
-name = "secp256k1-sys"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "957da2573cde917463ece3570eab4a0b3f19de6f1646cde62e6fd3868f566036"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "secret-cosmwasm-std"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -338,16 +320,15 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "020d3ef7f595e37fed1684d3f97b546a412138da88ea26f2e50e5309f2a0c2be"
 dependencies = [
- "secp256k1",
  "secret-cosmwasm-std",
  "sha2",
 ]
 
 [[package]]
 name = "secret-toolkit-permit"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab5649eef3accfdeff4f648d98f7d6057d52f9dbc7f2b96b0778624b666b46a0"
+checksum = "eee202f480f09638c53d6ae06ac7de0ae5c85357b3318cd9f202d0d5873197ee"
 dependencies = [
  "bech32",
  "remain",
