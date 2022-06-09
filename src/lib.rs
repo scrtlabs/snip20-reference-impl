@@ -8,6 +8,7 @@ mod transaction_history;
 mod utils;
 mod viewing_key;
 
+#[cfg(not(feature = "library"))]
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use super::contract;
