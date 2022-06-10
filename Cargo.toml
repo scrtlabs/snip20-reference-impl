@@ -1,6 +1,6 @@
 [package]
 name = "snip20-reference-impl"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Itzik <itzik@keytango.io>", "Tomasz Kopacki <tomasz@kopacki.net>"]
 edition = "2018"
 exclude = [
