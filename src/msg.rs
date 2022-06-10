@@ -9,13 +9,13 @@ use crate::viewing_key::ViewingKey;
 use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 pub struct InitialBalance {
     pub address: HumanAddr,
     pub amount: Uint128,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 pub struct InitMsg {
     pub name: String,
     pub admin: Option<HumanAddr>,
@@ -35,7 +35,7 @@ impl InitMsg {
 /// This type represents optional configuration values which can be overridden.
 /// All values are optional and have defaults which are more private by default,
 /// but can be overridden if necessary
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Default, Debug)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, Defualt, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct InitConfig {
     /// Indicates whether the total supply is public or should be kept secret.
@@ -77,7 +77,7 @@ impl InitConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
     // Native coin interactions
@@ -220,7 +220,7 @@ pub enum HandleMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
     // Native
@@ -318,7 +318,7 @@ pub enum HandleAnswer {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     TokenInfo {},
@@ -372,7 +372,7 @@ impl QueryMsg {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryWithPermit {
     Allowance {
@@ -390,7 +390,7 @@ pub enum QueryWithPermit {
     },
 }
 
-#[derive(Serialize, Deserialize, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
     TokenInfo {
@@ -438,19 +438,19 @@ pub enum QueryAnswer {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 pub struct CreateViewingKeyResponse {
     pub key: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ResponseStatus {
     Success,
     Failure,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ContractStatusLevel {
     NormalRun,
