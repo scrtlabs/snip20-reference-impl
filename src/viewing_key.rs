@@ -11,7 +11,7 @@ use crate::utils::{create_hashed_password, ct_slice_compare};
 pub const VIEWING_KEY_SIZE: usize = 32;
 pub const VIEWING_KEY_PREFIX: &str = "api_key_";
 
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 pub struct ViewingKey(pub String);
 
 impl ViewingKey {

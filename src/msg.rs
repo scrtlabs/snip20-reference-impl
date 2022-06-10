@@ -35,7 +35,7 @@ impl InitMsg {
 /// This type represents optional configuration values which can be overridden.
 /// All values are optional and have defaults which are more private by default,
 /// but can be overridden if necessary
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, Defualt, PartialEq)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct InitConfig {
     /// Indicates whether the total supply is public or should be kept secret.
