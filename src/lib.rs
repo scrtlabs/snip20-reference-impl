@@ -1,12 +1,12 @@
-mod batch;
+pub mod batch;
 pub mod contract;
 pub mod msg;
 mod rand;
 pub mod receiver;
 pub mod state;
-mod transaction_history;
+pub mod transaction_history;
 mod utils;
-mod viewing_key;
+pub mod viewing_key;
 
 #[cfg(not(feature = "library"))]
 #[cfg(target_arch = "wasm32")]

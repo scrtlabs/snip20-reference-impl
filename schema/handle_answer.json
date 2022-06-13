@@ -496,10 +496,10 @@
     {
       "type": "object",
       "required": [
-        "revoke_pemit"
+        "revoke_permit"
       ],
       "properties": {
-        "revoke_pemit": {
+        "revoke_permit": {
           "type": "object",
           "required": [
             "status"

@@ -195,7 +195,7 @@
           ],
           "properties": {
             "permit": {
-              "$ref": "#/definitions/Permit"
+              "$ref": "#/definitions/Permit_for_TokenPermissions"
             },
             "query": {
               "$ref": "#/definitions/QueryWithPermit"
@@ -213,31 +213,7 @@
     "HumanAddr": {
       "type": "string"
     },
-    "Permission": {
-      "type": "string",
-      "enum": [
-        "allowance",
-        "balance",
-        "history",
-        "owner"
-      ]
-    },
-    "Permit": {
-      "type": "object",
-      "required": [
-        "params",
-        "signature"
-      ],
-      "properties": {
-        "params": {
-          "$ref": "#/definitions/PermitParams"
-        },
-        "signature": {
-          "$ref": "#/definitions/PermitSignature"
-        }
-      }
-    },
-    "PermitParams": {
+    "PermitParams_for_TokenPermissions": {
       "type": "object",
       "required": [
         "allowed_tokens",
@@ -258,7 +234,7 @@
         "permissions": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/Permission"
+            "$ref": "#/definitions/TokenPermissions"
           }
         },
         "permit_name": {
@@ -278,6 +254,21 @@
         },
         "signature": {
           "$ref": "#/definitions/Binary"
+        }
+      }
+    },
+    "Permit_for_TokenPermissions": {
+      "type": "object",
+      "required": [
+        "params",
+        "signature"
+      ],
+      "properties": {
+        "params": {
+          "$ref": "#/definitions/PermitParams_for_TokenPermissions"
+        },
+        "signature": {
+          "$ref": "#/definitions/PermitSignature"
         }
       }
     },
@@ -396,6 +387,15 @@
             }
           }
         }
+      ]
+    },
+    "TokenPermissions": {
+      "type": "string",
+      "enum": [
+        "allowance",
+        "balance",
+        "history",
+        "owner"
       ]
     }
   }
