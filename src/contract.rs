@@ -633,8 +633,8 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     let recipient = deps.api.canonical_address(&recipient)?;
     try_mint_impl(
         &mut deps.storage,
-        minter,
-        recipient,
+        &minter,
+        &recipient,
         amount,
         constants.symbol,
         memo,
@@ -689,8 +689,8 @@ fn try_batch_mint<S: Storage, A: Api, Q: Querier>(
         let recipient = deps.api.canonical_address(&action.recipient)?;
         try_mint_impl(
             &mut deps.storage,
-            minter,
-            recipient,
+            &minter,
+            &recipient,
             action.amount,
             constants.symbol.clone(),
             action.memo,
