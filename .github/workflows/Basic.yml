@@ -17,7 +17,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.46.0
+          toolchain: 1.59.0
           target: wasm32-unknown-unknown
           override: true
 
@@ -32,8 +32,8 @@ jobs:
       - name: Compile WASM contract
         uses: actions-rs/cargo@v1
         with:
-          command: wasm
-          args: --locked
+          command: build
+          args: --release --target wasm32-unknown-unknown --locked
         env:
           RUSTFLAGS: "-C link-arg=-s"
 
@@ -55,7 +55,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.46.0
+          toolchain: 1.59.0
           override: true
           components: rustfmt, clippy
 
