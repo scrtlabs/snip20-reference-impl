@@ -549,7 +549,12 @@ fn remove_supported_denoms<S: Storage, A: Api, Q: Querier>(
     let mut consts = config.constants()?;
 
     for denom in denoms.iter() {
-        consts.supported_denoms.retain(|x| x != denom);
+        if consts.supported_denoms.contains(denom) {
+            let bal = deps.querier.query_balance(&env.contract.address, denom)?;
+            if bal.amount == Uint128::zero() {
+                consts.supported_denoms.retain(|x| x != denom);
+            }
+        }
     }
 
     config.set_constants(&consts)?;
