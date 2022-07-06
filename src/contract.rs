@@ -1,28 +1,28 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
-    InitResponse, log, Querier, QueryResult, ReadonlyStorage, StdError, StdResult,
-    Storage, to_binary, Uint128,
+    log, to_binary, Api, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Env, Extern,
+    HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
+    StdResult, Storage, Uint128,
 };
-use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions, validate};
 
 use crate::batch;
-use crate::msg::{
-    ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg, ResponseStatus::Success,
-    space_pad,
-};
 use crate::msg::QueryWithPermit;
+use crate::msg::{
+    space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
+    ResponseStatus::Success,
+};
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    Balances, Config, Constants, get_receiver_hash, read_allowance,
-    read_viewing_key, ReadonlyBalances, ReadonlyConfig, set_receiver_hash, write_allowance, write_viewing_key,
+    get_receiver_hash, read_allowance, read_viewing_key, set_receiver_hash, write_allowance,
+    write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
 };
 use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
 };
-use crate::viewing_key::{VIEWING_KEY_SIZE, ViewingKey};
+use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
+use secret_toolkit::permit::{validate, Permit, RevokedPermits, TokenPermissions};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -135,10 +135,10 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             let response = match msg {
                 HandleMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
                 HandleMsg::Redeem { amount, denom, .. }
-                if contract_status == ContractStatusLevel::StopAllButRedeems =>
-                    {
-                        try_redeem(deps, env, amount, denom)
-                    }
+                    if contract_status == ContractStatusLevel::StopAllButRedeems =>
+                {
+                    try_redeem(deps, env, amount, denom)
+                }
                 _ => Err(StdError::generic_err(
                     "This contract is stopped and this action is not allowed",
                 )),
@@ -386,7 +386,7 @@ fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> QueryResult {
         if constants.decimals >= 6 {
             rate = Uint128(10u128.pow(constants.decimals as u32 - 6));
             denom = "SCRT".to_string();
-            // if token has less decimals, you get magnitudes token for SCRT
+        // if token has less decimals, you get magnitudes token for SCRT
         } else {
             rate = Uint128(10u128.pow(6 - constants.decimals as u32));
             denom = constants.symbol;
@@ -554,7 +554,7 @@ fn remove_supported_denoms<S: Storage, A: Api, Q: Querier>(
             if bal.amount == Uint128::zero() {
                 consts.supported_denoms.retain(|x| x != denom);
             } else {
-                return Err(StdError::generic_err(format!("Attempted to remove denom '{}' which has a balance.", denom)));
+                return Err(StdError::generic_err(format!("Attempted to remove denom '{}' which has a balance.", denom)))
             }
         }
     }
@@ -1830,17 +1830,14 @@ fn is_valid_symbol(symbol: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::msg::ResponseStatus;
+    use crate::msg::{InitConfig, InitialBalance};
+    use cosmwasm_std::testing::*;
+    use cosmwasm_std::{from_binary, BlockInfo, ContractInfo, MessageInfo, QueryResponse, WasmMsg};
     use std::any::Any;
 
-    use cosmwasm_std::{BlockInfo, ContractInfo, from_binary, MessageInfo, QueryResponse, WasmMsg};
-    use cosmwasm_std::testing::*;
-
-    use crate::msg::{InitConfig, InitialBalance};
-    use crate::msg::ResponseStatus;
-
-    use super::*;
-
-// Helper functions
+    // Helper functions
 
     fn init_helper(
         initial_balances: Vec<InitialBalance>,
@@ -1895,9 +1892,9 @@ mod tests {
             \"enable_burn\":{}}}",
                 enable_deposit, enable_redeem, enable_mint, enable_burn
             )
-                .as_bytes(),
+            .as_bytes(),
         ))
-            .unwrap();
+        .unwrap();
         let init_msg = InitMsg {
             name: "sec-sec".to_string(),
             admin: Some(HumanAddr("admin".to_string())),
@@ -2158,11 +2155,11 @@ mod tests {
                 HumanAddr("bob".to_string()),
                 Uint128(100),
                 Some("my memo".to_string()),
-                Some(to_binary("hey hey you you").unwrap()),
+                Some(to_binary("hey hey you you").unwrap())
             )
-                .into_binary()
-                .unwrap(),
-            send: vec![],
+            .into_binary()
+            .unwrap(),
+            send: vec![]
         })));
     }
 
@@ -2253,7 +2250,7 @@ mod tests {
             to_binary(&HandleAnswer::SetViewingKey {
                 status: ResponseStatus::Success
             })
-                .unwrap(),
+            .unwrap(),
         );
 
         // Set valid VK
@@ -2844,7 +2841,7 @@ mod tests {
             allowance,
             crate::state::Allowance {
                 amount: 0,
-                expiration: None,
+                expiration: None
             }
         );
 
@@ -2879,7 +2876,7 @@ mod tests {
             allowance,
             crate::state::Allowance {
                 amount: 1950,
-                expiration: None,
+                expiration: None
             }
         );
     }
@@ -2923,7 +2920,7 @@ mod tests {
             allowance,
             crate::state::Allowance {
                 amount: 2000,
-                expiration: None,
+                expiration: None
             }
         );
 
@@ -2945,7 +2942,7 @@ mod tests {
             allowance,
             crate::state::Allowance {
                 amount: 4000,
-                expiration: None,
+                expiration: None
             }
         );
     }
@@ -3768,7 +3765,7 @@ mod tests {
         let init_config: InitConfig = from_binary(&Binary::from(
             r#"{ "public_total_supply": true }"#.as_bytes(),
         ))
-            .unwrap();
+        .unwrap();
         let init_supply = Uint128(5000);
 
         let mut deps = mock_dependencies(20, &[]);
@@ -3832,9 +3829,9 @@ mod tests {
             \"enable_burn\":{}}}",
                 true, false, false, true, false
             )
-                .as_bytes(),
+            .as_bytes(),
         ))
-            .unwrap();
+        .unwrap();
 
         let init_supply = Uint128(5000);
 
@@ -3909,9 +3906,9 @@ mod tests {
             \"enable_burn\":{}}}",
                 true, true, false, false, false
             )
-                .as_bytes(),
+            .as_bytes(),
         ))
-            .unwrap();
+        .unwrap();
         let init_msg = InitMsg {
             name: init_name.clone(),
             admin: Some(init_admin.clone()),
@@ -3967,9 +3964,9 @@ mod tests {
             \"enable_burn\":{}}}",
                 true, true, false, false, false
             )
-                .as_bytes(),
+            .as_bytes(),
         ))
-            .unwrap();
+        .unwrap();
         let init_msg = InitMsg {
             name: init_name.clone(),
             admin: Some(init_admin.clone()),
@@ -4025,9 +4022,9 @@ mod tests {
             \"enable_burn\":{}}}",
                 true, true, false, false, false
             )
-                .as_bytes(),
+            .as_bytes(),
         ))
-            .unwrap();
+        .unwrap();
         let init_msg = InitMsg {
             name: init_name.clone(),
             admin: Some(init_admin.clone()),
@@ -4165,7 +4162,7 @@ mod tests {
             to_binary(&HandleAnswer::SetViewingKey {
                 status: ResponseStatus::Success
             })
-                .unwrap(),
+            .unwrap(),
         );
 
         let handle_msg = HandleMsg::SetViewingKey {
@@ -4180,7 +4177,7 @@ mod tests {
             to_binary(&HandleAnswer::SetViewingKey {
                 status: ResponseStatus::Success
             })
-                .unwrap(),
+            .unwrap(),
         );
 
         let query_msg = QueryMsg::Allowance {
@@ -4244,7 +4241,7 @@ mod tests {
             to_binary(&HandleAnswer::SetViewingKey {
                 status: ResponseStatus::Success
             })
-                .unwrap(),
+            .unwrap(),
         );
 
         let query_msg = QueryMsg::Balance {
