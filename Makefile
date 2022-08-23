@@ -73,7 +73,7 @@ start-server: # CTRL+C to stop
 	docker run -it --rm \
 		-p 26657:26657 -p 26656:26656 -p 1317:1317 \
 		-v $$(pwd):/root/code \
-		--name secretdev enigmampc/secret-network-sw-dev:v1.2.2-1
+		--name localsecret ghcr.io/scrtlabs/localsecret:1.3.1
 
 .PHONY: schema
 schema:
