@@ -143,15 +143,15 @@ impl TxCountStore {
 }
 
 // elad: maybe use Uint128,
-pub static BALANCES: Keymap<&Addr, u128> = Keymap::new(PREFIX_BALANCES);
+pub static BALANCES: Keymap<Addr, u128> = Keymap::new(PREFIX_BALANCES);
 pub struct BalancesStore {}
 impl BalancesStore {
     pub fn load(store: &dyn Storage, account: &Addr) -> u128 {
-        BALANCES.may_load(store)?.ok_or_else(|| 0)
+        BALANCES.get(store, account)?.ok_or_else(|| 0)
     }
 
     pub fn save(store: &mut dyn Storage, account: &Addr, amount: u128) -> StdResult<()> {
-        BALANCES.save(store, account, &amount)
+        BALANCES.insert(store, account, &amount)
     }
 }
 
@@ -172,12 +172,12 @@ impl Allowance {
     }
 }
 
-pub static ALLOWANCES: Keymap<(&Addr, &Addr), Allowance> = Keymap::new(PREFIX_ALLOWANCES);
+pub static ALLOWANCES: Keymap<(Addr, Addr), Allowance> = Keymap::new(PREFIX_ALLOWANCES);
 pub struct AllowancesStore {}
 impl AllowancesStore {
     pub fn may_load(store: &dyn Storage, owner: &Addr, spender: &Addr) -> StdResult<Allowance> {
         ALLOWANCES
-            .may_load(store, (owner, spender))?
+            .get(store, (owner, spender))?
             .ok_or_else(|| Option::unwrap_or_default)
         // let loaded_allowance = ALLOWANCES.may_load(&store, (owner, spender))?;
         // loaded_allowance.map(Option::unwrap_or_default)
@@ -189,7 +189,7 @@ impl AllowancesStore {
         spender: &Addr,
         allowance: &Allowance,
     ) -> StdResult<()> {
-        ALLOWANCES.save(store, (owner, spender), allowance)
+        ALLOWANCES.insert(store, (owner, spender), allowance)
     }
 }
 

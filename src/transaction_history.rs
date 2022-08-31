@@ -1,12 +1,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{
-    Api, CanonicalAddr, Coin, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
-};
+use cosmwasm_std::{Addr, Api, CanonicalAddr, Coin, StdError, StdResult, Storage, Uint128};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
-use secret_toolkit::storage::{AppendStore, AppendStoreMut};
+use secret_toolkit::storage::AppendStore;
 
 use crate::state::Config;
 
@@ -20,9 +18,9 @@ const PREFIX_TRANSFERS: &[u8] = b"transfers";
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub struct Tx {
     pub id: u64,
-    pub from: HumanAddr,
-    pub sender: HumanAddr,
-    pub receiver: HumanAddr,
+    pub from: Addr,
+    pub sender: Addr,
+    pub receiver: Addr,
     pub coins: Coin,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memo: Option<String>,
@@ -36,17 +34,17 @@ pub struct Tx {
 #[serde(rename_all = "snake_case")]
 pub enum TxAction {
     Transfer {
-        from: HumanAddr,
-        sender: HumanAddr,
-        recipient: HumanAddr,
+        from: Addr,
+        sender: Addr,
+        recipient: Addr,
     },
     Mint {
-        minter: HumanAddr,
-        recipient: HumanAddr,
+        minter: Addr,
+        recipient: Addr,
     },
     Burn {
-        burner: HumanAddr,
-        owner: HumanAddr,
+        burner: Addr,
+        owner: Addr,
     },
     Deposit {},
     Redeem {},
@@ -287,7 +285,7 @@ impl StoredRichTx {
 
 // Storage functions:
 
-fn increment_tx_count<S: Storage>(store: &mut S) -> StdResult<u64> {
+fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
     let mut config = Config::from_storage(store);
     let id = config.tx_count() + 1;
     config.set_tx_count(id)?;
@@ -295,8 +293,8 @@ fn increment_tx_count<S: Storage>(store: &mut S) -> StdResult<u64> {
 }
 
 #[allow(clippy::too_many_arguments)] // We just need them
-pub fn store_transfer<S: Storage>(
-    store: &mut S,
+pub fn store_transfer(
+    store: &mut dyn Storage,
     owner: &CanonicalAddr,
     sender: &CanonicalAddr,
     receiver: &CanonicalAddr,
@@ -339,8 +337,8 @@ pub fn store_transfer<S: Storage>(
     Ok(())
 }
 
-pub fn store_mint<S: Storage>(
-    store: &mut S,
+pub fn store_mint(
+    store: &mut dyn Storage,
     minter: &CanonicalAddr,
     recipient: &CanonicalAddr,
     amount: Uint128,
@@ -361,8 +359,8 @@ pub fn store_mint<S: Storage>(
     Ok(())
 }
 
-pub fn store_burn<S: Storage>(
-    store: &mut S,
+pub fn store_burn(
+    store: &mut dyn Storage,
     owner: &CanonicalAddr,
     burner: &CanonicalAddr,
     amount: Uint128,
@@ -383,8 +381,8 @@ pub fn store_burn<S: Storage>(
     Ok(())
 }
 
-pub fn store_deposit<S: Storage>(
-    store: &mut S,
+pub fn store_deposit(
+    store: &mut dyn Storage,
     recipient: &CanonicalAddr,
     amount: Uint128,
     denom: String,
@@ -400,8 +398,8 @@ pub fn store_deposit<S: Storage>(
     Ok(())
 }
 
-pub fn store_redeem<S: Storage>(
-    store: &mut S,
+pub fn store_redeem(
+    store: &mut dyn Storage,
     redeemer: &CanonicalAddr,
     amount: Uint128,
     denom: String,
@@ -417,29 +415,29 @@ pub fn store_redeem<S: Storage>(
     Ok(())
 }
 
-fn append_tx<S: Storage>(
-    store: &mut S,
+fn append_tx(
+    store: &mut dyn Storage,
     tx: &StoredRichTx,
     for_address: &CanonicalAddr,
 ) -> StdResult<()> {
     let mut store = PrefixedStorage::multilevel(&[PREFIX_TXS, for_address.as_slice()], store);
-    let mut store = AppendStoreMut::attach_or_create(&mut store)?;
+    let mut store = AppendStore::attach_or_create(&mut store)?;
     store.push(tx)
 }
 
-fn append_transfer<S: Storage>(
-    store: &mut S,
+fn append_transfer(
+    store: &mut dyn Storage,
     tx: &StoredLegacyTransfer,
     for_address: &CanonicalAddr,
 ) -> StdResult<()> {
     let mut store = PrefixedStorage::multilevel(&[PREFIX_TRANSFERS, for_address.as_slice()], store);
-    let mut store = AppendStoreMut::attach_or_create(&mut store)?;
+    let mut store = AppendStore::attach_or_create(&mut store)?;
     store.push(tx)
 }
 
-pub fn get_txs<A: Api, S: ReadonlyStorage>(
+pub fn get_txs<A: Api>(
     api: &A,
-    storage: &S,
+    storage: &dyn Storage,
     for_address: &CanonicalAddr,
     page: u32,
     page_size: u32,
@@ -470,9 +468,9 @@ pub fn get_txs<A: Api, S: ReadonlyStorage>(
     txs.map(|txs| (txs, store.len() as u64))
 }
 
-pub fn get_transfers<A: Api, S: ReadonlyStorage>(
+pub fn get_transfers<A: Api>(
     api: &A,
-    storage: &S,
+    storage: &dyn Storage,
     for_address: &CanonicalAddr,
     page: u32,
     page_size: u32,
