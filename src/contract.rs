@@ -366,17 +366,17 @@ fn query_exchange_rate(storage: &dyn Storage) -> StdResult<Binary> {
         let denom: String;
         // if token has more decimals than SCRT, you get magnitudes of SCRT per token
         if constants.decimals >= 6 {
-            rate = Uint128(10u128.pow(constants.decimals as u32 - 6));
+            rate = Uint128::new(10u128.pow(constants.decimals as u32 - 6));
             denom = "SCRT".to_string();
         // if token has less decimals, you get magnitudes token for SCRT
         } else {
-            rate = Uint128(10u128.pow(6 - constants.decimals as u32));
+            rate = Uint128::new(10u128.pow(6 - constants.decimals as u32));
             denom = constants.symbol;
         }
         return to_binary(&QueryAnswer::ExchangeRate { rate, denom });
     }
     to_binary(&QueryAnswer::ExchangeRate {
-        rate: Uint128(0),
+        rate: Uint128::new(0),
         denom: String::new(),
     })
 }
@@ -386,7 +386,7 @@ fn query_token_info(storage: &dyn Storage) -> StdResult<Binary> {
     let constants = config.constants()?;
 
     let total_supply = if constants.total_supply_is_public {
-        Some(Uint128(config.total_supply()))
+        Some(Uint128::new(config.total_supply()))
     } else {
         None
     };
@@ -1749,7 +1749,7 @@ mod tests {
     ) {
         let mut deps = mock_dependencies_with_balance(&[Coin {
             denom: "uscrt".to_string(),
-            amount: Uint128(contract_bal),
+            amount: Uint128::new(contract_bal),
         }]);
 
         let env = mock_env();
@@ -1859,7 +1859,7 @@ mod tests {
     fn test_init_sanity() {
         let (init_result, deps) = init_helper(vec![InitialBalance {
             address: Addr("lebron".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert_eq!(init_result.unwrap(), InitResponse::default());
 
@@ -1883,7 +1883,7 @@ mod tests {
         let (init_result, deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("lebron".to_string()),
-                amount: Uint128(5000),
+                amount: Uint128::new(5000),
             }],
             true,
             true,
@@ -1916,7 +1916,7 @@ mod tests {
     fn test_total_supply_overflow() {
         let (init_result, _deps) = init_helper(vec![InitialBalance {
             address: Addr("lebron".to_string()),
-            amount: Uint128(u128::max_value()),
+            amount: Uint128::new(u128::max_value()),
         }]);
         assert!(
             init_result.is_ok(),
@@ -1927,11 +1927,11 @@ mod tests {
         let (init_result, _deps) = init_helper(vec![
             InitialBalance {
                 address: Addr("lebron".to_string()),
-                amount: Uint128(u128::max_value()),
+                amount: Uint128::new(u128::max_value()),
             },
             InitialBalance {
                 address: Addr("giannis".to_string()),
-                amount: Uint128(1),
+                amount: Uint128::new(1),
             },
         ]);
         let error = extract_error_msg(init_result);
@@ -1947,7 +1947,7 @@ mod tests {
     fn test_handle_transfer() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -1957,7 +1957,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Transfer {
             recipient: Addr("alice".to_string()),
-            amount: Uint128(1000),
+            amount: Uint128::new(1000),
             memo: None,
             padding: None,
         };
@@ -1984,7 +1984,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Transfer {
             recipient: Addr("alice".to_string()),
-            amount: Uint128(10000),
+            amount: Uint128::new(10000),
             memo: None,
             padding: None,
         };
@@ -2000,7 +2000,7 @@ mod tests {
     fn test_handle_send() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -2022,7 +2022,7 @@ mod tests {
         let handle_msg = ExecuteMsg::Send {
             recipient: Addr("contract".to_string()),
             recipient_code_hash: None,
-            amount: Uint128(100),
+            amount: Uint128::new(100),
             memo: Some("my memo".to_string()),
             padding: None,
             msg: Some(to_binary("hey hey you you").unwrap()),
@@ -2039,7 +2039,7 @@ mod tests {
             msg: Snip20ReceiveMsg::new(
                 Addr("bob".to_string()),
                 Addr("bob".to_string()),
-                Uint128(100),
+                Uint128::new(100),
                 Some("my memo".to_string()),
                 Some(to_binary("hey hey you you").unwrap())
             )
@@ -2053,7 +2053,7 @@ mod tests {
     fn test_handle_register_receive() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -2082,7 +2082,7 @@ mod tests {
     fn test_handle_create_viewing_key() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -2121,7 +2121,7 @@ mod tests {
     fn test_handle_set_viewing_key() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -2176,7 +2176,7 @@ mod tests {
     fn test_handle_transfer_from() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -2188,7 +2188,7 @@ mod tests {
         let handle_msg = ExecuteMsg::TransferFrom {
             owner: Addr("bob".to_string()),
             recipient: Addr("alice".to_string()),
-            amount: Uint128(2500),
+            amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
@@ -2202,7 +2202,7 @@ mod tests {
         // Transfer more than allowance
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: Addr("alice".to_string()),
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             padding: None,
             expiration: Some(1_571_797_420),
         };
@@ -2218,7 +2218,7 @@ mod tests {
         let handle_msg = ExecuteMsg::TransferFrom {
             owner: Addr("bob".to_string()),
             recipient: Addr("alice".to_string()),
-            amount: Uint128(2500),
+            amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
@@ -2233,7 +2233,7 @@ mod tests {
         let handle_msg = ExecuteMsg::TransferFrom {
             owner: Addr("bob".to_string()),
             recipient: Addr("alice".to_string()),
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             memo: None,
             padding: None,
         };
@@ -2267,7 +2267,7 @@ mod tests {
         let handle_msg = ExecuteMsg::TransferFrom {
             owner: Addr("bob".to_string()),
             recipient: Addr("alice".to_string()),
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             memo: None,
             padding: None,
         };
@@ -2300,7 +2300,7 @@ mod tests {
         let handle_msg = ExecuteMsg::TransferFrom {
             owner: Addr("bob".to_string()),
             recipient: Addr("alice".to_string()),
-            amount: Uint128(1),
+            amount: Uint128::new(1),
             memo: None,
             padding: None,
         };
@@ -2316,7 +2316,7 @@ mod tests {
     fn test_handle_send_from() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -2329,7 +2329,7 @@ mod tests {
             owner: Addr("bob".to_string()),
             recipient: Addr("alice".to_string()),
             recipient_code_hash: None,
-            amount: Uint128(2500),
+            amount: Uint128::new(2500),
             memo: None,
             msg: None,
             padding: None,
@@ -2344,7 +2344,7 @@ mod tests {
         // Send more than allowance
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: Addr("alice".to_string()),
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
@@ -2361,7 +2361,7 @@ mod tests {
             owner: Addr("bob".to_string()),
             recipient: Addr("alice".to_string()),
             recipient_code_hash: None,
-            amount: Uint128(2500),
+            amount: Uint128::new(2500),
             memo: None,
             msg: None,
             padding: None,
@@ -2391,7 +2391,7 @@ mod tests {
         let snip20_msg = Snip20ReceiveMsg::new(
             Addr("alice".to_string()),
             Addr("bob".to_string()),
-            Uint128(2000),
+            Uint128::new(2000),
             Some("my memo".to_string()),
             Some(send_msg.clone()),
         );
@@ -2399,7 +2399,7 @@ mod tests {
             owner: Addr("bob".to_string()),
             recipient: Addr("contract".to_string()),
             recipient_code_hash: None,
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             memo: Some("my memo".to_string()),
             msg: Some(send_msg),
             padding: None,
@@ -2438,7 +2438,7 @@ mod tests {
             owner: Addr("bob".to_string()),
             recipient: Addr("alice".to_string()),
             recipient_code_hash: None,
-            amount: Uint128(1),
+            amount: Uint128::new(1),
             memo: None,
             msg: None,
             padding: None,
@@ -2456,7 +2456,7 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("bob".to_string()),
-                amount: Uint128(10000),
+                amount: Uint128::new(10000),
             }],
             false,
             false,
@@ -2472,7 +2472,7 @@ mod tests {
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(10000),
+            amount: Uint128::new(10000),
         }]);
         assert!(
             init_result_for_failure.is_ok(),
@@ -2482,7 +2482,7 @@ mod tests {
         // test when burn disabled
         let handle_msg = ExecuteMsg::BurnFrom {
             owner: Addr("bob".to_string()),
-            amount: Uint128(2500),
+            amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
@@ -2496,7 +2496,7 @@ mod tests {
         // Burn before allowance
         let handle_msg = ExecuteMsg::BurnFrom {
             owner: Addr("bob".to_string()),
-            amount: Uint128(2500),
+            amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
@@ -2510,7 +2510,7 @@ mod tests {
         // Burn more than allowance
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: Addr("alice".to_string()),
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
@@ -2525,7 +2525,7 @@ mod tests {
         );
         let handle_msg = ExecuteMsg::BurnFrom {
             owner: Addr("bob".to_string()),
-            amount: Uint128(2500),
+            amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
@@ -2539,7 +2539,7 @@ mod tests {
         // Sanity check
         let handle_msg = ExecuteMsg::BurnFrom {
             owner: Addr("bob".to_string()),
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             memo: None,
             padding: None,
         };
@@ -2564,7 +2564,7 @@ mod tests {
         // Second burn more than allowance
         let handle_msg = ExecuteMsg::BurnFrom {
             owner: Addr("bob".to_string()),
-            amount: Uint128(1),
+            amount: Uint128::new(1),
             memo: None,
             padding: None,
         };
@@ -2582,15 +2582,15 @@ mod tests {
             vec![
                 InitialBalance {
                     address: Addr("bob".to_string()),
-                    amount: Uint128(10000),
+                    amount: Uint128::new(10000),
                 },
                 InitialBalance {
                     address: Addr("jerry".to_string()),
-                    amount: Uint128(10000),
+                    amount: Uint128::new(10000),
                 },
                 InitialBalance {
                     address: Addr("mike".to_string()),
-                    amount: Uint128(10000),
+                    amount: Uint128::new(10000),
                 },
             ],
             false,
@@ -2607,7 +2607,7 @@ mod tests {
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(10000),
+            amount: Uint128::new(10000),
         }]);
         assert!(
             init_result_for_failure.is_ok(),
@@ -2619,7 +2619,7 @@ mod tests {
             .iter()
             .map(|name| batch::BurnFromAction {
                 owner: Addr(name.to_string()),
-                amount: Uint128(2500),
+                amount: Uint128::new(2500),
                 memo: None,
             })
             .collect();
@@ -2645,7 +2645,7 @@ mod tests {
         for name in &["bob", "jerry", "mike"] {
             let handle_msg = ExecuteMsg::IncreaseAllowance {
                 spender: Addr("alice".to_string()),
-                amount: Uint128(allowance_size),
+                amount: Uint128::new(allowance_size),
                 padding: None,
                 expiration: None,
             };
@@ -2659,7 +2659,7 @@ mod tests {
             );
             let handle_msg = ExecuteMsg::BurnFrom {
                 owner: Addr(name.to_string()),
-                amount: Uint128(2500),
+                amount: Uint128::new(2500),
                 memo: None,
                 padding: None,
             };
@@ -2676,7 +2676,7 @@ mod tests {
             .iter()
             .map(|(name, amount)| batch::BurnFromAction {
                 owner: Addr(name.to_string()),
-                amount: Uint128(*amount),
+                amount: Uint128::new(*amount),
                 memo: None,
             })
             .collect();
@@ -2707,7 +2707,7 @@ mod tests {
             .iter()
             .map(|(name, amount)| batch::BurnFromAction {
                 owner: Addr(name.to_string()),
-                amount: Uint128(allowance_size - *amount),
+                amount: Uint128::new(allowance_size - *amount),
                 memo: None,
             })
             .collect();
@@ -2738,7 +2738,7 @@ mod tests {
             .iter()
             .map(|name| batch::BurnFromAction {
                 owner: Addr(name.to_string()),
-                amount: Uint128(1),
+                amount: Uint128::new(1),
                 memo: None,
             })
             .collect();
@@ -2758,7 +2758,7 @@ mod tests {
     fn test_handle_decrease_allowance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -2768,7 +2768,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::DecreaseAllowance {
             spender: Addr("alice".to_string()),
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
@@ -2802,7 +2802,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: Addr("alice".to_string()),
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
@@ -2818,7 +2818,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::DecreaseAllowance {
             spender: Addr("alice".to_string()),
-            amount: Uint128(50),
+            amount: Uint128::new(50),
             padding: None,
             expiration: None,
         };
@@ -2846,7 +2846,7 @@ mod tests {
     fn test_handle_increase_allowance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -2856,7 +2856,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: Addr("alice".to_string()),
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
@@ -2890,7 +2890,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: Addr("alice".to_string()),
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
@@ -2918,7 +2918,7 @@ mod tests {
     fn test_handle_change_admin() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -2951,7 +2951,7 @@ mod tests {
     fn test_handle_set_contract_status() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("admin".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -2985,7 +2985,7 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("butler".to_string()),
-                amount: Uint128(5000),
+                amount: Uint128::new(5000),
             }],
             false,
             true,
@@ -3002,7 +3002,7 @@ mod tests {
         let (init_result_no_reserve, mut deps_no_reserve) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("butler".to_string()),
-                amount: Uint128(5000),
+                amount: Uint128::new(5000),
             }],
             false,
             true,
@@ -3018,7 +3018,7 @@ mod tests {
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
             address: Addr("butler".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result_for_failure.is_ok(),
@@ -3027,7 +3027,7 @@ mod tests {
         );
         // test when redeem disabled
         let handle_msg = ExecuteMsg::Redeem {
-            amount: Uint128(1000),
+            amount: Uint128::new(1000),
             denom: None,
             padding: None,
         };
@@ -3040,7 +3040,7 @@ mod tests {
 
         // try to redeem when contract has 0 balance
         let handle_msg = ExecuteMsg::Redeem {
-            amount: Uint128(1000),
+            amount: Uint128::new(1000),
             denom: None,
             padding: None,
         };
@@ -3054,7 +3054,7 @@ mod tests {
         ));
 
         let handle_msg = ExecuteMsg::Redeem {
-            amount: Uint128(1000),
+            amount: Uint128::new(1000),
             denom: None,
             padding: None,
         };
@@ -3080,7 +3080,7 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("lebron".to_string()),
-                amount: Uint128(5000),
+                amount: Uint128::new(5000),
             }],
             true,
             false,
@@ -3096,7 +3096,7 @@ mod tests {
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
             address: Addr("lebron".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result_for_failure.is_ok(),
@@ -3109,7 +3109,7 @@ mod tests {
             "lebron",
             &[Coin {
                 denom: "uscrt".to_string(),
-                amount: Uint128(1000),
+                amount: Uint128::new(1000),
             }],
         );
 
@@ -3123,7 +3123,7 @@ mod tests {
             "lebron",
             &[Coin {
                 denom: "uscrt".to_string(),
-                amount: Uint128(1000),
+                amount: Uint128::new(1000),
             }],
         );
 
@@ -3146,7 +3146,7 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("lebron".to_string()),
-                amount: Uint128(5000),
+                amount: Uint128::new(5000),
             }],
             false,
             false,
@@ -3162,7 +3162,7 @@ mod tests {
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
             address: Addr("lebron".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result_for_failure.is_ok(),
@@ -3171,7 +3171,7 @@ mod tests {
         );
         // test when burn disabled
         let handle_msg = ExecuteMsg::Burn {
-            amount: Uint128(100),
+            amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
@@ -3185,7 +3185,7 @@ mod tests {
         let supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
         let burn_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Burn {
-            amount: Uint128(burn_amount),
+            amount: Uint128::new(burn_amount),
             memo: None,
             padding: None,
         };
@@ -3208,7 +3208,7 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("lebron".to_string()),
-                amount: Uint128(5000),
+                amount: Uint128::new(5000),
             }],
             false,
             false,
@@ -3223,7 +3223,7 @@ mod tests {
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
             address: Addr("lebron".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result_for_failure.is_ok(),
@@ -3234,7 +3234,7 @@ mod tests {
         let mint_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("lebron".to_string()),
-            amount: Uint128(mint_amount),
+            amount: Uint128::new(mint_amount),
             memo: None,
             padding: None,
         };
@@ -3249,7 +3249,7 @@ mod tests {
         let mint_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("lebron".to_string()),
-            amount: Uint128(mint_amount),
+            amount: Uint128::new(mint_amount),
             memo: None,
             padding: None,
         };
@@ -3273,7 +3273,7 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("lebron".to_string()),
-                amount: Uint128(5000),
+                amount: Uint128::new(5000),
             }],
             false,
             false,
@@ -3348,7 +3348,7 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("lebron".to_string()),
-                amount: Uint128(5000),
+                amount: Uint128::new(5000),
             }],
             false,
             true,
@@ -3379,7 +3379,7 @@ mod tests {
 
         let send_msg = ExecuteMsg::Transfer {
             recipient: Addr("account".to_string()),
-            amount: Uint128(123),
+            amount: Uint128::new(123),
             memo: None,
             padding: None,
         };
@@ -3394,7 +3394,7 @@ mod tests {
         );
 
         let withdraw_msg = ExecuteMsg::Redeem {
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
             denom: None,
             padding: None,
         };
@@ -3413,7 +3413,7 @@ mod tests {
     fn test_handle_pause_all() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("lebron".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -3438,7 +3438,7 @@ mod tests {
 
         let send_msg = ExecuteMsg::Transfer {
             recipient: Addr("account".to_string()),
-            amount: Uint128(123),
+            amount: Uint128::new(123),
             memo: None,
             padding: None,
         };
@@ -3453,7 +3453,7 @@ mod tests {
         );
 
         let withdraw_msg = ExecuteMsg::Redeem {
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
             denom: None,
             padding: None,
         };
@@ -3473,7 +3473,7 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("bob".to_string()),
-                amount: Uint128(5000),
+                amount: Uint128::new(5000),
             }],
             false,
             false,
@@ -3488,7 +3488,7 @@ mod tests {
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result_for_failure.is_ok(),
@@ -3530,7 +3530,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("bob".to_string()),
-            amount: Uint128(100),
+            amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
@@ -3542,7 +3542,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("bob".to_string()),
-            amount: Uint128(100),
+            amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
@@ -3559,7 +3559,7 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("bob".to_string()),
-                amount: Uint128(5000),
+                amount: Uint128::new(5000),
             }],
             false,
             false,
@@ -3574,7 +3574,7 @@ mod tests {
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result_for_failure.is_ok(),
@@ -3616,7 +3616,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("bob".to_string()),
-            amount: Uint128(100),
+            amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
@@ -3628,7 +3628,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("bob".to_string()),
-            amount: Uint128(100),
+            amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
@@ -3644,7 +3644,7 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("bob".to_string()),
-                amount: Uint128(5000),
+                amount: Uint128::new(5000),
             }],
             false,
             false,
@@ -3659,7 +3659,7 @@ mod tests {
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result_for_failure.is_ok(),
@@ -3701,7 +3701,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("bob".to_string()),
-            amount: Uint128(100),
+            amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
@@ -3714,7 +3714,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("bob".to_string()),
-            amount: Uint128(100),
+            amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
@@ -3738,7 +3738,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("bob".to_string()),
-            amount: Uint128(100),
+            amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
@@ -3751,7 +3751,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("bob".to_string()),
-            amount: Uint128(100),
+            amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
@@ -3769,7 +3769,7 @@ mod tests {
     fn test_authenticated_queries() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("giannis".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -3809,7 +3809,7 @@ mod tests {
             QueryAnswer::Balance { amount } => amount,
             _ => panic!("Unexpected result from query"),
         };
-        assert_eq!(balance, Uint128(5000));
+        assert_eq!(balance, Uint128::new(5000));
 
         let wrong_vk_query_msg = QueryMsg::Balance {
             address: Addr("giannis".to_string()),
@@ -3833,7 +3833,7 @@ mod tests {
             r#"{ "public_total_supply": true }"#.as_bytes(),
         ))
         .unwrap();
-        let init_supply = Uint128(5000);
+        let init_supply = Uint128::new(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
         let info = mock_info("instantiator", &[]);
@@ -3875,7 +3875,7 @@ mod tests {
                 assert_eq!(name, init_name);
                 assert_eq!(symbol, init_symbol);
                 assert_eq!(decimals, init_decimals);
-                assert_eq!(total_supply, Some(Uint128(5000)));
+                assert_eq!(total_supply, Some(Uint128::new(5000)));
             }
             _ => panic!("unexpected"),
         }
@@ -3900,7 +3900,7 @@ mod tests {
         ))
         .unwrap();
 
-        let init_supply = Uint128(5000);
+        let init_supply = Uint128::new(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
         let info = mock_info("instantiator", &[]);
@@ -3958,7 +3958,7 @@ mod tests {
         let init_symbol = "SECSEC".to_string();
         let init_decimals = 8;
 
-        let init_supply = Uint128(5000);
+        let init_supply = Uint128::new(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
         let info = mock_info("instantiator", &[]);
@@ -4004,7 +4004,7 @@ mod tests {
         let query_answer: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
         match query_answer {
             QueryAnswer::ExchangeRate { rate, denom } => {
-                assert_eq!(rate, Uint128(100));
+                assert_eq!(rate, Uint128::new(100));
                 assert_eq!(denom, "SCRT");
             }
             _ => panic!("unexpected"),
@@ -4016,7 +4016,7 @@ mod tests {
         let init_symbol = "SECSEC".to_string();
         let init_decimals = 6;
 
-        let init_supply = Uint128(5000);
+        let init_supply = Uint128::new(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
         let info = mock_info("instantiator", &[]);
@@ -4062,7 +4062,7 @@ mod tests {
         let query_answer: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
         match query_answer {
             QueryAnswer::ExchangeRate { rate, denom } => {
-                assert_eq!(rate, Uint128(1));
+                assert_eq!(rate, Uint128::new(1));
                 assert_eq!(denom, "SCRT");
             }
             _ => panic!("unexpected"),
@@ -4074,7 +4074,7 @@ mod tests {
         let init_symbol = "SECSEC".to_string();
         let init_decimals = 3;
 
-        let init_supply = Uint128(5000);
+        let init_supply = Uint128::new(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
         let info = mock_info("instantiator", &[]);
@@ -4120,7 +4120,7 @@ mod tests {
         let query_answer: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
         match query_answer {
             QueryAnswer::ExchangeRate { rate, denom } => {
-                assert_eq!(rate, Uint128(1000));
+                assert_eq!(rate, Uint128::new(1000));
                 assert_eq!(denom, "SECSEC");
             }
             _ => panic!("unexpected"),
@@ -4132,7 +4132,7 @@ mod tests {
         let init_symbol = "SECSEC".to_string();
         let init_decimals = 3;
 
-        let init_supply = Uint128(5000);
+        let init_supply = Uint128::new(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
         let info = mock_info("instantiator", &[]);
@@ -4166,7 +4166,7 @@ mod tests {
         let query_answer: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
         match query_answer {
             QueryAnswer::ExchangeRate { rate, denom } => {
-                assert_eq!(rate, Uint128(0));
+                assert_eq!(rate, Uint128::new(0));
                 assert_eq!(denom, String::new());
             }
             _ => panic!("unexpected"),
@@ -4177,7 +4177,7 @@ mod tests {
     fn test_query_allowance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("giannis".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -4187,7 +4187,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: Addr("lebron".to_string()),
-            amount: Uint128(2000),
+            amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
@@ -4264,7 +4264,7 @@ mod tests {
             QueryAnswer::Allowance { allowance, .. } => allowance,
             _ => panic!("Unexpected"),
         };
-        assert_eq!(allowance, Uint128(2000));
+        assert_eq!(allowance, Uint128::new(2000));
 
         let query_msg = QueryMsg::Allowance {
             owner: Addr("giannis".to_string()),
@@ -4276,7 +4276,7 @@ mod tests {
             QueryAnswer::Allowance { allowance, .. } => allowance,
             _ => panic!("Unexpected"),
         };
-        assert_eq!(allowance, Uint128(2000));
+        assert_eq!(allowance, Uint128::new(2000));
 
         let query_msg = QueryMsg::Allowance {
             owner: Addr("lebron".to_string()),
@@ -4288,14 +4288,14 @@ mod tests {
             QueryAnswer::Allowance { allowance, .. } => allowance,
             _ => panic!("Unexpected"),
         };
-        assert_eq!(allowance, Uint128(0));
+        assert_eq!(allowance, Uint128::new(0));
     }
 
     #[test]
     fn test_query_balance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -4338,14 +4338,14 @@ mod tests {
             QueryAnswer::Balance { amount } => amount,
             _ => panic!("Unexpected"),
         };
-        assert_eq!(balance, Uint128(5000));
+        assert_eq!(balance, Uint128::new(5000));
     }
 
     #[test]
     fn test_query_transfer_history() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr("bob".to_string()),
-            amount: Uint128(5000),
+            amount: Uint128::new(5000),
         }]);
         assert!(
             init_result.is_ok(),
@@ -4365,7 +4365,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Transfer {
             recipient: Addr("alice".to_string()),
-            amount: Uint128(1000),
+            amount: Uint128::new(1000),
             memo: None,
             padding: None,
         };
@@ -4377,7 +4377,7 @@ mod tests {
         assert!(ensure_success(result));
         let handle_msg = ExecuteMsg::Transfer {
             recipient: Addr("banana".to_string()),
-            amount: Uint128(500),
+            amount: Uint128::new(500),
             memo: None,
             padding: None,
         };
@@ -4389,7 +4389,7 @@ mod tests {
         assert!(ensure_success(result));
         let handle_msg = ExecuteMsg::Transfer {
             recipient: Addr("mango".to_string()),
-            amount: Uint128(2500),
+            amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
@@ -4460,7 +4460,7 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr("bob".to_string()),
-                amount: Uint128(10000),
+                amount: Uint128::new(10000),
             }],
             true,
             true,
@@ -4485,7 +4485,7 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Burn {
-            amount: Uint128(1),
+            amount: Uint128::new(1),
             memo: Some("my burn message".to_string()),
             padding: None,
         };
@@ -4500,7 +4500,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::Redeem {
-            amount: Uint128(1000),
+            amount: Uint128::new(1000),
             denom: None,
             padding: None,
         };
@@ -4516,7 +4516,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("bob".to_string()),
-            amount: Uint128(100),
+            amount: Uint128::new(100),
             memo: Some("my mint message".to_string()),
             padding: None,
         };
@@ -4531,7 +4531,7 @@ mod tests {
             "bob",
             &[Coin {
                 denom: "uscrt".to_string(),
-                amount: Uint128(1000),
+                amount: Uint128::new(1000),
             }],
         );
 
@@ -4544,7 +4544,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Transfer {
             recipient: Addr("alice".to_string()),
-            amount: Uint128(1000),
+            amount: Uint128::new(1000),
             memo: Some("my transfer message #1".to_string()),
             padding: None,
         };
@@ -4557,7 +4557,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Transfer {
             recipient: Addr("banana".to_string()),
-            amount: Uint128(500),
+            amount: Uint128::new(500),
             memo: Some("my transfer message #2".to_string()),
             padding: None,
         };
@@ -4570,7 +4570,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Transfer {
             recipient: Addr("mango".to_string()),
-            amount: Uint128(2500),
+            amount: Uint128::new(2500),
             memo: Some("my transfer message #3".to_string()),
             padding: None,
         };
@@ -4617,7 +4617,7 @@ mod tests {
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
-                    amount: Uint128(2500),
+                    amount: Uint128::new(2500),
                 },
                 memo: Some("my transfer message #3".to_string()),
                 block_time: 1571797419,
@@ -4632,7 +4632,7 @@ mod tests {
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
-                    amount: Uint128(500),
+                    amount: Uint128::new(500),
                 },
                 memo: Some("my transfer message #2".to_string()),
                 block_time: 1571797419,
@@ -4647,7 +4647,7 @@ mod tests {
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
-                    amount: Uint128(1000),
+                    amount: Uint128::new(1000),
                 },
                 memo: Some("my transfer message #1".to_string()),
                 block_time: 1571797419,
@@ -4658,7 +4658,7 @@ mod tests {
                 action: TxAction::Deposit {},
                 coins: Coin {
                     denom: "uscrt".to_string(),
-                    amount: Uint128(1000),
+                    amount: Uint128::new(1000),
                 },
                 memo: None,
                 block_time: 1571797419,
@@ -4672,7 +4672,7 @@ mod tests {
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
-                    amount: Uint128(100),
+                    amount: Uint128::new(100),
                 },
                 memo: Some("my mint message".to_string()),
                 block_time: 1571797419,
@@ -4683,7 +4683,7 @@ mod tests {
                 action: TxAction::Redeem {},
                 coins: Coin {
                     denom: "SECSEC".to_string(),
-                    amount: Uint128(1000),
+                    amount: Uint128::new(1000),
                 },
                 memo: None,
                 block_time: 1571797419,
@@ -4697,7 +4697,7 @@ mod tests {
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
-                    amount: Uint128(1),
+                    amount: Uint128::new(1),
                 },
                 memo: Some("my burn message".to_string()),
                 block_time: 1571797419,
@@ -4711,7 +4711,7 @@ mod tests {
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
-                    amount: Uint128(10000),
+                    amount: Uint128::new(10000),
                 },
 
                 memo: Some("Initial Balance".to_string()),
