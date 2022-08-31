@@ -2115,7 +2115,7 @@ mod tests {
         assert!(ensure_success(result.clone()));
         assert!(result.messages.contains(&CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: Addr("contract".to_string()),
-            callback_code_hash: "this_is_a_hash_of_a_code".to_string(),
+            code_hash: "this_is_a_hash_of_a_code".to_string(),
             msg: Snip20ReceiveMsg::new(
                 Addr("bob".to_string()),
                 Addr("bob".to_string()),
@@ -2125,7 +2125,7 @@ mod tests {
             )
             .into_binary()
             .unwrap(),
-            send: vec![]
+            funds: vec![]
         })));
     }
 
@@ -3869,7 +3869,7 @@ mod tests {
             address: Addr("giannis".to_string()),
             key: "no_vk_yet".to_string(),
         };
-        let query_result = query(&deps, no_vk_yet_query_msg);
+        let query_result = query(&deps, mock_env(), no_vk_yet_query_msg);
         let error = extract_error_msg(query_result);
         assert_eq!(
             error,
@@ -3892,7 +3892,7 @@ mod tests {
             key: vk.0,
         };
 
-        let query_response = query(&deps, query_balance_msg).unwrap();
+        let query_response = query(&deps, mock_env(), query_balance_msg).unwrap();
         let balance = match from_binary(&query_response).unwrap() {
             QueryAnswer::Balance { amount } => amount,
             _ => panic!("Unexpected result from query"),
@@ -3903,7 +3903,7 @@ mod tests {
             address: Addr("giannis".to_string()),
             key: "wrong_vk".to_string(),
         };
-        let query_result = query(&deps, wrong_vk_query_msg);
+        let query_result = query(&deps, mock_env(), wrong_vk_query_msg);
         let error = extract_error_msg(query_result);
         assert_eq!(
             error,
@@ -3924,7 +3924,8 @@ mod tests {
         let init_supply = Uint128(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
-        let env = mock_env("instantiator", &[]);
+        let info = mock_info("instantiator", &[]);
+        let env = mock_env();
         let init_msg = InstantiateMsg {
             name: init_name.clone(),
             admin: Some(init_admin.clone()),
@@ -3937,7 +3938,7 @@ mod tests {
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
         };
-        let init_result = instantiate(&mut deps, env, init_msg);
+        let init_result = instantiate(&mut deps, env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -3945,7 +3946,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::TokenInfo {};
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -3990,7 +3991,8 @@ mod tests {
         let init_supply = Uint128(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
-        let env = mock_env("instantiator", &[]);
+        let info = mock_info("instantiator", &[]);
+        let env = mock_env();
         let init_msg = InstantiateMsg {
             name: init_name.clone(),
             admin: Some(init_admin.clone()),
@@ -4003,7 +4005,7 @@ mod tests {
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
         };
-        let init_result = instantiate(&mut deps, env, init_msg);
+        let init_result = instantiate(&mut deps, env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -4011,7 +4013,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::TokenConfig {};
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -4047,7 +4049,8 @@ mod tests {
         let init_supply = Uint128(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
-        let env = mock_env("instantiator", &[]);
+        let info = mock_info("instantiator", &[]);
+        let env = mock_env();
         let init_config: InitConfig = from_binary(&Binary::from(
             format!(
                 "{{\"public_total_supply\":{},
@@ -4072,7 +4075,7 @@ mod tests {
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
         };
-        let init_result = instantiate(&mut deps, env, init_msg);
+        let init_result = instantiate(&mut deps, env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -4080,7 +4083,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::ExchangeRate {};
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -4104,7 +4107,8 @@ mod tests {
         let init_supply = Uint128(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
-        let env = mock_env("instantiator", &[]);
+        let info = mock_info("instantiator", &[]);
+        let env = mock_env();
         let init_config: InitConfig = from_binary(&Binary::from(
             format!(
                 "{{\"public_total_supply\":{},
@@ -4129,7 +4133,7 @@ mod tests {
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
         };
-        let init_result = instantiate(&mut deps, env, init_msg);
+        let init_result = instantiate(&mut deps, env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -4137,7 +4141,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::ExchangeRate {};
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -4161,7 +4165,8 @@ mod tests {
         let init_supply = Uint128(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
-        let env = mock_env("instantiator", &[]);
+        let info = mock_info("instantiator", &[]);
+        let env = mock_env();
         let init_config: InitConfig = from_binary(&Binary::from(
             format!(
                 "{{\"public_total_supply\":{},
@@ -4186,7 +4191,7 @@ mod tests {
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
         };
-        let init_result = instantiate(&mut deps, env, init_msg);
+        let init_result = instantiate(&mut deps, env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -4194,7 +4199,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::ExchangeRate {};
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -4218,7 +4223,8 @@ mod tests {
         let init_supply = Uint128(5000);
 
         let mut deps = mock_dependencies_with_balance(&[]);
-        let env = mock_env("instantiator", &[]);
+        let info = mock_info("instantiator", &[]);
+        let env = mock_env();
         let init_msg = InstantiateMsg {
             name: init_name.clone(),
             admin: Some(init_admin.clone()),
@@ -4231,7 +4237,7 @@ mod tests {
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: None,
         };
-        let init_result = instantiate(&mut deps, env, init_msg);
+        let init_result = instantiate(&mut deps, env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -4239,7 +4245,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::ExchangeRate {};
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -4291,7 +4297,7 @@ mod tests {
             spender: Addr("lebron".to_string()),
             key: vk1.0.clone(),
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Query failed: {}",
@@ -4341,7 +4347,7 @@ mod tests {
             spender: Addr("lebron".to_string()),
             key: vk1.0.clone(),
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::Allowance { allowance, .. } => allowance,
             _ => panic!("Unexpected"),
@@ -4353,7 +4359,7 @@ mod tests {
             spender: Addr("lebron".to_string()),
             key: vk2.0.clone(),
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::Allowance { allowance, .. } => allowance,
             _ => panic!("Unexpected"),
@@ -4365,7 +4371,7 @@ mod tests {
             spender: Addr("giannis".to_string()),
             key: vk2.0.clone(),
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::Allowance { allowance, .. } => allowance,
             _ => panic!("Unexpected"),
@@ -4407,7 +4413,7 @@ mod tests {
             address: Addr("bob".to_string()),
             key: "wrong_key".to_string(),
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         let error = extract_error_msg(query_result);
         assert!(error.contains("Wrong viewing key"));
 
@@ -4415,7 +4421,7 @@ mod tests {
             address: Addr("bob".to_string()),
             key: "key".to_string(),
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         let balance = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::Balance { amount } => amount,
             _ => panic!("Unexpected"),
@@ -4488,7 +4494,7 @@ mod tests {
             page: None,
             page_size: 0,
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         // let a: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
         // println!("{:?}", a);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -4503,7 +4509,7 @@ mod tests {
             page: None,
             page_size: 10,
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::TransferHistory { txs, .. } => txs,
             _ => panic!("Unexpected"),
@@ -4516,7 +4522,7 @@ mod tests {
             page: None,
             page_size: 2,
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::TransferHistory { txs, .. } => txs,
             _ => panic!("Unexpected"),
@@ -4529,7 +4535,7 @@ mod tests {
             page: Some(1),
             page_size: 2,
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::TransferHistory { txs, .. } => txs,
             _ => panic!("Unexpected"),
@@ -4669,7 +4675,7 @@ mod tests {
             page: None,
             page_size: 10,
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::TransferHistory { txs, .. } => txs,
             _ => panic!("Unexpected"),
@@ -4682,7 +4688,7 @@ mod tests {
             page: None,
             page_size: 10,
         };
-        let query_result = query(&deps, query_msg);
+        let query_result = query(&deps, mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::TransactionHistory { txs, .. } => txs,
             other => panic!("Unexpected: {:?}", other),
