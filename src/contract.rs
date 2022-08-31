@@ -31,7 +31,7 @@ pub const PREFIX_REVOKED_PERMITS: &str = "revoked_permits";
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
-    _info: MessageInfo,
+    info: MessageInfo,
     msg: InstantiateMsg,
 ) -> StdResult<Response> {
     // Check name, symbol, decimals
@@ -50,16 +50,16 @@ pub fn instantiate(
     }
 
     let init_config = msg.config();
-    let admin = msg.admin.unwrap_or(env.message.sender);
-    let canon_admin = deps.api.addr_validate(&admin)?;
+    let admin = msg.admin.unwrap_or(info.sender);
+    let canon_admin = deps.api.addr_canonicalize(&admin.as_str())?;
 
     let mut total_supply: u128 = 0;
     {
         let initial_balances = msg.initial_balances.unwrap_or_default();
         for balance in initial_balances {
-            let balance_address = deps.api.addr_validate(&balance.address)?;
+            let balance_address = deps.api.addr_canonicalize(&balance.address.as_str())?;
             let amount = balance.amount.u128();
-            BalancesStore::save(deps.storage, &balance_address, amount);
+            BalancesStore::save(deps.storage, &balance.address, amount);
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
                 total_supply = new_total_supply;
             } else {
@@ -68,7 +68,7 @@ pub fn instantiate(
                 ));
             }
             store_mint(
-                &mut deps.storage,
+                deps.storage,
                 &canon_admin,
                 &balance_address,
                 balance.amount,
@@ -81,7 +81,7 @@ pub fn instantiate(
 
     let prng_seed_hashed = sha_256(&msg.prng_seed.0);
 
-    let mut config = Config::from_storage(&mut deps.storage);
+    let mut config = Config::from_storage(deps.storage);
     config.set_constants(&Constants {
         name: msg.name,
         symbol: msg.symbol,
@@ -125,12 +125,12 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
             let response = match msg {
                 ExecuteMsg::SetContractStatus { level, .. } => {
-                    set_contract_status(deps, env, level)
+                    set_contract_status(deps, env, &info, level)
                 }
                 ExecuteMsg::Redeem { amount, .. }
                     if contract_status == ContractStatusLevel::StopAllButRedeems =>
                 {
-                    try_redeem(deps, env, amount)
+                    try_redeem(deps, env, &info, amount)
                 }
                 _ => Err(StdError::generic_err(
                     "This contract is stopped and this action is not allowed",
@@ -143,8 +143,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
 
     let response = match msg {
         // Native
-        ExecuteMsg::Deposit { .. } => try_deposit(deps, env),
-        ExecuteMsg::Redeem { amount, .. } => try_redeem(deps, env, amount),
+        ExecuteMsg::Deposit { .. } => try_deposit(deps, env, &info),
+        ExecuteMsg::Redeem { amount, .. } => try_redeem(deps, env, &info, amount),
 
         // Base
         ExecuteMsg::Transfer {
@@ -152,7 +152,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_transfer(deps, env, recipient, amount, memo),
+        } => try_transfer(deps, env, recipient, amount, &info, memo),
         ExecuteMsg::Send {
             recipient,
             recipient_code_hash,
@@ -160,13 +160,24 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             msg,
             memo,
             ..
-        } => try_send(deps, env, recipient, recipient_code_hash, amount, memo, msg),
-        ExecuteMsg::BatchTransfer { actions, .. } => try_batch_transfer(deps, env, actions),
-        ExecuteMsg::BatchSend { actions, .. } => try_batch_send(deps, env, actions),
-        ExecuteMsg::Burn { amount, memo, .. } => try_burn(deps, env, amount, memo),
-        ExecuteMsg::RegisterReceive { code_hash, .. } => try_register_receive(deps, env, code_hash),
-        ExecuteMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, entropy),
-        ExecuteMsg::SetViewingKey { key, .. } => try_set_key(deps, env, key),
+        } => try_send(
+            deps,
+            env,
+            &info,
+            recipient,
+            recipient_code_hash,
+            amount,
+            memo,
+            msg,
+        ),
+        ExecuteMsg::BatchTransfer { actions, .. } => try_batch_transfer(deps, env, &info, actions),
+        ExecuteMsg::BatchSend { actions, .. } => try_batch_send(deps, env, &info, actions),
+        ExecuteMsg::Burn { amount, memo, .. } => try_burn(deps, env, &info, amount, memo),
+        ExecuteMsg::RegisterReceive { code_hash, .. } => {
+            try_register_receive(deps, env, &info, code_hash)
+        }
+        ExecuteMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, &info, entropy),
+        ExecuteMsg::SetViewingKey { key, .. } => try_set_key(deps, env, &info, key),
 
         // Allowance
         ExecuteMsg::IncreaseAllowance {
@@ -174,20 +185,20 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             expiration,
             ..
-        } => try_increase_allowance(deps, env, spender, amount, expiration),
+        } => try_increase_allowance(deps, env, &info, spender, amount, expiration),
         ExecuteMsg::DecreaseAllowance {
             spender,
             amount,
             expiration,
             ..
-        } => try_decrease_allowance(deps, env, spender, amount, expiration),
+        } => try_decrease_allowance(deps, env, &info, spender, amount, expiration),
         ExecuteMsg::TransferFrom {
             owner,
             recipient,
             amount,
             memo,
             ..
-        } => try_transfer_from(deps, &env, &owner, &recipient, amount, memo),
+        } => try_transfer_from(deps, &env, &info, &owner, &recipient, amount, memo),
         ExecuteMsg::SendFrom {
             owner,
             recipient,
@@ -199,6 +210,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         } => try_send_from(
             deps,
             env,
+            &info,
             owner,
             recipient,
             recipient_code_hash,
@@ -207,16 +219,18 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             msg,
         ),
         ExecuteMsg::BatchTransferFrom { actions, .. } => {
-            try_batch_transfer_from(deps, &env, actions)
+            try_batch_transfer_from(deps, &env, &info, actions)
         }
-        ExecuteMsg::BatchSendFrom { actions, .. } => try_batch_send_from(deps, env, actions),
+        ExecuteMsg::BatchSendFrom { actions, .. } => try_batch_send_from(deps, env, &info, actions),
         ExecuteMsg::BurnFrom {
             owner,
             amount,
             memo,
             ..
-        } => try_burn_from(deps, &env, &owner, amount, memo),
-        ExecuteMsg::BatchBurnFrom { actions, .. } => try_batch_burn_from(deps, &env, actions),
+        } => try_burn_from(deps, &env, &info, &owner, amount, memo),
+        ExecuteMsg::BatchBurnFrom { actions, .. } => {
+            try_batch_burn_from(deps, &env, &info, actions)
+        }
 
         // Mint
         ExecuteMsg::Mint {
@@ -224,16 +238,18 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_mint(deps, env, recipient, amount, memo),
-        ExecuteMsg::BatchMint { actions, .. } => try_batch_mint(deps, env, actions),
+        } => try_mint(deps, env, &info, recipient, amount, memo),
+        ExecuteMsg::BatchMint { actions, .. } => try_batch_mint(deps, env, &info, actions),
 
         // Other
-        ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, env, address),
-        ExecuteMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, level),
-        ExecuteMsg::AddMinters { minters, .. } => add_minters(deps, env, minters),
+        ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, env, &info, address),
+        ExecuteMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, &info, level),
+        ExecuteMsg::AddMinters { minters, .. } => add_minters(deps, env, &info, minters),
         ExecuteMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
-        ExecuteMsg::SetMinters { minters, .. } => set_minters(deps, env, minters),
-        ExecuteMsg::RevokePermit { permit_name, .. } => revoke_permit(deps, env, permit_name),
+        ExecuteMsg::SetMinters { minters, .. } => set_minters(deps, env, &info, minters),
+        ExecuteMsg::RevokePermit { permit_name, .. } => {
+            revoke_permit(deps, env, &info, permit_name)
+        }
     };
 
     pad_response(response)
@@ -322,7 +338,7 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
     let (addresses, key) = msg.get_validation_params();
 
     for address in addresses {
-        let canonical_addr = deps.api.addr_validate(address)?;
+        let canonical_addr = deps.api.addr_canonicalize(address.as_str())?;
 
         let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
 
@@ -421,7 +437,7 @@ fn query_contract_status(storage: &dyn Storage) -> StdResult<Binary> {
 }
 
 pub fn query_transfers(deps: Deps, account: &Addr, page: u32, page_size: u32) -> StdResult<Binary> {
-    let address = deps.api.addr_validate(account)?;
+    let address = deps.api.addr_canonicalize(account.as_str())?;
     let (txs, total) = get_transfers(&deps.api, &deps.storage, &address, page, page_size)?;
 
     let result = QueryAnswer::TransferHistory {
@@ -437,7 +453,7 @@ pub fn query_transactions(
     page: u32,
     page_size: u32,
 ) -> StdResult<Binary> {
-    let address = deps.api.addr_validate(account)?;
+    let address = deps.api.addr_canonicalize(account.as_str())?;
     let (txs, total) = get_txs(&deps.api, &deps.storage, &address, page, page_size)?;
 
     let result = QueryAnswer::TransactionHistory {
@@ -448,9 +464,7 @@ pub fn query_transactions(
 }
 
 pub fn query_balance(deps: Deps, account: &Addr) -> StdResult<Binary> {
-    let address = deps.api.addr_validate(account)?;
-
-    let amount = Uint128::new(BalancesStore::load(deps.storage, &address));
+    let amount = Uint128::new(BalancesStore::load(deps.storage, account));
     let response = QueryAnswer::Balance { amount };
     to_binary(&response)
 }
@@ -462,10 +476,10 @@ fn query_minters(deps: Deps) -> StdResult<Binary> {
     to_binary(&response)
 }
 
-fn change_admin(deps: DepsMut, env: Env, address: Addr) -> StdResult<Response> {
-    let mut config = Config::from_storage(&mut deps.storage);
+fn change_admin(deps: DepsMut, env: Env, info: &MessageInfo, address: Addr) -> StdResult<Response> {
+    let mut config = Config::from_storage(deps.storage);
 
-    check_if_admin(&config, &env.message.sender)?;
+    check_if_admin(&config, &info.sender)?;
 
     let mut consts = config.constants()?;
     consts.admin = address;
@@ -514,11 +528,12 @@ fn try_mint_impl<S: Storage>(
 fn try_mint(
     deps: DepsMut,
     env: Env,
+    info: &MessageInfo,
     recipient: Addr,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let mut config = Config::from_storage(&mut deps.storage);
+    let mut config = Config::from_storage(deps.storage);
     let constants = config.constants()?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
@@ -527,7 +542,7 @@ fn try_mint(
     }
 
     let minters = config.minters();
-    if !minters.contains(&env.message.sender) {
+    if !minters.contains(&info.sender) {
         return Err(StdError::generic_err(
             "Minting is allowed to minter accounts only",
         ));
@@ -543,10 +558,10 @@ fn try_mint(
     }
     config.set_total_supply(total_supply);
 
-    let minter = deps.api.addr_validate(&env.message.sender)?;
-    let recipient = deps.api.addr_validate(&recipient)?;
+    let minter = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
     try_mint_impl(
-        &mut deps.storage,
+        deps.storage,
         &minter,
         &recipient,
         amount,
@@ -565,8 +580,13 @@ fn try_mint(
     Ok(res)
 }
 
-fn try_batch_mint(deps: DepsMut, env: Env, actions: Vec<batch::MintAction>) -> StdResult<Response> {
-    let mut config = Config::from_storage(&mut deps.storage);
+fn try_batch_mint(
+    deps: DepsMut,
+    env: Env,
+    info: &MessageInfo,
+    actions: Vec<batch::MintAction>,
+) -> StdResult<Response> {
+    let mut config = Config::from_storage(deps.storage);
     let constants = config.constants()?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
@@ -575,7 +595,7 @@ fn try_batch_mint(deps: DepsMut, env: Env, actions: Vec<batch::MintAction>) -> S
     }
 
     let minters = config.minters();
-    if !minters.contains(&env.message.sender) {
+    if !minters.contains(&info.sender) {
         return Err(StdError::generic_err(
             "Minting is allowed to minter accounts only",
         ));
@@ -595,11 +615,11 @@ fn try_batch_mint(deps: DepsMut, env: Env, actions: Vec<batch::MintAction>) -> S
     }
     config.set_total_supply(total_supply);
 
-    let minter = deps.api.addr_validate(&env.message.sender)?;
+    let minter = deps.api.addr_canonicalize(&info.sender.as_str())?;
     for action in actions {
-        let recipient = deps.api.addr_validate(&action.recipient)?;
+        let recipient = deps.api.addr_canonicalize(&action.recipient.as_str())?;
         try_mint_impl(
-            &mut deps.storage,
+            deps.storage,
             &minter,
             &recipient,
             action.amount,
@@ -619,11 +639,16 @@ fn try_batch_mint(deps: DepsMut, env: Env, actions: Vec<batch::MintAction>) -> S
     Ok(res)
 }
 
-pub fn try_set_key(deps: DepsMut, env: Env, key: String) -> StdResult<Response> {
+pub fn try_set_key(
+    deps: DepsMut,
+    env: Env,
+    info: &MessageInfo,
+    key: String,
+) -> StdResult<Response> {
     let vk = ViewingKey(key);
 
-    let message_sender = deps.api.addr_validate(&env.message.sender)?;
-    write_viewing_key(&mut deps.storage, &message_sender, &vk);
+    let message_sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    write_viewing_key(deps.storage, &message_sender, &vk);
 
     Ok(Response {
         messages: vec![],
@@ -635,14 +660,19 @@ pub fn try_set_key(deps: DepsMut, env: Env, key: String) -> StdResult<Response> 
     })
 }
 
-pub fn try_create_key(deps: DepsMut, env: Env, entropy: String) -> StdResult<Response> {
+pub fn try_create_key(
+    deps: DepsMut,
+    env: Env,
+    info: &MessageInfo,
+    entropy: String,
+) -> StdResult<Response> {
     let constants = ReadonlyConfig::from_storage(&deps.storage).constants()?;
     let prng_seed = constants.prng_seed;
 
     let key = ViewingKey::new(&env, &prng_seed, (&entropy).as_ref());
 
-    let message_sender = deps.api.addr_validate(&env.message.sender)?;
-    write_viewing_key(&mut deps.storage, &message_sender, &key);
+    let message_sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    write_viewing_key(deps.storage, &message_sender, &key);
 
     Ok(Response {
         messages: vec![],
@@ -655,11 +685,12 @@ pub fn try_create_key(deps: DepsMut, env: Env, entropy: String) -> StdResult<Res
 fn set_contract_status(
     deps: DepsMut,
     env: Env,
+    info: &MessageInfo,
     status_level: ContractStatusLevel,
 ) -> StdResult<Response> {
-    let mut config = Config::from_storage(&mut deps.storage);
+    let mut config = Config::from_storage(deps.storage);
 
-    check_if_admin(&config, &env.message.sender)?;
+    check_if_admin(&config, &info.sender)?;
 
     config.set_contract_status(status_level);
 
@@ -674,10 +705,7 @@ fn set_contract_status(
 }
 
 pub fn query_allowance(deps: Deps, owner: Addr, spender: Addr) -> StdResult<Binary> {
-    let owner_address = deps.api.addr_validate(&owner)?;
-    let spender_address = deps.api.addr_validate(&spender)?;
-
-    let allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+    let allowance = read_allowance(&deps.storage, &owner, &spender)?;
 
     let response = QueryAnswer::Allowance {
         owner,
@@ -688,7 +716,7 @@ pub fn query_allowance(deps: Deps, owner: Addr, spender: Addr) -> StdResult<Bina
     to_binary(&response)
 }
 
-fn try_deposit(deps: DepsMut, env: Env) -> StdResult<Response> {
+fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Response> {
     let mut amount = Uint128::zero();
 
     for coin in &env.message.sent_funds {
@@ -707,7 +735,7 @@ fn try_deposit(deps: DepsMut, env: Env) -> StdResult<Response> {
 
     let raw_amount = amount.u128();
 
-    let mut config = Config::from_storage(&mut deps.storage);
+    let mut config = Config::from_storage(deps.storage);
     let constants = config.constants()?;
     if !constants.deposit_is_enabled {
         return Err(StdError::generic_err(
@@ -723,11 +751,11 @@ fn try_deposit(deps: DepsMut, env: Env) -> StdResult<Response> {
         ));
     }
 
-    let sender_address = deps.api.addr_validate(&env.message.sender)?;
+    let sender_address = deps.api.addr_canonicalize(&info.sender.as_str())?;
 
-    let account_balance = BalancesStore::load(deps.storage, &sender_address);
+    let account_balance = BalancesStore::load(deps.storage, &info.sender);
     if let Some(account_balance) = account_balance.checked_add(raw_amount) {
-        BalancesStore::save(deps.storage, &sender_address, account_balance);
+        BalancesStore::save(deps.storage, &info.sender, account_balance);
     } else {
         return Err(StdError::generic_err(
             "This deposit would overflow your balance",
@@ -735,7 +763,7 @@ fn try_deposit(deps: DepsMut, env: Env) -> StdResult<Response> {
     }
 
     store_deposit(
-        &mut deps.storage,
+        deps.storage,
         &sender_address,
         amount,
         "uscrt".to_string(),
@@ -752,7 +780,7 @@ fn try_deposit(deps: DepsMut, env: Env) -> StdResult<Response> {
     Ok(res)
 }
 
-fn try_redeem(deps: DepsMut, env: Env, amount: Uint128) -> StdResult<Response> {
+fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> StdResult<Response> {
     let config = ReadonlyConfig::from_storage(&deps.storage);
     let constants = config.constants()?;
     if !constants.redeem_is_enabled {
@@ -761,12 +789,12 @@ fn try_redeem(deps: DepsMut, env: Env, amount: Uint128) -> StdResult<Response> {
         ));
     }
 
-    let sender_address = deps.api.addr_validate(&env.message.sender)?;
+    let sender_address = deps.api.addr_canonicalize(&info.sender.as_str())?;
     let amount_raw = amount.u128();
 
-    let account_balance = BalancesStore::load(deps.storage, &sender_address);
+    let account_balance = BalancesStore::load(deps.storage, &info.sender);
     if let Some(account_balance) = account_balance.checked_sub(amount_raw) {
-        BalancesStore::save(deps.storage, &sender_address, account_balance);
+        BalancesStore::save(deps.storage, &info.sender, account_balance);
     } else {
         return Err(StdError::generic_err(format!(
             "insufficient funds to redeem: balance={}, required={}",
@@ -774,7 +802,7 @@ fn try_redeem(deps: DepsMut, env: Env, amount: Uint128) -> StdResult<Response> {
         )));
     }
 
-    let mut config = Config::from_storage(&mut deps.storage);
+    let mut config = Config::from_storage(deps.storage);
     let total_supply = config.total_supply();
     if let Some(total_supply) = total_supply.checked_sub(amount_raw) {
         config.set_total_supply(total_supply);
@@ -800,7 +828,7 @@ fn try_redeem(deps: DepsMut, env: Env, amount: Uint128) -> StdResult<Response> {
     }];
 
     store_redeem(
-        &mut deps.storage,
+        deps.storage,
         &sender_address,
         amount,
         constants.symbol,
@@ -810,7 +838,7 @@ fn try_redeem(deps: DepsMut, env: Env, amount: Uint128) -> StdResult<Response> {
     let res = Response {
         messages: vec![CosmosMsg::Bank(BankMsg::Send {
             // from_address: env.contract.address, //elad
-            to_address: env.message.sender,
+            to_address: info.sender,
             amount: withdrawal_coins,
         })],
         attributes: vec![],
@@ -829,12 +857,12 @@ fn try_transfer_impl(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
-    perform_transfer(&mut deps.storage, sender, recipient, amount.u128())?;
+    perform_transfer(deps.storage, sender, recipient, amount.u128())?;
 
-    let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
+    let symbol = Config::from_storage(deps.storage).constants()?.symbol;
 
     store_transfer(
-        &mut deps.storage,
+        deps.storage,
         sender,
         sender,
         recipient,
@@ -850,12 +878,13 @@ fn try_transfer_impl(
 fn try_transfer(
     deps: DepsMut,
     env: Env,
+    info: &MessageInfo,
     recipient: Addr,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let sender = deps.api.addr_validate(&env.message.sender)?;
-    let recipient = deps.api.addr_validate(&recipient)?;
+    let sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
     try_transfer_impl(deps, &sender, &recipient, amount, memo, &env.block)?;
 
     let res = Response {
@@ -870,11 +899,12 @@ fn try_transfer(
 fn try_batch_transfer(
     deps: DepsMut,
     env: Env,
+    info: &MessageInfo,
     actions: Vec<batch::TransferAction>,
 ) -> StdResult<Response> {
-    let sender = deps.api.addr_validate(&env.message.sender)?;
+    let sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
     for action in actions {
-        let recipient = deps.api.addr_validate(&action.recipient)?;
+        let recipient = deps.api.addr_canonicalize(&action.recipient.as_str())?;
         try_transfer_impl(
             deps,
             &sender,
@@ -940,7 +970,7 @@ fn try_send_impl(
     msg: Option<Binary>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
-    let recipient_canon = deps.api.addr_validate(&recipient)?;
+    let recipient_canon = deps.api.addr_canonicalize(&recipient.as_str())?;
     try_transfer_impl(
         deps,
         sender_canon,
@@ -968,6 +998,7 @@ fn try_send_impl(
 fn try_send(
     deps: DepsMut,
     env: Env,
+    info: &MessageInfo,
     recipient: Addr,
     recipient_code_hash: Option<String>,
     amount: Uint128,
@@ -975,8 +1006,8 @@ fn try_send(
     msg: Option<Binary>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
-    let sender = env.message.sender;
-    let sender_canon = deps.api.addr_validate(&sender)?;
+    let sender = info.sender;
+    let sender_canon = deps.api.addr_canonicalize(&sender.as_str())?;
     try_send_impl(
         deps,
         &mut messages,
@@ -999,10 +1030,15 @@ fn try_send(
     Ok(res)
 }
 
-fn try_batch_send(deps: DepsMut, env: Env, actions: Vec<batch::SendAction>) -> StdResult<Response> {
+fn try_batch_send(
+    deps: DepsMut,
+    env: Env,
+    info: &MessageInfo,
+    actions: Vec<batch::SendAction>,
+) -> StdResult<Response> {
     let mut messages = vec![];
-    let sender = env.message.sender;
-    let sender_canon = deps.api.addr_validate(&sender)?;
+    let sender = info.sender;
+    let sender_canon = deps.api.addr_canonicalize(&sender.as_str())?;
     for action in actions {
         try_send_impl(
             deps,
@@ -1027,8 +1063,13 @@ fn try_batch_send(deps: DepsMut, env: Env, actions: Vec<batch::SendAction>) -> S
     Ok(res)
 }
 
-fn try_register_receive(deps: DepsMut, env: Env, code_hash: String) -> StdResult<Response> {
-    set_receiver_hash(&mut deps.storage, &env.message.sender, code_hash);
+fn try_register_receive(
+    deps: DepsMut,
+    env: Env,
+    info: &MessageInfo,
+    code_hash: String,
+) -> StdResult<Response> {
+    set_receiver_hash(deps.storage, &info.sender, code_hash);
     let res = Response {
         messages: vec![],
         // log: vec![log("register_status", "success")],
@@ -1051,8 +1092,8 @@ fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
 fn use_allowance<S: Storage>(
     storage: &mut S,
     env: &Env,
-    owner: &CanonicalAddr,
-    spender: &CanonicalAddr,
+    owner: &Addr,
+    spender: &Addr,
     amount: u128,
 ) -> StdResult<()> {
     let mut allowance = read_allowance(storage, owner, spender)?;
@@ -1082,14 +1123,14 @@ fn try_transfer_from_impl(
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
 
-    use_allowance(&mut deps.storage, env, owner, spender, raw_amount)?;
+    use_allowance(deps.storage, env, owner, spender, raw_amount)?;
 
-    perform_transfer(&mut deps.storage, owner, recipient, raw_amount)?;
+    perform_transfer(deps.storage, owner, recipient, raw_amount)?;
 
-    let symbol = Config::from_storage(&mut deps.storage).constants()?.symbol;
+    let symbol = Config::from_storage(deps.storage).constants()?.symbol;
 
     store_transfer(
-        &mut deps.storage,
+        deps.storage,
         owner,
         spender,
         recipient,
@@ -1105,14 +1146,15 @@ fn try_transfer_from_impl(
 fn try_transfer_from(
     deps: DepsMut,
     env: &Env,
+    info: &MessageInfo,
     owner: &Addr,
     recipient: &Addr,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let spender = deps.api.addr_validate(&env.message.sender)?;
-    let owner = deps.api.addr_validate(owner)?;
-    let recipient = deps.api.addr_validate(recipient)?;
+    let spender = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    let owner = deps.api.addr_canonicalize(owner.as_str())?;
+    let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
     try_transfer_from_impl(deps, env, &spender, &owner, &recipient, amount, memo)?;
 
     let res = Response {
@@ -1127,12 +1169,13 @@ fn try_transfer_from(
 fn try_batch_transfer_from(
     deps: DepsMut,
     env: &Env,
+    info: &MessageInfo,
     actions: Vec<batch::TransferFromAction>,
 ) -> StdResult<Response> {
-    let spender = deps.api.addr_validate(&env.message.sender)?;
+    let spender = deps.api.addr_canonicalize(&info.sender.as_str())?;
     for action in actions {
-        let owner = deps.api.addr_validate(&action.owner)?;
-        let recipient = deps.api.addr_validate(&action.recipient)?;
+        let owner = deps.api.addr_canonicalize(&action.owner.as_str())?;
+        let recipient = deps.api.addr_canonicalize(&action.recipient.as_str())?;
         try_transfer_from_impl(
             deps,
             env,
@@ -1168,8 +1211,8 @@ fn try_send_from_impl(
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<()> {
-    let owner_canon = deps.api.addr_validate(&owner)?;
-    let recipient_canon = deps.api.addr_validate(&recipient)?;
+    let owner_canon = deps.api.addr_canonicalize(&owner.as_str())?;
+    let recipient_canon = deps.api.addr_canonicalize(&recipient.as_str())?;
     try_transfer_from_impl(
         deps,
         &env,
@@ -1186,7 +1229,7 @@ fn try_send_from_impl(
         recipient,
         recipient_code_hash,
         msg,
-        env.message.sender,
+        info.sender,
         owner,
         amount,
         memo,
@@ -1199,6 +1242,7 @@ fn try_send_from_impl(
 fn try_send_from(
     deps: DepsMut,
     env: Env,
+    info: &MessageInfo,
     owner: Addr,
     recipient: Addr,
     recipient_code_hash: Option<String>,
@@ -1206,8 +1250,8 @@ fn try_send_from(
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<Response> {
-    let spender = &env.message.sender;
-    let spender_canon = deps.api.addr_validate(spender)?;
+    let spender = &info.sender;
+    let spender_canon = deps.api.addr_canonicalize(spender.as_str())?;
 
     let mut messages = vec![];
     try_send_from_impl(
@@ -1235,10 +1279,11 @@ fn try_send_from(
 fn try_batch_send_from(
     deps: DepsMut,
     env: Env,
+    info: &MessageInfo,
     actions: Vec<batch::SendFromAction>,
 ) -> StdResult<Response> {
-    let spender = &env.message.sender;
-    let spender_canon = deps.api.addr_validate(spender)?;
+    let spender = &info.sender;
+    let spender_canon = deps.api.addr_canonicalize(spender.as_str())?;
     let mut messages = vec![];
 
     for action in actions {
@@ -1270,6 +1315,7 @@ fn try_batch_send_from(
 fn try_burn_from(
     deps: DepsMut,
     env: &Env,
+    info: &MessageInfo,
     owner: &Addr,
     amount: Uint128,
     memo: Option<String>,
@@ -1282,13 +1328,11 @@ fn try_burn_from(
         ));
     }
 
-    let spender = deps.api.addr_validate(&env.message.sender)?;
-    let owner = deps.api.addr_validate(owner)?;
     let raw_amount = amount.u128();
-    use_allowance(&mut deps.storage, env, &owner, &spender, raw_amount)?;
+    use_allowance(deps.storage, env, owner, &info.sender, raw_amount)?;
 
     // subtract from owner account
-    let mut account_balance = BalancesStore::load(deps.storage, &owner);
+    let mut account_balance = BalancesStore::load(deps.storage, owner);
     if let Some(new_balance) = account_balance.checked_sub(raw_amount) {
         account_balance = new_balance;
     } else {
@@ -1299,8 +1343,11 @@ fn try_burn_from(
     }
     BalancesStore::save(deps.storage, &owner, account_balance);
 
+    let spender = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    let owner = deps.api.addr_canonicalize(owner.as_str())?;
+
     // remove from supply
-    let mut config = Config::from_storage(&mut deps.storage);
+    let mut config = Config::from_storage(deps.storage);
     let mut total_supply = config.total_supply();
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
         total_supply = new_total_supply;
@@ -1312,7 +1359,7 @@ fn try_burn_from(
     config.set_total_supply(total_supply);
 
     store_burn(
-        &mut deps.storage,
+        deps.storage,
         &owner,
         &spender,
         amount,
@@ -1334,6 +1381,7 @@ fn try_burn_from(
 fn try_batch_burn_from(
     deps: DepsMut,
     env: &Env,
+    info: &MessageInfo,
     actions: Vec<batch::BurnFromAction>,
 ) -> StdResult<Response> {
     let config = ReadonlyConfig::from_storage(&deps.storage);
@@ -1344,14 +1392,14 @@ fn try_batch_burn_from(
         ));
     }
 
-    let spender = deps.api.addr_validate(&env.message.sender)?;
+    let spender = deps.api.addr_canonicalize(&info.sender.as_str())?;
 
     let mut total_supply = config.total_supply();
 
     for action in actions {
-        let owner = deps.api.addr_validate(&action.owner)?;
+        let owner = action.owner;
         let amount = action.amount.u128();
-        use_allowance(&mut deps.storage, env, &owner, &spender, amount)?;
+        use_allowance(deps.storage, env, &owner, &spender, amount)?;
 
         // subtract from owner account
         let mut account_balance = BalancesStore::load(deps.storage, &owner);
@@ -1377,7 +1425,7 @@ fn try_batch_burn_from(
         }
 
         store_burn(
-            &mut deps.storage,
+            deps.storage,
             &owner,
             &spender,
             action.amount,
@@ -1387,7 +1435,7 @@ fn try_batch_burn_from(
         )?;
     }
 
-    let mut config = Config::from_storage(&mut deps.storage);
+    let mut config = Config::from_storage(deps.storage);
     config.set_total_supply(total_supply);
 
     let res = Response {
@@ -1405,14 +1453,12 @@ fn try_batch_burn_from(
 fn try_increase_allowance(
     deps: DepsMut,
     env: Env,
+    info: &MessageInfo,
     spender: Addr,
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
-    let owner_address = deps.api.addr_validate(&env.message.sender)?;
-    let spender_address = deps.api.addr_validate(&spender)?;
-
-    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+    let mut allowance = read_allowance(&deps.storage, &info.sender, &spender)?;
 
     // If the previous allowance has expired, reset the allowance.
     // Without this users can take advantage of an expired allowance given to
@@ -1428,19 +1474,14 @@ fn try_increase_allowance(
         allowance.expiration = expiration;
     }
     let new_amount = allowance.amount;
-    write_allowance(
-        &mut deps.storage,
-        &owner_address,
-        &spender_address,
-        allowance,
-    )?;
+    write_allowance(deps.storage, &info.sender, &spender, allowance)?;
 
     let res = Response {
         messages: vec![],
         attributes: vec![],
         events: vec![],
         data: Some(to_binary(&ExecuteAnswer::IncreaseAllowance {
-            owner: env.message.sender,
+            owner: info.sender,
             spender,
             allowance: Uint128::from(new_amount),
         })?),
@@ -1451,14 +1492,12 @@ fn try_increase_allowance(
 fn try_decrease_allowance(
     deps: DepsMut,
     env: Env,
+    info: &MessageInfo,
     spender: Addr,
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
-    let owner_address = deps.api.addr_validate(&env.message.sender)?;
-    let spender_address = deps.api.addr_validate(&spender)?;
-
-    let mut allowance = read_allowance(&deps.storage, &owner_address, &spender_address)?;
+    let mut allowance = read_allowance(&deps.storage, &info.sender, &spender)?;
 
     // If the previous allowance has expired, reset the allowance.
     // Without this users can take advantage of an expired allowance given to
@@ -1474,19 +1513,14 @@ fn try_decrease_allowance(
         allowance.expiration = expiration;
     }
     let new_amount = allowance.amount;
-    write_allowance(
-        &mut deps.storage,
-        &owner_address,
-        &spender_address,
-        allowance,
-    )?;
+    write_allowance(deps.storage, &info.sender, &spender, allowance)?;
 
     let res = Response {
         messages: vec![],
         attributes: vec![],
         events: vec![],
         data: Some(to_binary(&ExecuteAnswer::DecreaseAllowance {
-            owner: env.message.sender,
+            owner: info.sender,
             spender,
             allowance: Uint128::from(new_amount),
         })?),
@@ -1494,8 +1528,13 @@ fn try_decrease_allowance(
     Ok(res)
 }
 
-fn add_minters(deps: DepsMut, env: Env, minters_to_add: Vec<Addr>) -> StdResult<Response> {
-    let mut config = Config::from_storage(&mut deps.storage);
+fn add_minters(
+    deps: DepsMut,
+    env: Env,
+    info: &MessageInfo,
+    minters_to_add: Vec<Addr>,
+) -> StdResult<Response> {
+    let mut config = Config::from_storage(deps.storage);
     let constants = config.constants()?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
@@ -1503,7 +1542,7 @@ fn add_minters(deps: DepsMut, env: Env, minters_to_add: Vec<Addr>) -> StdResult<
         ));
     }
 
-    check_if_admin(&config, &env.message.sender)?;
+    check_if_admin(&config, &info.sender)?;
 
     config.add_minters(minters_to_add)?;
 
@@ -1516,7 +1555,7 @@ fn add_minters(deps: DepsMut, env: Env, minters_to_add: Vec<Addr>) -> StdResult<
 }
 
 fn remove_minters(deps: DepsMut, env: Env, minters_to_remove: Vec<Addr>) -> StdResult<Response> {
-    let mut config = Config::from_storage(&mut deps.storage);
+    let mut config = Config::from_storage(deps.storage);
     let constants = config.constants()?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
@@ -1524,7 +1563,7 @@ fn remove_minters(deps: DepsMut, env: Env, minters_to_remove: Vec<Addr>) -> StdR
         ));
     }
 
-    check_if_admin(&config, &env.message.sender)?;
+    check_if_admin(&config, &info.sender)?;
 
     config.remove_minters(minters_to_remove)?;
 
@@ -1538,8 +1577,13 @@ fn remove_minters(deps: DepsMut, env: Env, minters_to_remove: Vec<Addr>) -> StdR
     })
 }
 
-fn set_minters(deps: DepsMut, env: Env, minters_to_set: Vec<Addr>) -> StdResult<Response> {
-    let mut config = Config::from_storage(&mut deps.storage);
+fn set_minters(
+    deps: DepsMut,
+    env: Env,
+    info: &MessageInfo,
+    minters_to_set: Vec<Addr>,
+) -> StdResult<Response> {
+    let mut config = Config::from_storage(deps.storage);
     let constants = config.constants()?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
@@ -1547,7 +1591,7 @@ fn set_minters(deps: DepsMut, env: Env, minters_to_set: Vec<Addr>) -> StdResult<
         ));
     }
 
-    check_if_admin(&config, &env.message.sender)?;
+    check_if_admin(&config, &info.sender)?;
 
     config.set_minters(minters_to_set)?;
 
@@ -1564,7 +1608,13 @@ fn set_minters(deps: DepsMut, env: Env, minters_to_set: Vec<Addr>) -> StdResult<
 /// Remove `amount` tokens from the system irreversibly, from signer account
 ///
 /// @param amount the amount of money to burn
-fn try_burn(deps: DepsMut, env: Env, amount: Uint128, memo: Option<String>) -> StdResult<Response> {
+fn try_burn(
+    deps: DepsMut,
+    env: Env,
+    info: &MessageInfo,
+    amount: Uint128,
+    memo: Option<String>,
+) -> StdResult<Response> {
     let config = ReadonlyConfig::from_storage(&deps.storage);
     let constants = config.constants()?;
     if !constants.burn_is_enabled {
@@ -1573,10 +1623,10 @@ fn try_burn(deps: DepsMut, env: Env, amount: Uint128, memo: Option<String>) -> S
         ));
     }
 
-    let sender_address = deps.api.addr_validate(&env.message.sender)?;
+    let sender_address = deps.api.addr_canonicalize(&info.sender.as_str())?;
     let raw_amount = amount.u128();
 
-    let mut account_balance = BalancesStore::load(deps.storage, &sender_address);
+    let mut account_balance = BalancesStore::load(deps.storage, &info.sender);
 
     if let Some(new_account_balance) = account_balance.checked_sub(raw_amount) {
         account_balance = new_account_balance;
@@ -1587,9 +1637,9 @@ fn try_burn(deps: DepsMut, env: Env, amount: Uint128, memo: Option<String>) -> S
         )));
     }
 
-    BalancesStore::save(deps.storage, &sender_address, account_balance);
+    BalancesStore::save(deps.storage, &info.sender, account_balance);
 
-    let mut config = Config::from_storage(&mut deps.storage);
+    let mut config = Config::from_storage(deps.storage);
     let mut total_supply = config.total_supply();
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
         total_supply = new_total_supply;
@@ -1601,7 +1651,7 @@ fn try_burn(deps: DepsMut, env: Env, amount: Uint128, memo: Option<String>) -> S
     config.set_total_supply(total_supply);
 
     store_burn(
-        &mut deps.storage,
+        deps.storage,
         &sender_address,
         &sender_address,
         amount,
@@ -1647,11 +1697,16 @@ fn perform_transfer<T: Storage>(
     Ok(())
 }
 
-fn revoke_permit(deps: DepsMut, env: Env, permit_name: String) -> StdResult<Response> {
+fn revoke_permit(
+    deps: DepsMut,
+    env: Env,
+    info: &MessageInfo,
+    permit_name: String,
+) -> StdResult<Response> {
     RevokedPermits::revoke_permit(
-        &mut deps.storage,
+        deps.storage,
         PREFIX_REVOKED_PERMITS,
-        &env.message.sender,
+        &info.sender,
         &permit_name,
     );
 
@@ -1708,7 +1763,9 @@ mod tests {
     use crate::msg::ResponseStatus;
     use crate::msg::{InitConfig, InitialBalance};
     use cosmwasm_std::testing::*;
-    use cosmwasm_std::{from_binary, BlockInfo, ContractInfo, MessageInfo, QueryResponse, WasmMsg};
+    use cosmwasm_std::{
+        from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, WasmMsg,
+    };
     use std::any::Any;
 
     // Helper functions
@@ -1716,8 +1773,8 @@ mod tests {
     fn init_helper(
         initial_balances: Vec<InitialBalance>,
     ) -> (
-        StdResult<InitResponse>,
-        Extern<MockStorage, MockApi, MockQuerier>,
+        StdResult<Response>,
+        OwnedDeps<MockStorage, MockApi, MockQuerier>,
     ) {
         let mut deps = mock_dependencies_with_balance(&[]);
         let env = mock_env();
@@ -1967,8 +2024,8 @@ mod tests {
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
-        let bob_canonical = deps.api.addr_validate(&Addr("bob".to_string())).unwrap();
-        let alice_canonical = deps.api.addr_validate(&Addr("alice".to_string())).unwrap();
+        let bob_canonical = Addr("bob".to_string());
+        let alice_canonical = Addr("alice".to_string());
 
         assert_eq!(
             5000 - 1000,
@@ -2103,7 +2160,7 @@ mod tests {
             ExecuteAnswer::CreateViewingKey { key } => key,
             _ => panic!("NOPE"),
         };
-        let bob_canonical = deps.api.addr_validate(&Addr("bob".to_string())).unwrap();
+        let bob_canonical = deps.api.addr_canonicalize("bob").unwrap();
         let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
         assert!(key.check_viewing_key(saved_vk.as_slice()));
     }
@@ -2155,7 +2212,7 @@ mod tests {
             to_binary(&unwrapped_result).unwrap(),
             to_binary(&ExecuteAnswer::SetViewingKey { status: Success }).unwrap(),
         );
-        let bob_canonical = deps.api.addr_validate(&Addr("bob".to_string())).unwrap();
+        let bob_canonical = deps.api.addr_canonicalize("bob").unwrap();
         let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
         assert!(actual_vk.check_viewing_key(&saved_vk));
     }
@@ -2268,8 +2325,8 @@ mod tests {
             "handle() failed: {}",
             handle_result.err().unwrap()
         );
-        let bob_canonical = deps.api.addr_validate(&Addr("bob".to_string())).unwrap();
-        let alice_canonical = deps.api.addr_validate(&Addr("alice".to_string())).unwrap();
+        let bob_canonical = Addr("bob".to_string());
+        let alice_canonical = Addr("alice".to_string());
 
         let bob_balance = BalancesStore::load(deps.storage, &bob_canonical);
         let alice_balance = BalancesStore::load(deps.storage, &alice_canonical);
@@ -2400,13 +2457,10 @@ mod tests {
                 .into_cosmos_msg("lolz".to_string(), Addr("contract".to_string()))
                 .unwrap()
         ));
-        let bob_canonical = deps.api.addr_validate(&Addr("bob".to_string())).unwrap();
-        let contract_canonical = deps
-            .api
-            .addr_validate(&Addr("contract".to_string()))
-            .unwrap();
+        let bob_canonical = Addr("bob".to_string());
+        let contract_canonical = Addr("contract".to_string());
         let bob_balance = BalancesStore::load(deps.storage, &bob_canonical);
-        let alice_balance = BalancesStore::load(deps.storage, &alice_canonical);
+        let contract_balance = BalancesStore::load(deps.storage, &contract_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
         assert_eq!(contract_balance, 2000);
         let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
@@ -2531,7 +2585,7 @@ mod tests {
             "handle() failed: {}",
             handle_result.err().unwrap()
         );
-        let bob_canonical = deps.api.addr_validate(&Addr("bob".to_string())).unwrap();
+        let bob_canonical = Addr("bob".to_string());
         let bob_balance = BalancesStore::load(deps.storage, &bob_canonical);
         assert_eq!(bob_balance, 10000 - 2000);
         let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
@@ -2671,7 +2725,7 @@ mod tests {
             handle_result.err().unwrap()
         );
         for (name, amount) in &[("bob", 200_u128), ("jerry", 300), ("mike", 400)] {
-            let name_canon = deps.api.addr_validate(&Addr(name.to_string())).unwrap();
+            let name_canon = Addr(name.to_string());
             let balance = BalancesStore::load(deps.storage, &name_canon);
             assert_eq!(balance, 10000 - amount);
         }
@@ -2702,7 +2756,7 @@ mod tests {
             handle_result.err().unwrap()
         );
         for name in &["bob", "jerry", "mike"] {
-            let name_canon = deps.api.addr_validate(&Addr(name.to_string())).unwrap();
+            let name_canon = Addr(name.to_string());
             let balance = BalancesStore::load(deps.storage, &name_canon);
             assert_eq!(balance, 10000 - allowance_size);
         }
@@ -2758,8 +2812,8 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let bob_canonical = deps.api.addr_validate(&Addr("bob".to_string())).unwrap();
-        let alice_canonical = deps.api.addr_validate(&Addr("alice".to_string())).unwrap();
+        let bob_canonical = Addr("bob".to_string());
+        let alice_canonical = Addr("alice".to_string());
 
         let allowance = read_allowance(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
         assert_eq!(
@@ -2840,8 +2894,8 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let bob_canonical = deps.api.addr_validate(&Addr("bob".to_string())).unwrap();
-        let alice_canonical = deps.api.addr_validate(&Addr("alice".to_string())).unwrap();
+        let bob_canonical = Addr("bob".to_string());
+        let alice_canonical = Addr("alice".to_string());
 
         let allowance = read_allowance(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
         assert_eq!(
@@ -3032,7 +3086,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let canonical = deps.api.addr_validate(&Addr("butler".to_string())).unwrap();
+        let canonical = Addr("butler".to_string());
         assert_eq!(BalancesStore::load(deps.storage, &canonical), 4000)
     }
 
@@ -3095,7 +3149,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let canonical = deps.api.addr_validate(&Addr("lebron".to_string())).unwrap();
+        let canonical = Addr("lebron".to_string());
         assert_eq!(BalancesStore::load(deps.storage, &canonical), 6000)
     }
 
