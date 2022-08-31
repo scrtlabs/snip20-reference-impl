@@ -16,7 +16,7 @@ pub struct InitialBalance {
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
-pub struct InitMsg {
+pub struct InstantiateMsg {
     pub name: String,
     pub admin: Option<Addr>,
     pub symbol: String,
@@ -26,7 +26,7 @@ pub struct InitMsg {
     pub config: Option<InitConfig>,
 }
 
-impl InitMsg {
+impl InstantiateMsg {
     pub fn config(&self) -> InitConfig {
         self.config.clone().unwrap_or_default()
     }
