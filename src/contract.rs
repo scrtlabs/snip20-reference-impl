@@ -2,8 +2,7 @@
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
     attr, coins, entry_point, to_binary, Addr, Api, BankMsg, Binary, CanonicalAddr, Coin,
-    CosmosMsg, Env, Querier, QueryResult, ReadonlyStorage, Response, StdError, StdResult, Storage,
-    Uint128,
+    CosmosMsg, Env, Querier, ReadonlyStorage, Response, StdError, StdResult, Storage, Uint128,
 };
 
 use crate::batch;
@@ -254,11 +253,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-fn permit_queries<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    permit: Permit,
-    query: QueryWithPermit,
-) -> Result<Binary, StdError> {
+fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<Binary, StdError> {
     // Validate permit content
     let token_address = ReadonlyConfig::from_storage(&deps.storage)
         .constants()?
@@ -324,10 +319,7 @@ fn permit_queries<S: Storage, A: Api, Q: Querier>(
     }
 }
 
-pub fn viewing_keys_queries<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    msg: QueryMsg,
-) -> QueryResult {
+pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
     let (addresses, key) = msg.get_validation_params();
 
     for address in addresses {
@@ -366,7 +358,7 @@ pub fn viewing_keys_queries<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> QueryResult {
+fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> StdResult<Binary> {
     let config = ReadonlyConfig::from_storage(storage);
     let constants = config.constants()?;
 
@@ -390,7 +382,7 @@ fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     })
 }
 
-fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
+fn query_token_info<S: ReadonlyStorage>(storage: &S) -> StdResult<Binary> {
     let config = ReadonlyConfig::from_storage(storage);
     let constants = config.constants()?;
 
@@ -408,7 +400,7 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     })
 }
 
-fn query_token_config<S: ReadonlyStorage>(storage: &S) -> QueryResult {
+fn query_token_config<S: ReadonlyStorage>(storage: &S) -> StdResult<Binary> {
     let config = ReadonlyConfig::from_storage(storage);
     let constants = config.constants()?;
 
@@ -421,7 +413,7 @@ fn query_token_config<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     })
 }
 
-fn query_contract_status<S: ReadonlyStorage>(storage: &S) -> QueryResult {
+fn query_contract_status<S: ReadonlyStorage>(storage: &S) -> StdResult<Binary> {
     let config = ReadonlyConfig::from_storage(storage);
 
     to_binary(&QueryAnswer::ContractStatus {
@@ -429,12 +421,7 @@ fn query_contract_status<S: ReadonlyStorage>(storage: &S) -> QueryResult {
     })
 }
 
-pub fn query_transfers<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    account: &Addr,
-    page: u32,
-    page_size: u32,
-) -> StdResult<Binary> {
+pub fn query_transfers(deps: Deps, account: &Addr, page: u32, page_size: u32) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account)?;
     let (txs, total) = get_transfers(&deps.api, &deps.storage, &address, page, page_size)?;
 
@@ -445,8 +432,8 @@ pub fn query_transfers<S: Storage, A: Api, Q: Querier>(
     to_binary(&result)
 }
 
-pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
+pub fn query_transactions(
+    deps: Deps,
     account: &Addr,
     page: u32,
     page_size: u32,
@@ -461,10 +448,7 @@ pub fn query_transactions<S: Storage, A: Api, Q: Querier>(
     to_binary(&result)
 }
 
-pub fn query_balance<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    account: &Addr,
-) -> StdResult<Binary> {
+pub fn query_balance(deps: Deps, account: &Addr) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account)?;
 
     let amount = Uint128(ReadonlyBalances::from_storage(&deps.storage).account_amount(&address));
@@ -472,18 +456,14 @@ pub fn query_balance<S: Storage, A: Api, Q: Querier>(
     to_binary(&response)
 }
 
-fn query_minters<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> StdResult<Binary> {
+fn query_minters(deps: Deps) -> StdResult<Binary> {
     let minters = ReadonlyConfig::from_storage(&deps.storage).minters();
 
     let response = QueryAnswer::Minters { minters };
     to_binary(&response)
 }
 
-fn change_admin<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    address: Addr,
-) -> StdResult<Response> {
+fn change_admin(deps: DepsMut, env: Env, address: Addr) -> StdResult<Response> {
     let mut config = Config::from_storage(&mut deps.storage);
 
     check_if_admin(&config, &env.message.sender)?;
@@ -534,8 +514,8 @@ fn try_mint_impl<S: Storage>(
     Ok(())
 }
 
-fn try_mint<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_mint(
+    deps: DepsMut,
     env: Env,
     recipient: Addr,
     amount: Uint128,
@@ -588,11 +568,7 @@ fn try_mint<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_batch_mint<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    actions: Vec<batch::MintAction>,
-) -> StdResult<Response> {
+fn try_batch_mint(deps: DepsMut, env: Env, actions: Vec<batch::MintAction>) -> StdResult<Response> {
     let mut config = Config::from_storage(&mut deps.storage);
     let constants = config.constants()?;
     if !constants.mint_is_enabled {
@@ -646,11 +622,7 @@ fn try_batch_mint<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    key: String,
-) -> StdResult<Response> {
+pub fn try_set_key(deps: DepsMut, env: Env, key: String) -> StdResult<Response> {
     let vk = ViewingKey(key);
 
     let message_sender = deps.api.canonical_address(&env.message.sender)?;
@@ -666,11 +638,7 @@ pub fn try_set_key<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    entropy: String,
-) -> StdResult<Response> {
+pub fn try_create_key(deps: DepsMut, env: Env, entropy: String) -> StdResult<Response> {
     let constants = ReadonlyConfig::from_storage(&deps.storage).constants()?;
     let prng_seed = constants.prng_seed;
 
@@ -687,8 +655,8 @@ pub fn try_create_key<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-fn set_contract_status<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn set_contract_status(
+    deps: DepsMut,
     env: Env,
     status_level: ContractStatusLevel,
 ) -> StdResult<Response> {
@@ -708,11 +676,7 @@ fn set_contract_status<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-pub fn query_allowance<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    owner: Addr,
-    spender: Addr,
-) -> StdResult<Binary> {
+pub fn query_allowance(deps: Deps, owner: Addr, spender: Addr) -> StdResult<Binary> {
     let owner_address = deps.api.canonical_address(&owner)?;
     let spender_address = deps.api.canonical_address(&spender)?;
 
@@ -727,10 +691,7 @@ pub fn query_allowance<S: Storage, A: Api, Q: Querier>(
     to_binary(&response)
 }
 
-fn try_deposit<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-) -> StdResult<Response> {
+fn try_deposit(deps: DepsMut, env: Env) -> StdResult<Response> {
     let mut amount = Uint128::zero();
 
     for coin in &env.message.sent_funds {
@@ -795,11 +756,7 @@ fn try_deposit<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_redeem<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    amount: Uint128,
-) -> StdResult<Response> {
+fn try_redeem(deps: DepsMut, env: Env, amount: Uint128) -> StdResult<Response> {
     let config = ReadonlyConfig::from_storage(&deps.storage);
     let constants = config.constants()?;
     if !constants.redeem_is_enabled {
@@ -870,8 +827,8 @@ fn try_redeem<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_transfer_impl(
+    deps: DepsMut,
     sender: &CanonicalAddr,
     recipient: &CanonicalAddr,
     amount: Uint128,
@@ -896,8 +853,8 @@ fn try_transfer_impl<S: Storage, A: Api, Q: Querier>(
     Ok(())
 }
 
-fn try_transfer<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_transfer(
+    deps: DepsMut,
     env: Env,
     recipient: Addr,
     amount: Uint128,
@@ -916,8 +873,8 @@ fn try_transfer<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_batch_transfer<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_batch_transfer(
+    deps: DepsMut,
     env: Env,
     actions: Vec<batch::TransferAction>,
 ) -> StdResult<Response> {
@@ -977,8 +934,8 @@ fn try_add_receiver_api_callback<S: ReadonlyStorage>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn try_send_impl<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_send_impl(
+    deps: DepsMut,
     messages: &mut Vec<CosmosMsg>,
     sender: Addr,
     sender_canon: &CanonicalAddr, // redundant but more efficient
@@ -1014,8 +971,8 @@ fn try_send_impl<S: Storage, A: Api, Q: Querier>(
     Ok(())
 }
 
-fn try_send<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_send(
+    deps: DepsMut,
     env: Env,
     recipient: Addr,
     recipient_code_hash: Option<String>,
@@ -1048,11 +1005,7 @@ fn try_send<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_batch_send<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    actions: Vec<batch::SendAction>,
-) -> StdResult<Response> {
+fn try_batch_send(deps: DepsMut, env: Env, actions: Vec<batch::SendAction>) -> StdResult<Response> {
     let mut messages = vec![];
     let sender = env.message.sender;
     let sender_canon = deps.api.canonical_address(&sender)?;
@@ -1080,11 +1033,7 @@ fn try_batch_send<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_register_receive<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    code_hash: String,
-) -> StdResult<Response> {
+fn try_register_receive(deps: DepsMut, env: Env, code_hash: String) -> StdResult<Response> {
     set_receiver_hash(&mut deps.storage, &env.message.sender, code_hash);
     let res = Response {
         messages: vec![],
@@ -1128,8 +1077,8 @@ fn use_allowance<S: Storage>(
     Ok(())
 }
 
-fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_transfer_from_impl(
+    deps: DepsMut,
     env: &Env,
     spender: &CanonicalAddr,
     owner: &CanonicalAddr,
@@ -1159,8 +1108,8 @@ fn try_transfer_from_impl<S: Storage, A: Api, Q: Querier>(
     Ok(())
 }
 
-fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_transfer_from(
+    deps: DepsMut,
     env: &Env,
     owner: &Addr,
     recipient: &Addr,
@@ -1181,8 +1130,8 @@ fn try_transfer_from<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_batch_transfer_from<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_batch_transfer_from(
+    deps: DepsMut,
     env: &Env,
     actions: Vec<batch::TransferFromAction>,
 ) -> StdResult<Response> {
@@ -1213,8 +1162,8 @@ fn try_batch_transfer_from<S: Storage, A: Api, Q: Querier>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn try_send_from_impl<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_send_from_impl(
+    deps: DepsMut,
     env: Env,
     messages: &mut Vec<CosmosMsg>,
     spender_canon: &CanonicalAddr, // redundant but more efficient
@@ -1253,8 +1202,8 @@ fn try_send_from_impl<S: Storage, A: Api, Q: Querier>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn try_send_from<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_send_from(
+    deps: DepsMut,
     env: Env,
     owner: Addr,
     recipient: Addr,
@@ -1289,8 +1238,8 @@ fn try_send_from<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_batch_send_from<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_batch_send_from(
+    deps: DepsMut,
     env: Env,
     actions: Vec<batch::SendFromAction>,
 ) -> StdResult<Response> {
@@ -1324,8 +1273,8 @@ fn try_batch_send_from<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_burn_from<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_burn_from(
+    deps: DepsMut,
     env: &Env,
     owner: &Addr,
     amount: Uint128,
@@ -1390,8 +1339,8 @@ fn try_burn_from<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_batch_burn_from<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_batch_burn_from(
+    deps: DepsMut,
     env: &Env,
     actions: Vec<batch::BurnFromAction>,
 ) -> StdResult<Response> {
@@ -1462,8 +1411,8 @@ fn try_batch_burn_from<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_increase_allowance<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_increase_allowance(
+    deps: DepsMut,
     env: Env,
     spender: Addr,
     amount: Uint128,
@@ -1508,8 +1457,8 @@ fn try_increase_allowance<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn try_decrease_allowance<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
+fn try_decrease_allowance(
+    deps: DepsMut,
     env: Env,
     spender: Addr,
     amount: Uint128,
@@ -1554,11 +1503,7 @@ fn try_decrease_allowance<S: Storage, A: Api, Q: Querier>(
     Ok(res)
 }
 
-fn add_minters<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    minters_to_add: Vec<Addr>,
-) -> StdResult<Response> {
+fn add_minters(deps: DepsMut, env: Env, minters_to_add: Vec<Addr>) -> StdResult<Response> {
     let mut config = Config::from_storage(&mut deps.storage);
     let constants = config.constants()?;
     if !constants.mint_is_enabled {
@@ -1579,11 +1524,7 @@ fn add_minters<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-fn remove_minters<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    minters_to_remove: Vec<Addr>,
-) -> StdResult<Response> {
+fn remove_minters(deps: DepsMut, env: Env, minters_to_remove: Vec<Addr>) -> StdResult<Response> {
     let mut config = Config::from_storage(&mut deps.storage);
     let constants = config.constants()?;
     if !constants.mint_is_enabled {
@@ -1606,11 +1547,7 @@ fn remove_minters<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-fn set_minters<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    minters_to_set: Vec<Addr>,
-) -> StdResult<Response> {
+fn set_minters(deps: DepsMut, env: Env, minters_to_set: Vec<Addr>) -> StdResult<Response> {
     let mut config = Config::from_storage(&mut deps.storage);
     let constants = config.constants()?;
     if !constants.mint_is_enabled {
@@ -1636,12 +1573,7 @@ fn set_minters<S: Storage, A: Api, Q: Querier>(
 /// Remove `amount` tokens from the system irreversibly, from signer account
 ///
 /// @param amount the amount of money to burn
-fn try_burn<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    amount: Uint128,
-    memo: Option<String>,
-) -> StdResult<Response> {
+fn try_burn(deps: DepsMut, env: Env, amount: Uint128, memo: Option<String>) -> StdResult<Response> {
     let config = ReadonlyConfig::from_storage(&deps.storage);
     let constants = config.constants()?;
     if !constants.burn_is_enabled {
@@ -1726,11 +1658,7 @@ fn perform_transfer<T: Storage>(
     Ok(())
 }
 
-fn revoke_permit<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    permit_name: String,
-) -> StdResult<Response> {
+fn revoke_permit(deps: DepsMut, env: Env, permit_name: String) -> StdResult<Response> {
     RevokedPermits::revoke_permit(
         &mut deps.storage,
         PREFIX_REVOKED_PERMITS,
@@ -1777,8 +1705,8 @@ fn is_valid_symbol(symbol: &str) -> bool {
     len_is_valid && symbol.bytes().all(|byte| (b'A'..=b'Z').contains(&byte))
 }
 
-// pub fn migrate<S: Storage, A: Api, Q: Querier>(
-//     _deps: &mut Extern<S, A, Q>,
+// pub fn migrate(
+//     _deps: DepsMut,
 //     _env: Env,
 //     _msg: MigrateMsg,
 // ) -> StdResult<MigrateResponse> {
