@@ -6,19 +6,19 @@ use serde::{Deserialize, Serialize};
 use crate::batch;
 use crate::transaction_history::{RichTx, Tx};
 use crate::viewing_key::ViewingKey;
-use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
+use cosmwasm_std::{Addr, Binary, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct InitialBalance {
-    pub address: HumanAddr,
+    pub address: Addr,
     pub amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
     pub name: String,
-    pub admin: Option<HumanAddr>,
+    pub admin: Option<Addr>,
     pub symbol: String,
     pub decimals: u8,
     pub initial_balances: Option<Vec<InitialBalance>>,
@@ -92,13 +92,13 @@ pub enum HandleMsg {
 
     // Base ERC-20 stuff
     Transfer {
-        recipient: HumanAddr,
+        recipient: Addr,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
     },
     Send {
-        recipient: HumanAddr,
+        recipient: Addr,
         recipient_code_hash: Option<String>,
         amount: Uint128,
         msg: Option<Binary>,
@@ -133,27 +133,27 @@ pub enum HandleMsg {
 
     // Allowance
     IncreaseAllowance {
-        spender: HumanAddr,
+        spender: Addr,
         amount: Uint128,
         expiration: Option<u64>,
         padding: Option<String>,
     },
     DecreaseAllowance {
-        spender: HumanAddr,
+        spender: Addr,
         amount: Uint128,
         expiration: Option<u64>,
         padding: Option<String>,
     },
     TransferFrom {
-        owner: HumanAddr,
-        recipient: HumanAddr,
+        owner: Addr,
+        recipient: Addr,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
     },
     SendFrom {
-        owner: HumanAddr,
-        recipient: HumanAddr,
+        owner: Addr,
+        recipient: Addr,
         recipient_code_hash: Option<String>,
         amount: Uint128,
         msg: Option<Binary>,
@@ -169,7 +169,7 @@ pub enum HandleMsg {
         padding: Option<String>,
     },
     BurnFrom {
-        owner: HumanAddr,
+        owner: Addr,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
@@ -181,7 +181,7 @@ pub enum HandleMsg {
 
     // Mint
     Mint {
-        recipient: HumanAddr,
+        recipient: Addr,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
@@ -191,21 +191,21 @@ pub enum HandleMsg {
         padding: Option<String>,
     },
     AddMinters {
-        minters: Vec<HumanAddr>,
+        minters: Vec<Addr>,
         padding: Option<String>,
     },
     RemoveMinters {
-        minters: Vec<HumanAddr>,
+        minters: Vec<Addr>,
         padding: Option<String>,
     },
     SetMinters {
-        minters: Vec<HumanAddr>,
+        minters: Vec<Addr>,
         padding: Option<String>,
     },
 
     // Admin
     ChangeAdmin {
-        address: HumanAddr,
+        address: Addr,
         padding: Option<String>,
     },
     SetContractStatus {
@@ -259,13 +259,13 @@ pub enum HandleAnswer {
 
     // Allowance
     IncreaseAllowance {
-        spender: HumanAddr,
-        owner: HumanAddr,
+        spender: Addr,
+        owner: Addr,
         allowance: Uint128,
     },
     DecreaseAllowance {
-        spender: HumanAddr,
-        owner: HumanAddr,
+        spender: Addr,
+        owner: Addr,
         allowance: Uint128,
     },
     TransferFrom {
@@ -326,22 +326,22 @@ pub enum QueryMsg {
     ContractStatus {},
     ExchangeRate {},
     Allowance {
-        owner: HumanAddr,
-        spender: HumanAddr,
+        owner: Addr,
+        spender: Addr,
         key: String,
     },
     Balance {
-        address: HumanAddr,
+        address: Addr,
         key: String,
     },
     TransferHistory {
-        address: HumanAddr,
+        address: Addr,
         key: String,
         page: Option<u32>,
         page_size: u32,
     },
     TransactionHistory {
-        address: HumanAddr,
+        address: Addr,
         key: String,
         page: Option<u32>,
         page_size: u32,
@@ -354,7 +354,7 @@ pub enum QueryMsg {
 }
 
 impl QueryMsg {
-    pub fn get_validation_params(&self) -> (Vec<&HumanAddr>, ViewingKey) {
+    pub fn get_validation_params(&self) -> (Vec<&Addr>, ViewingKey) {
         match self {
             Self::Balance { address, key } => (vec![address], ViewingKey(key.clone())),
             Self::TransferHistory { address, key, .. } => (vec![address], ViewingKey(key.clone())),
@@ -375,19 +375,10 @@ impl QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryWithPermit {
-    Allowance {
-        owner: HumanAddr,
-        spender: HumanAddr,
-    },
+    Allowance { owner: Addr, spender: Addr },
     Balance {},
-    TransferHistory {
-        page: Option<u32>,
-        page_size: u32,
-    },
-    TransactionHistory {
-        page: Option<u32>,
-        page_size: u32,
-    },
+    TransferHistory { page: Option<u32>, page_size: u32 },
+    TransactionHistory { page: Option<u32>, page_size: u32 },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -414,8 +405,8 @@ pub enum QueryAnswer {
         denom: String,
     },
     Allowance {
-        spender: HumanAddr,
-        owner: HumanAddr,
+        spender: Addr,
+        owner: Addr,
         allowance: Uint128,
         expiration: Option<u64>,
     },
@@ -434,7 +425,7 @@ pub enum QueryAnswer {
         msg: String,
     },
     Minters {
-        minters: Vec<HumanAddr>,
+        minters: Vec<Addr>,
     },
 }
 

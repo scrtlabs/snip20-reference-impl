@@ -1,7 +1,7 @@
 use std::any::type_name;
 use std::convert::TryFrom;
 
-use cosmwasm_std::{CanonicalAddr, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage};
+use cosmwasm_std::{Addr, CanonicalAddr, ReadonlyStorage, StdError, StdResult, Storage};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
 use secret_toolkit::storage::{TypedStore, TypedStoreMut};
@@ -33,7 +33,7 @@ pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Constants {
     pub name: String,
-    pub admin: HumanAddr,
+    pub admin: Addr,
     pub symbol: String,
     pub decimals: u8,
     pub prng_seed: Vec<u8>,
@@ -48,7 +48,7 @@ pub struct Constants {
     // is burn enabled
     pub burn_is_enabled: bool,
     // the address of this contract, used to validate query permits
-    pub contract_address: HumanAddr,
+    pub contract_address: Addr,
 }
 
 pub struct ReadonlyConfig<'a, S: ReadonlyStorage> {
@@ -78,7 +78,7 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfig<'a, S> {
         self.as_readonly().contract_status()
     }
 
-    pub fn minters(&self) -> Vec<HumanAddr> {
+    pub fn minters(&self) -> Vec<Addr> {
         self.as_readonly().minters()
     }
 
@@ -152,18 +152,18 @@ impl<'a, S: Storage> Config<'a, S> {
             .set(KEY_CONTRACT_STATUS, &status_u8.to_be_bytes());
     }
 
-    pub fn set_minters(&mut self, minters_to_set: Vec<HumanAddr>) -> StdResult<()> {
+    pub fn set_minters(&mut self, minters_to_set: Vec<Addr>) -> StdResult<()> {
         set_bin_data(&mut self.storage, KEY_MINTERS, &minters_to_set)
     }
 
-    pub fn add_minters(&mut self, minters_to_add: Vec<HumanAddr>) -> StdResult<()> {
+    pub fn add_minters(&mut self, minters_to_add: Vec<Addr>) -> StdResult<()> {
         let mut minters = self.minters();
         minters.extend(minters_to_add);
 
         self.set_minters(minters)
     }
 
-    pub fn remove_minters(&mut self, minters_to_remove: Vec<HumanAddr>) -> StdResult<()> {
+    pub fn remove_minters(&mut self, minters_to_remove: Vec<Addr>) -> StdResult<()> {
         let mut minters = self.minters();
 
         for minter in minters_to_remove {
@@ -173,7 +173,7 @@ impl<'a, S: Storage> Config<'a, S> {
         self.set_minters(minters)
     }
 
-    pub fn minters(&mut self) -> Vec<HumanAddr> {
+    pub fn minters(&mut self) -> Vec<Addr> {
         self.as_readonly().minters()
     }
 
@@ -223,7 +223,7 @@ impl<'a, S: ReadonlyStorage> ReadonlyConfigImpl<'a, S> {
         u8_to_status_level(status).unwrap()
     }
 
-    fn minters(&self) -> Vec<HumanAddr> {
+    fn minters(&self) -> Vec<Addr> {
         get_bin_data(self.0, KEY_MINTERS).unwrap()
     }
 
@@ -355,7 +355,7 @@ pub fn read_viewing_key<S: Storage>(store: &S, owner: &CanonicalAddr) -> Option<
 
 pub fn get_receiver_hash<S: ReadonlyStorage>(
     store: &S,
-    account: &HumanAddr,
+    account: &Addr,
 ) -> Option<StdResult<String>> {
     let store = ReadonlyPrefixedStorage::new(PREFIX_RECEIVERS, store);
     store.get(account.as_str().as_bytes()).map(|data| {
@@ -364,7 +364,7 @@ pub fn get_receiver_hash<S: ReadonlyStorage>(
     })
 }
 
-pub fn set_receiver_hash<S: Storage>(store: &mut S, account: &HumanAddr, code_hash: String) {
+pub fn set_receiver_hash<S: Storage>(store: &mut S, account: &Addr, code_hash: String) {
     let mut store = PrefixedStorage::new(PREFIX_RECEIVERS, store);
     store.set(account.as_str().as_bytes(), code_hash.as_bytes());
 }

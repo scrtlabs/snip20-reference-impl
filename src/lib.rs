@@ -18,7 +18,7 @@ mod wasm {
     #[no_mangle]
     extern "C" fn init(env_ptr: u32, msg_ptr: u32) -> u32 {
         do_init(
-            &contract::init::<ExternalStorage, ExternalApi, ExternalQuerier>,
+            &contract::instantiate::<ExternalStorage, ExternalApi, ExternalQuerier>,
             env_ptr,
             msg_ptr,
         )
