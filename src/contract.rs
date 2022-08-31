@@ -2,7 +2,7 @@
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
     attr, coins, entry_point, to_binary, Addr, Api, BankMsg, Binary, CanonicalAddr, Coin,
-    CosmosMsg, Env, Querier, ReadonlyStorage, Response, StdError, StdResult, Storage, Uint128,
+    CosmosMsg, Env, Querier, Response, StdError, StdResult, Storage, Uint128,
 };
 
 use crate::batch;
@@ -358,7 +358,7 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
     })
 }
 
-fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> StdResult<Binary> {
+fn query_exchange_rate(storage: &dyn Storage) -> StdResult<Binary> {
     let config = ReadonlyConfig::from_storage(storage);
     let constants = config.constants()?;
 
@@ -382,7 +382,7 @@ fn query_exchange_rate<S: ReadonlyStorage>(storage: &S) -> StdResult<Binary> {
     })
 }
 
-fn query_token_info<S: ReadonlyStorage>(storage: &S) -> StdResult<Binary> {
+fn query_token_info(storage: &dyn Storage) -> StdResult<Binary> {
     let config = ReadonlyConfig::from_storage(storage);
     let constants = config.constants()?;
 
@@ -400,7 +400,7 @@ fn query_token_info<S: ReadonlyStorage>(storage: &S) -> StdResult<Binary> {
     })
 }
 
-fn query_token_config<S: ReadonlyStorage>(storage: &S) -> StdResult<Binary> {
+fn query_token_config(storage: &dyn Storage) -> StdResult<Binary> {
     let config = ReadonlyConfig::from_storage(storage);
     let constants = config.constants()?;
 
@@ -413,7 +413,7 @@ fn query_token_config<S: ReadonlyStorage>(storage: &S) -> StdResult<Binary> {
     })
 }
 
-fn query_contract_status<S: ReadonlyStorage>(storage: &S) -> StdResult<Binary> {
+fn query_contract_status(storage: &dyn Storage) -> StdResult<Binary> {
     let config = ReadonlyConfig::from_storage(storage);
 
     to_binary(&QueryAnswer::ContractStatus {
@@ -903,8 +903,8 @@ fn try_batch_transfer(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn try_add_receiver_api_callback<S: ReadonlyStorage>(
-    storage: &S,
+fn try_add_receiver_api_callback(
+    storage: &dyn Storage,
     messages: &mut Vec<CosmosMsg>,
     recipient: Addr,
     recipient_code_hash: Option<String>,
