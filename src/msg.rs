@@ -79,7 +79,7 @@ impl InitConfig {
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
-pub enum HandleMsg {
+pub enum ExecuteMsg {
     // Native coin interactions
     Redeem {
         amount: Uint128,
@@ -222,7 +222,7 @@ pub enum HandleMsg {
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
-pub enum HandleAnswer {
+pub enum ExecuteAnswer {
     // Native
     Deposit {
         status: ResponseStatus,
