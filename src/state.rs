@@ -3,8 +3,8 @@ use std::convert::TryFrom;
 
 use cosmwasm_std::{Addr, CanonicalAddr, StdError, StdResult, Storage};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
-
 use schemars::JsonSchema;
+use secret_toolkit::storage::{Item, Keymap};
 use serde::{Deserialize, Serialize};
 
 use crate::msg::{status_level_to_u8, u8_to_status_level, ContractStatusLevel};
@@ -146,36 +146,12 @@ impl TxCountStore {
 pub static BALANCES: Keymap<&Addr, u128> = Keymap::new(PREFIX_BALANCES);
 pub struct BalancesStore {}
 impl BalancesStore {
-    pub fn may_load(store: &dyn Storage, account: &Addr) -> u128 {
+    pub fn load(store: &dyn Storage, account: &Addr) -> u128 {
         BALANCES.may_load(store)?.ok_or_else(|| 0)
     }
 
     pub fn save(store: &mut dyn Storage, account: &Addr, amount: u128) -> StdResult<()> {
         BALANCES.save(store, account, &amount)
-    }
-}
-
-fn ser_bin_data<T: Serialize>(obj: &T) -> StdResult<Vec<u8>> {
-    bincode2::serialize(&obj).map_err(|e| StdError::serialize_err(type_name::<T>(), e))
-}
-
-fn deser_bin_data<T: DeserializeOwned>(data: &[u8]) -> StdResult<T> {
-    bincode2::deserialize::<T>(data).map_err(|e| StdError::serialize_err(type_name::<T>(), e))
-}
-
-fn set_bin_data<T: Serialize, S: Storage>(storage: &mut S, key: &[u8], data: &T) -> StdResult<()> {
-    let bin_data = ser_bin_data(data)?;
-
-    storage.set(key, &bin_data);
-    Ok(())
-}
-
-fn get_bin_data<T: DeserializeOwned, S: ReadonlyStorage>(storage: &S, key: &[u8]) -> StdResult<T> {
-    let bin_data = storage.get(key);
-
-    match bin_data {
-        None => Err(StdError::not_found("Key not found in storage")),
-        Some(bin_data) => Ok(deser_bin_data(&bin_data)?),
     }
 }
 

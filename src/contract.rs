@@ -1,8 +1,8 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    attr, coins, entry_point, to_binary, Addr, Api, BankMsg, Binary, CanonicalAddr, Coin,
-    CosmosMsg, Env, Querier, Response, StdError, StdResult, Storage, Uint128,
+    attr, entry_point, to_binary, Addr, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Deps,
+    DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
 
 use crate::batch;
@@ -15,7 +15,7 @@ use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     get_receiver_hash, read_allowance, read_viewing_key, set_receiver_hash, write_allowance,
-    write_viewing_key, Balances, Config, Constants, ReadonlyBalances, ReadonlyConfig,
+    write_viewing_key, BalancesStore, Config, Constants, ReadonlyConfig,
 };
 use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
@@ -59,8 +59,7 @@ pub fn instantiate(
         for balance in initial_balances {
             let balance_address = deps.api.canonical_address(&balance.address)?;
             let amount = balance.amount.u128();
-            let mut balances = Balances::from_storage(&mut deps.storage);
-            balances.set_account_balance(&balance_address, amount);
+            BalancesStore::save(&mut deps.storage, &balance_address, amount);
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
                 total_supply = new_total_supply;
             } else {
@@ -451,7 +450,7 @@ pub fn query_transactions(
 pub fn query_balance(deps: Deps, account: &Addr) -> StdResult<Binary> {
     let address = deps.api.canonical_address(account)?;
 
-    let amount = Uint128(ReadonlyBalances::from_storage(&deps.storage).account_amount(&address));
+    let amount = Uint128::new(BalancesStore::load(&deps.storage, &address));
     let response = QueryAnswer::Balance { amount };
     to_binary(&response)
 }
@@ -491,9 +490,7 @@ fn try_mint_impl<S: Storage>(
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
 
-    let mut balances = Balances::from_storage(storage);
-
-    let mut account_balance = balances.balance(recipient);
+    let mut account_balance = BalancesStore::load(storage, recipient);
 
     if let Some(new_balance) = account_balance.checked_add(raw_amount) {
         account_balance = new_balance;
@@ -507,7 +504,7 @@ fn try_mint_impl<S: Storage>(
         ));
     }
 
-    balances.set_account_balance(recipient, account_balance);
+    BalancesStore::save(storage, recipient, account_balance);
 
     store_mint(storage, minter, recipient, amount, denom, memo, block)?;
 
@@ -685,7 +682,7 @@ pub fn query_allowance(deps: Deps, owner: Addr, spender: Addr) -> StdResult<Bina
     let response = QueryAnswer::Allowance {
         owner,
         spender,
-        allowance: Uint128(allowance.amount),
+        allowance: Uint128::new(allowance.amount),
         expiration: allowance.expiration,
     };
     to_binary(&response)
@@ -728,10 +725,9 @@ fn try_deposit(deps: DepsMut, env: Env) -> StdResult<Response> {
 
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
 
-    let mut balances = Balances::from_storage(&mut deps.storage);
-    let account_balance = balances.balance(&sender_address);
+    let account_balance = BalancesStore::load(&deps.storage, &sender_address);
     if let Some(account_balance) = account_balance.checked_add(raw_amount) {
-        balances.set_account_balance(&sender_address, account_balance);
+        BalancesStore::save(&mut deps.storage, &sender_address, account_balance);
     } else {
         return Err(StdError::generic_err(
             "This deposit would overflow your balance",
@@ -768,11 +764,9 @@ fn try_redeem(deps: DepsMut, env: Env, amount: Uint128) -> StdResult<Response> {
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
     let amount_raw = amount.u128();
 
-    let mut balances = Balances::from_storage(&mut deps.storage);
-    let account_balance = balances.balance(&sender_address);
-
+    let account_balance = BalancesStore::load(&deps.storage, &sender_address);
     if let Some(account_balance) = account_balance.checked_sub(amount_raw) {
-        balances.set_account_balance(&sender_address, account_balance);
+        BalancesStore::save(&mut deps.storage, &sender_address, account_balance);
     } else {
         return Err(StdError::generic_err(format!(
             "insufficient funds to redeem: balance={}, required={}",
@@ -1294,9 +1288,7 @@ fn try_burn_from(
     use_allowance(&mut deps.storage, env, &owner, &spender, raw_amount)?;
 
     // subtract from owner account
-    let mut balances = Balances::from_storage(&mut deps.storage);
-    let mut account_balance = balances.balance(&owner);
-
+    let mut account_balance = BalancesStore::load(&deps.storage, &owner);
     if let Some(new_balance) = account_balance.checked_sub(raw_amount) {
         account_balance = new_balance;
     } else {
@@ -1305,7 +1297,7 @@ fn try_burn_from(
             account_balance, raw_amount
         )));
     }
-    balances.set_account_balance(&owner, account_balance);
+    BalancesStore::save(&mut deps.storage, &owner, account_balance);
 
     // remove from supply
     let mut config = Config::from_storage(&mut deps.storage);
@@ -1362,8 +1354,7 @@ fn try_batch_burn_from(
         use_allowance(&mut deps.storage, env, &owner, &spender, amount)?;
 
         // subtract from owner account
-        let mut balances = Balances::from_storage(&mut deps.storage);
-        let mut account_balance = balances.balance(&owner);
+        let mut account_balance = BalancesStore::load(&deps.storage, &owner);
 
         if let Some(new_balance) = account_balance.checked_sub(amount) {
             account_balance = new_balance;
@@ -1373,7 +1364,7 @@ fn try_batch_burn_from(
                 account_balance, amount
             )));
         }
-        balances.set_account_balance(&owner, account_balance);
+        BalancesStore::save(&mut deps.storage, &owner, account_balance);
 
         // remove from supply
         if let Some(new_total_supply) = total_supply.checked_sub(amount) {
@@ -1585,8 +1576,7 @@ fn try_burn(deps: DepsMut, env: Env, amount: Uint128, memo: Option<String>) -> S
     let sender_address = deps.api.canonical_address(&env.message.sender)?;
     let raw_amount = amount.u128();
 
-    let mut balances = Balances::from_storage(&mut deps.storage);
-    let mut account_balance = balances.balance(&sender_address);
+    let mut account_balance = BalancesStore::load(&deps.storage, &sender_address);
 
     if let Some(new_account_balance) = account_balance.checked_sub(raw_amount) {
         account_balance = new_account_balance;
@@ -1597,7 +1587,7 @@ fn try_burn(deps: DepsMut, env: Env, amount: Uint128, memo: Option<String>) -> S
         )));
     }
 
-    balances.set_account_balance(&sender_address, account_balance);
+    BalancesStore::save(&mut deps.storage, &sender_address, account_balance);
 
     let mut config = Config::from_storage(&mut deps.storage);
     let mut total_supply = config.total_supply();
@@ -1636,9 +1626,8 @@ fn perform_transfer<T: Storage>(
     to: &CanonicalAddr,
     amount: u128,
 ) -> StdResult<()> {
-    let mut balances = Balances::from_storage(store);
+    let mut from_balance = BalancesStore::load(store, from);
 
-    let mut from_balance = balances.balance(from);
     if let Some(new_from_balance) = from_balance.checked_sub(amount) {
         from_balance = new_from_balance;
     } else {
@@ -1647,13 +1636,13 @@ fn perform_transfer<T: Storage>(
             from_balance, amount
         )));
     }
-    balances.set_account_balance(from, from_balance);
+    BalancesStore::save(store, from, from_balance);
 
-    let mut to_balance = balances.balance(to);
+    let mut to_balance = BalancesStore::load(store, to);
     to_balance = to_balance.checked_add(amount).ok_or_else(|| {
         StdError::generic_err("This tx will literally make them too rich. Try transferring less")
     })?;
-    balances.set_account_balance(to, to_balance);
+    BalancesStore::save(store, to, to_balance);
 
     Ok(())
 }
@@ -1986,9 +1975,12 @@ mod tests {
             .api
             .canonical_address(&Addr("alice".to_string()))
             .unwrap();
-        let balances = ReadonlyBalances::from_storage(&deps.storage);
-        assert_eq!(5000 - 1000, balances.account_amount(&bob_canonical));
-        assert_eq!(1000, balances.account_amount(&alice_canonical));
+
+        assert_eq!(
+            5000 - 1000,
+            BalancesStore::load(&deps.storage, &bob_canonical)
+        );
+        assert_eq!(1000, BalancesStore::load(&deps.storage, &alice_canonical));
 
         let handle_msg = ExecuteMsg::Transfer {
             recipient: Addr("alice".to_string()),
@@ -2296,10 +2288,9 @@ mod tests {
             .api
             .canonical_address(&Addr("alice".to_string()))
             .unwrap();
-        let bob_balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
-            .account_amount(&bob_canonical);
-        let alice_balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
-            .account_amount(&alice_canonical);
+
+        let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
+        let alice_balance = BalancesStore::load(&deps.storage, &alice_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
         assert_eq!(alice_balance, 2000);
         let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
@@ -2435,10 +2426,8 @@ mod tests {
             .api
             .canonical_address(&Addr("contract".to_string()))
             .unwrap();
-        let bob_balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
-            .account_amount(&bob_canonical);
-        let contract_balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
-            .account_amount(&contract_canonical);
+        let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
+        let alice_balance = BalancesStore::load(&deps.storage, &alice_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
         assert_eq!(contract_balance, 2000);
         let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
@@ -2567,8 +2556,7 @@ mod tests {
             .api
             .canonical_address(&Addr("bob".to_string()))
             .unwrap();
-        let bob_balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
-            .account_amount(&bob_canonical);
+        let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
         assert_eq!(bob_balance, 10000 - 2000);
         let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
         assert_eq!(total_supply, 10000 - 2000);
@@ -2708,8 +2696,7 @@ mod tests {
         );
         for (name, amount) in &[("bob", 200_u128), ("jerry", 300), ("mike", 400)] {
             let name_canon = deps.api.canonical_address(&Addr(name.to_string())).unwrap();
-            let balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
-                .account_amount(&name_canon);
+            let balance = BalancesStore::load(&deps.storage, &name_canon);
             assert_eq!(balance, 10000 - amount);
         }
         let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
@@ -2740,8 +2727,7 @@ mod tests {
         );
         for name in &["bob", "jerry", "mike"] {
             let name_canon = deps.api.canonical_address(&Addr(name.to_string())).unwrap();
-            let balance = crate::state::ReadonlyBalances::from_storage(&deps.storage)
-                .account_amount(&name_canon);
+            let balance = BalancesStore::load(&deps.storage, &name_canon);
             assert_eq!(balance, 10000 - allowance_size);
         }
         let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
@@ -3082,12 +3068,11 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let balances = ReadonlyBalances::from_storage(&deps.storage);
         let canonical = deps
             .api
             .canonical_address(&Addr("butler".to_string()))
             .unwrap();
-        assert_eq!(balances.account_amount(&canonical), 4000)
+        assert_eq!(BalancesStore::load(&deps.storage, &canonical), 4000)
     }
 
     #[test]
@@ -3149,12 +3134,11 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let balances = ReadonlyBalances::from_storage(&deps.storage);
         let canonical = deps
             .api
             .canonical_address(&Addr("lebron".to_string()))
             .unwrap();
-        assert_eq!(balances.account_amount(&canonical), 6000)
+        assert_eq!(BalancesStore::load(&deps.storage, &canonical), 6000)
     }
 
     #[test]
