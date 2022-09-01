@@ -106,6 +106,7 @@ impl MintersStore {
         MINTERS.save(store, &minters_to_set)
     }
 
+    // Elad: Add ref to minters_to_add?
     pub fn add_minters(store: &mut dyn Storage, minters_to_add: Vec<String>) -> StdResult<()> {
         let mut loaded_minters = MINTERS.may_load(store)?;
 
@@ -218,29 +219,4 @@ pub fn get_receiver_hash(store: &dyn Storage, account: &Addr) -> Option<StdResul
 pub fn set_receiver_hash(store: &mut dyn Storage, account: &Addr, code_hash: String) {
     let mut store = PrefixedStorage::new(PREFIX_RECEIVERS, store);
     store.set(account.as_str().as_bytes(), code_hash.as_bytes());
-}
-
-// Helpers
-
-/// Converts 16 bytes value into u128
-/// Errors if data found that is not 16 bytes
-fn slice_to_u128(data: &[u8]) -> StdResult<u128> {
-    match <[u8; 16]>::try_from(data) {
-        Ok(bytes) => Ok(u128::from_be_bytes(bytes)),
-        Err(_) => Err(StdError::generic_err(
-            "Corrupted data found. 16 byte expected.",
-        )),
-    }
-}
-
-/// Converts 1 byte value into u8
-/// Errors if data found that is not 1 byte
-fn slice_to_u8(data: &[u8]) -> StdResult<u8> {
-    if data.len() == 1 {
-        Ok(data[0])
-    } else {
-        Err(StdError::generic_err(
-            "Corrupted data found. 1 byte expected.",
-        ))
-    }
 }

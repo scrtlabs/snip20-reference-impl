@@ -14,8 +14,8 @@ use crate::msg::{
 use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    get_receiver_hash, read_allowance, read_viewing_key, set_receiver_hash, write_allowance,
-    write_viewing_key, BalancesStore, Config, Constants, ReadonlyConfig,
+    get_receiver_hash, read_viewing_key, set_receiver_hash, write_viewing_key, AllowancesStore,
+    BalancesStore, Constants, ConstantsStore, ContractStatusStore, MintersStore, TotalSupplyStore,
 };
 use crate::transaction_history::{
     get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
@@ -81,28 +81,30 @@ pub fn instantiate(
 
     let prng_seed_hashed = sha_256(&msg.prng_seed.0);
 
-    let mut config = Config::from_storage(deps.storage);
-    config.set_constants(&Constants {
-        name: msg.name,
-        symbol: msg.symbol,
-        decimals: msg.decimals,
-        admin: admin.clone(),
-        prng_seed: prng_seed_hashed.to_vec(),
-        total_supply_is_public: init_config.public_total_supply(),
-        deposit_is_enabled: init_config.deposit_enabled(),
-        redeem_is_enabled: init_config.redeem_enabled(),
-        mint_is_enabled: init_config.mint_enabled(),
-        burn_is_enabled: init_config.burn_enabled(),
-        contract_address: env.contract.address,
-    })?;
-    config.set_total_supply(total_supply);
-    config.set_contract_status(ContractStatusLevel::NormalRun);
+    ConstantsStore::save(
+        deps.storage,
+        &Constants {
+            name: msg.name,
+            symbol: msg.symbol,
+            decimals: msg.decimals,
+            admin: admin.clone(),
+            prng_seed: prng_seed_hashed.to_vec(),
+            total_supply_is_public: init_config.public_total_supply(),
+            deposit_is_enabled: init_config.deposit_enabled(),
+            redeem_is_enabled: init_config.redeem_enabled(),
+            mint_is_enabled: init_config.mint_enabled(),
+            burn_is_enabled: init_config.burn_enabled(),
+            contract_address: env.contract.address,
+        },
+    )?;
+    TotalSupplyStore::save(deps.storage, total_supply)?;
+    ContractStatusStore::save(deps.storage, ContractStatusLevel::NormalRun)?;
     let minters = if init_config.mint_enabled() {
         Vec::from([admin])
     } else {
         Vec::new()
     };
-    config.set_minters(minters)?;
+    MintersStore::save(deps.storage, minters)?;
 
     Ok(Response::default())
 }
@@ -119,7 +121,7 @@ fn pad_response(response: StdResult<Response>) -> StdResult<Response> {
 
 #[entry_point]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
-    let contract_status = ReadonlyConfig::from_storage(&deps.storage).contract_status();
+    let contract_status = ContractStatusStore::may_load(deps.storage)?;
 
     match contract_status {
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
@@ -152,7 +154,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_transfer(deps, env, recipient, amount, &info, memo),
+        } => try_transfer(deps, env, &info, recipient, amount, memo),
         ExecuteMsg::Send {
             recipient,
             recipient_code_hash,
@@ -245,7 +247,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, env, &info, address),
         ExecuteMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, &info, level),
         ExecuteMsg::AddMinters { minters, .. } => add_minters(deps, env, &info, minters),
-        ExecuteMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, minters),
+        ExecuteMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, &info, minters),
         ExecuteMsg::SetMinters { minters, .. } => set_minters(deps, env, &info, minters),
         ExecuteMsg::RevokePermit { permit_name, .. } => {
             revoke_permit(deps, env, &info, permit_name)
@@ -258,10 +260,10 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
 #[entry_point]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::TokenInfo {} => query_token_info(&deps.storage),
-        QueryMsg::TokenConfig {} => query_token_config(&deps.storage),
-        QueryMsg::ContractStatus {} => query_contract_status(&deps.storage),
-        QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage),
+        QueryMsg::TokenInfo {} => query_token_info(deps.storage),
+        QueryMsg::TokenConfig {} => query_token_config(deps.storage),
+        QueryMsg::ContractStatus {} => query_contract_status(deps.storage),
+        QueryMsg::ExchangeRate {} => query_exchange_rate(deps.storage),
         QueryMsg::Minters { .. } => query_minters(deps),
         QueryMsg::WithPermit { permit, query } => permit_queries(deps, permit, query),
         _ => viewing_keys_queries(deps, msg),
@@ -270,9 +272,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<Binary, StdError> {
     // Validate permit content
-    let token_address = ReadonlyConfig::from_storage(&deps.storage)
-        .constants()?
-        .contract_address;
+    let token_address = ConstantsStore::may_load(deps.storage)?.contract_address;
 
     let account = Addr::unchecked(validate(
         deps,
@@ -374,8 +374,7 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 fn query_exchange_rate(storage: &dyn Storage) -> StdResult<Binary> {
-    let config = ReadonlyConfig::from_storage(storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(storage)?;
 
     if constants.deposit_is_enabled || constants.redeem_is_enabled {
         let rate: Uint128;
@@ -398,8 +397,7 @@ fn query_exchange_rate(storage: &dyn Storage) -> StdResult<Binary> {
 }
 
 fn query_token_info(storage: &dyn Storage) -> StdResult<Binary> {
-    let config = ReadonlyConfig::from_storage(storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(storage)?;
 
     let total_supply = if constants.total_supply_is_public {
         Some(Uint128::new(config.total_supply()))
@@ -416,8 +414,7 @@ fn query_token_info(storage: &dyn Storage) -> StdResult<Binary> {
 }
 
 fn query_token_config(storage: &dyn Storage) -> StdResult<Binary> {
-    let config = ReadonlyConfig::from_storage(storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(storage)?;
 
     to_binary(&QueryAnswer::TokenConfig {
         public_total_supply: constants.total_supply_is_public,
@@ -429,10 +426,10 @@ fn query_token_config(storage: &dyn Storage) -> StdResult<Binary> {
 }
 
 fn query_contract_status(storage: &dyn Storage) -> StdResult<Binary> {
-    let config = ReadonlyConfig::from_storage(storage);
+    let contract_status = ContractStatusStore::may_load(storage)?;
 
     to_binary(&QueryAnswer::ContractStatus {
-        status: config.contract_status(),
+        status: contract_status,
     })
 }
 
@@ -470,20 +467,18 @@ pub fn query_balance(deps: Deps, account: &Addr) -> StdResult<Binary> {
 }
 
 fn query_minters(deps: Deps) -> StdResult<Binary> {
-    let minters = ReadonlyConfig::from_storage(&deps.storage).minters();
+    let minters = MintersStore::may_load(deps.storage)?;
 
     let response = QueryAnswer::Minters { minters };
     to_binary(&response)
 }
 
 fn change_admin(deps: DepsMut, env: Env, info: &MessageInfo, address: Addr) -> StdResult<Response> {
-    let mut config = Config::from_storage(deps.storage);
+    let mut constants = ConstantsStore::may_load(deps.storage)?;
+    check_if_admin(&constants.admin, &info.sender)?;
 
-    check_if_admin(&config, &info.sender)?;
-
-    let mut consts = config.constants()?;
-    consts.admin = address;
-    config.set_constants(&consts)?;
+    constants.admin = address;
+    ConstantsStore::save(deps.storage, &constants)?;
 
     Ok(Response {
         messages: vec![],
@@ -533,22 +528,22 @@ fn try_mint(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let mut config = Config::from_storage(deps.storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(deps.storage)?;
+
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
             "Mint functionality is not enabled for this token.",
         ));
     }
 
-    let minters = config.minters();
+    let minters = MintersStore::may_load(deps.storage)?;
     if !minters.contains(&info.sender) {
         return Err(StdError::generic_err(
             "Minting is allowed to minter accounts only",
         ));
     }
 
-    let mut total_supply = config.total_supply();
+    let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
     if let Some(new_total_supply) = total_supply.checked_add(amount.u128()) {
         total_supply = new_total_supply;
     } else {
@@ -556,7 +551,7 @@ fn try_mint(
             "This mint attempt would increase the total supply above the supported maximum",
         ));
     }
-    config.set_total_supply(total_supply);
+    TotalSupplyStore::save(deps.storage, total_supply)?;
 
     let minter = deps.api.addr_canonicalize(&info.sender.as_str())?;
     let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
@@ -586,22 +581,22 @@ fn try_batch_mint(
     info: &MessageInfo,
     actions: Vec<batch::MintAction>,
 ) -> StdResult<Response> {
-    let mut config = Config::from_storage(deps.storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(deps.storage)?;
+
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
             "Mint functionality is not enabled for this token.",
         ));
     }
 
-    let minters = config.minters();
+    let minters = MintersStore::may_load(deps.storage)?;
     if !minters.contains(&info.sender) {
         return Err(StdError::generic_err(
             "Minting is allowed to minter accounts only",
         ));
     }
 
-    let mut total_supply = config.total_supply();
+    let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
 
     // Quick loop to check that the total of amounts is valid
     for action in &actions {
@@ -613,7 +608,8 @@ fn try_batch_mint(
             ));
         }
     }
-    config.set_total_supply(total_supply);
+
+    TotalSupplyStore::save(deps.storage, total_supply)?;
 
     let minter = deps.api.addr_canonicalize(&info.sender.as_str())?;
     for action in actions {
@@ -666,8 +662,7 @@ pub fn try_create_key(
     info: &MessageInfo,
     entropy: String,
 ) -> StdResult<Response> {
-    let constants = ReadonlyConfig::from_storage(&deps.storage).constants()?;
-    let prng_seed = constants.prng_seed;
+    let prng_seed = ConstantsStore::may_load(deps.storage)?.prng_seed;
 
     let key = ViewingKey::new(&env, &prng_seed, (&entropy).as_ref());
 
@@ -688,12 +683,10 @@ fn set_contract_status(
     info: &MessageInfo,
     status_level: ContractStatusLevel,
 ) -> StdResult<Response> {
-    let mut config = Config::from_storage(deps.storage);
+    let constants = ConstantsStore::may_load(deps.storage)?;
+    check_if_admin(&constants.admin, &info.sender)?;
 
-    check_if_admin(&config, &info.sender)?;
-
-    config.set_contract_status(status_level);
-
+    ContractStatusStore::save(deps.storage, status_level)?;
     Ok(Response {
         messages: vec![],
         attributes: vec![],
@@ -705,7 +698,7 @@ fn set_contract_status(
 }
 
 pub fn query_allowance(deps: Deps, owner: Addr, spender: Addr) -> StdResult<Binary> {
-    let allowance = read_allowance(&deps.storage, &owner, &spender)?;
+    let allowance = AllowancesStore::may_load(deps.storage, &owner, &spender)?;
 
     let response = QueryAnswer::Allowance {
         owner,
@@ -735,16 +728,16 @@ fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Respons
 
     let raw_amount = amount.u128();
 
-    let mut config = Config::from_storage(deps.storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(deps.storage)?;
     if !constants.deposit_is_enabled {
         return Err(StdError::generic_err(
             "Deposit functionality is not enabled for this token.",
         ));
     }
-    let total_supply = config.total_supply();
+
+    let total_supply = TotalSupplyStore::may_load(deps.storage)?;
     if let Some(total_supply) = total_supply.checked_add(raw_amount) {
-        config.set_total_supply(total_supply);
+        TotalSupplyStore::save(deps.storage, total_supply)?;
     } else {
         return Err(StdError::generic_err(
             "This deposit would overflow the currency's total supply",
@@ -781,8 +774,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Respons
 }
 
 fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> StdResult<Response> {
-    let config = ReadonlyConfig::from_storage(&deps.storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(storage)?;
     if !constants.redeem_is_enabled {
         return Err(StdError::generic_err(
             "Redeem functionality is not enabled for this token.",
@@ -802,10 +794,9 @@ fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> S
         )));
     }
 
-    let mut config = Config::from_storage(deps.storage);
-    let total_supply = config.total_supply();
+    let total_supply = TotalSupplyStore::may_load(deps.storage)?;
     if let Some(total_supply) = total_supply.checked_sub(amount_raw) {
-        config.set_total_supply(total_supply);
+        TotalSupplyStore::save(deps.storage, total_supply)?;
     } else {
         return Err(StdError::generic_err(
             "You are trying to redeem more tokens than what is available in the total supply",
@@ -859,7 +850,7 @@ fn try_transfer_impl(
 ) -> StdResult<()> {
     perform_transfer(deps.storage, sender, recipient, amount.u128())?;
 
-    let symbol = Config::from_storage(deps.storage).constants()?.symbol;
+    let symbol = ConstantsStore::may_load(deps.storage)?.symbol;
 
     store_transfer(
         deps.storage,
@@ -981,7 +972,7 @@ fn try_send_impl(
     )?;
 
     try_add_receiver_api_callback(
-        &deps.storage,
+        deps.storage,
         messages,
         recipient,
         recipient_code_hash,
@@ -1089,14 +1080,14 @@ fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
     ))
 }
 
-fn use_allowance<S: Storage>(
-    storage: &mut S,
+fn use_allowance(
+    storage: &mut dyn Storage,
     env: &Env,
     owner: &Addr,
     spender: &Addr,
     amount: u128,
 ) -> StdResult<()> {
-    let mut allowance = read_allowance(storage, owner, spender)?;
+    let mut allowance = AllowancesStore::may_load(storage, owner, spender)?;
 
     if allowance.is_expired_at(&env.block) {
         return Err(insufficient_allowance(0, amount));
@@ -1107,7 +1098,7 @@ fn use_allowance<S: Storage>(
         return Err(insufficient_allowance(allowance.amount, amount));
     }
 
-    write_allowance(storage, owner, spender, allowance)?;
+    AllowancesStore::save(storage, owner, spender, allowance)?;
 
     Ok(())
 }
@@ -1127,7 +1118,7 @@ fn try_transfer_from_impl(
 
     perform_transfer(deps.storage, owner, recipient, raw_amount)?;
 
-    let symbol = Config::from_storage(deps.storage).constants()?.symbol;
+    let symbol = ConstantsStore::may_load(deps.storage)?.symbol;
 
     store_transfer(
         deps.storage,
@@ -1320,8 +1311,7 @@ fn try_burn_from(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let config = ReadonlyConfig::from_storage(&deps.storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
             "Burn functionality is not enabled for this token.",
@@ -1347,8 +1337,8 @@ fn try_burn_from(
     let owner = deps.api.addr_canonicalize(owner.as_str())?;
 
     // remove from supply
-    let mut config = Config::from_storage(deps.storage);
-    let mut total_supply = config.total_supply();
+    let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
+
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
         total_supply = new_total_supply;
     } else {
@@ -1356,7 +1346,7 @@ fn try_burn_from(
             "You're trying to burn more than is available in the total supply",
         ));
     }
-    config.set_total_supply(total_supply);
+    TotalSupplyStore::save(deps.storage, total_supply)?;
 
     store_burn(
         deps.storage,
@@ -1384,8 +1374,7 @@ fn try_batch_burn_from(
     info: &MessageInfo,
     actions: Vec<batch::BurnFromAction>,
 ) -> StdResult<Response> {
-    let config = ReadonlyConfig::from_storage(&deps.storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
             "Burn functionality is not enabled for this token.",
@@ -1394,7 +1383,7 @@ fn try_batch_burn_from(
 
     let spender = deps.api.addr_canonicalize(&info.sender.as_str())?;
 
-    let mut total_supply = config.total_supply();
+    let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
 
     for action in actions {
         let owner = action.owner;
@@ -1435,8 +1424,7 @@ fn try_batch_burn_from(
         )?;
     }
 
-    let mut config = Config::from_storage(deps.storage);
-    config.set_total_supply(total_supply);
+    TotalSupplyStore::save(deps.storage, total_supply)?;
 
     let res = Response {
         messages: vec![],
@@ -1458,7 +1446,7 @@ fn try_increase_allowance(
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
-    let mut allowance = read_allowance(&deps.storage, &info.sender, &spender)?;
+    let mut allowance = AllowancesStore::may_load(deps.storage, &info.sender, &spender)?;
 
     // If the previous allowance has expired, reset the allowance.
     // Without this users can take advantage of an expired allowance given to
@@ -1474,7 +1462,7 @@ fn try_increase_allowance(
         allowance.expiration = expiration;
     }
     let new_amount = allowance.amount;
-    write_allowance(deps.storage, &info.sender, &spender, allowance)?;
+    AllowancesStore::save(deps.storage, &info.sender, &spender, &allowance)?;
 
     let res = Response {
         messages: vec![],
@@ -1497,7 +1485,7 @@ fn try_decrease_allowance(
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
-    let mut allowance = read_allowance(&deps.storage, &info.sender, &spender)?;
+    let mut allowance = AllowancesStore::may_load(deps.storage, &info.sender, &spender)?;
 
     // If the previous allowance has expired, reset the allowance.
     // Without this users can take advantage of an expired allowance given to
@@ -1513,7 +1501,7 @@ fn try_decrease_allowance(
         allowance.expiration = expiration;
     }
     let new_amount = allowance.amount;
-    write_allowance(deps.storage, &info.sender, &spender, allowance)?;
+    AllowancesStore::save(deps.storage, &info.sender, &spender, &allowance)?;
 
     let res = Response {
         messages: vec![],
@@ -1534,17 +1522,16 @@ fn add_minters(
     info: &MessageInfo,
     minters_to_add: Vec<Addr>,
 ) -> StdResult<Response> {
-    let mut config = Config::from_storage(deps.storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(deps.storage)?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
             "Mint functionality is not enabled for this token.",
         ));
     }
 
-    check_if_admin(&config, &info.sender)?;
+    check_if_admin(&constants.admin, &info.sender)?;
 
-    config.add_minters(minters_to_add)?;
+    MintersStore::add_minters(deps.storage, minters_to_add)?;
 
     Ok(Response {
         messages: vec![],
@@ -1554,18 +1541,22 @@ fn add_minters(
     })
 }
 
-fn remove_minters(deps: DepsMut, env: Env, minters_to_remove: Vec<Addr>) -> StdResult<Response> {
-    let mut config = Config::from_storage(deps.storage);
-    let constants = config.constants()?;
+fn remove_minters(
+    deps: DepsMut,
+    env: Env,
+    info: &MessageInfo,
+    minters_to_remove: Vec<Addr>,
+) -> StdResult<Response> {
+    let constants = ConstantsStore::may_load(deps.storage)?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
             "Mint functionality is not enabled for this token.",
         ));
     }
 
-    check_if_admin(&config, &info.sender)?;
+    check_if_admin(&constants.admin, &info.sender)?;
 
-    config.remove_minters(minters_to_remove)?;
+    MintersStore::remove_minters(deps.storage, minters_to_remove)?;
 
     Ok(Response {
         messages: vec![],
@@ -1583,17 +1574,16 @@ fn set_minters(
     info: &MessageInfo,
     minters_to_set: Vec<Addr>,
 ) -> StdResult<Response> {
-    let mut config = Config::from_storage(deps.storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(deps.storage)?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
             "Mint functionality is not enabled for this token.",
         ));
     }
 
-    check_if_admin(&config, &info.sender)?;
+    check_if_admin(&constants.admin, &info.sender)?;
 
-    config.set_minters(minters_to_set)?;
+    MintersStore::save(deps.storage, minters_to_set)?;
 
     Ok(Response {
         messages: vec![],
@@ -1615,8 +1605,7 @@ fn try_burn(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let config = ReadonlyConfig::from_storage(&deps.storage);
-    let constants = config.constants()?;
+    let constants = ConstantsStore::may_load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
             "Burn functionality is not enabled for this token.",
@@ -1639,8 +1628,7 @@ fn try_burn(
 
     BalancesStore::save(deps.storage, &info.sender, account_balance);
 
-    let mut config = Config::from_storage(deps.storage);
-    let mut total_supply = config.total_supply();
+    let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
         total_supply = new_total_supply;
     } else {
@@ -1648,7 +1636,7 @@ fn try_burn(
             "You're trying to burn more than is available in the total supply",
         ));
     }
-    config.set_total_supply(total_supply);
+    TotalSupplyStore::save(deps.storage, total_supply)?;
 
     store_burn(
         deps.storage,
@@ -1718,17 +1706,8 @@ fn revoke_permit(
     })
 }
 
-fn is_admin<S: Storage>(config: &Config<S>, account: &Addr) -> StdResult<bool> {
-    let consts = config.constants()?;
-    if &consts.admin != account {
-        return Ok(false);
-    }
-
-    Ok(true)
-}
-
-fn check_if_admin<S: Storage>(config: &Config<S>, account: &Addr) -> StdResult<()> {
-    if !is_admin(config, account)? {
+fn check_if_admin(config_admin: &Addr, account: &Addr) -> StdResult<()> {
+    if config_admin != account {
         return Err(StdError::generic_err(
             "This is an admin command. Admin commands can only be run from admin address",
         ));
@@ -1920,10 +1899,12 @@ mod tests {
         }]);
         assert_eq!(init_result.unwrap(), InitResponse::default());
 
-        let config = ReadonlyConfig::from_storage(&deps.storage);
-        let constants = config.constants().unwrap();
-        assert_eq!(config.total_supply(), 5000);
-        assert_eq!(config.contract_status(), ContractStatusLevel::NormalRun);
+        let constants = ConstantsStore::may_load(&deps.storage)?;
+        assert_eq!(TotalSupplyStore::may_load(&deps.storage)?, 5000);
+        assert_eq!(
+            ContractStatusStore::may_load(&deps.storage)?,
+            ContractStatusLevel::NormalRun
+        );
         assert_eq!(constants.name, "sec-sec".to_string());
         assert_eq!(constants.admin, Addr("admin".to_string()));
         assert_eq!(constants.symbol, "SECSEC".to_string());
@@ -1950,10 +1931,12 @@ mod tests {
         );
         assert_eq!(init_result.unwrap(), InitResponse::default());
 
-        let config = ReadonlyConfig::from_storage(&deps.storage);
-        let constants = config.constants().unwrap();
-        assert_eq!(config.total_supply(), 5000);
-        assert_eq!(config.contract_status(), ContractStatusLevel::NormalRun);
+        let constants = ConstantsStore::may_load(&deps.storage)?;
+        assert_eq!(TotalSupplyStore::may_load(&deps.storage)?, 5000);
+        assert_eq!(
+            ContractStatusStore::may_load(&deps.storage)?,
+            ContractStatusLevel::NormalRun
+        );
         assert_eq!(constants.name, "sec-sec".to_string());
         assert_eq!(constants.admin, Addr("admin".to_string()));
         assert_eq!(constants.symbol, "SECSEC".to_string());
@@ -2328,11 +2311,11 @@ mod tests {
         let bob_canonical = Addr("bob".to_string());
         let alice_canonical = Addr("alice".to_string());
 
-        let bob_balance = BalancesStore::load(deps.storage, &bob_canonical);
-        let alice_balance = BalancesStore::load(deps.storage, &alice_canonical);
+        let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
+        let alice_balance = BalancesStore::load(&deps.storage, &alice_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
         assert_eq!(alice_balance, 2000);
-        let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        let total_supply = TotalSupplyStore::may_load(&deps.storage)?;
         assert_eq!(total_supply, 5000);
 
         // Second send more than allowance
@@ -2459,11 +2442,11 @@ mod tests {
         ));
         let bob_canonical = Addr("bob".to_string());
         let contract_canonical = Addr("contract".to_string());
-        let bob_balance = BalancesStore::load(deps.storage, &bob_canonical);
-        let contract_balance = BalancesStore::load(deps.storage, &contract_canonical);
+        let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
+        let contract_balance = BalancesStore::load(&deps.storage, &contract_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
         assert_eq!(contract_balance, 2000);
-        let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        let total_supply = TotalSupplyStore::may_load(&deps.storage)?;
         assert_eq!(total_supply, 5000);
 
         // Second send more than allowance
@@ -2586,9 +2569,9 @@ mod tests {
             handle_result.err().unwrap()
         );
         let bob_canonical = Addr("bob".to_string());
-        let bob_balance = BalancesStore::load(deps.storage, &bob_canonical);
+        let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
         assert_eq!(bob_balance, 10000 - 2000);
-        let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        let total_supply = TotalSupplyStore::may_load(&deps.storage)?;
         assert_eq!(total_supply, 10000 - 2000);
 
         // Second burn more than allowance
@@ -2726,10 +2709,10 @@ mod tests {
         );
         for (name, amount) in &[("bob", 200_u128), ("jerry", 300), ("mike", 400)] {
             let name_canon = Addr(name.to_string());
-            let balance = BalancesStore::load(deps.storage, &name_canon);
+            let balance = BalancesStore::load(&deps.storage, &name_canon);
             assert_eq!(balance, 10000 - amount);
         }
-        let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        let total_supply = TotalSupplyStore::may_load(&deps.storage)?;
         assert_eq!(total_supply, 10000 * 3 - (200 + 300 + 400));
 
         // Burn the rest of the allowance
@@ -2760,7 +2743,7 @@ mod tests {
             let balance = BalancesStore::load(deps.storage, &name_canon);
             assert_eq!(balance, 10000 - allowance_size);
         }
-        let total_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        let total_supply = TotalSupplyStore::may_load(&deps.storage)?;
         assert_eq!(total_supply, 3 * (10000 - allowance_size));
 
         // Second burn more than allowance
@@ -2815,7 +2798,7 @@ mod tests {
         let bob_canonical = Addr("bob".to_string());
         let alice_canonical = Addr("alice".to_string());
 
-        let allowance = read_allowance(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical)?;
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2897,7 +2880,7 @@ mod tests {
         let bob_canonical = Addr("bob".to_string());
         let alice_canonical = Addr("alice".to_string());
 
-        let allowance = read_allowance(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical)?;
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2922,7 +2905,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let allowance = read_allowance(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical)?;
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2958,10 +2941,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let admin = ReadonlyConfig::from_storage(&deps.storage)
-            .constants()
-            .unwrap()
-            .admin;
+        let admin = ConstantsStore::may_load(&deps.storage)?.admin;
         assert_eq!(admin, Addr("bob".to_string()));
     }
 
@@ -2991,7 +2971,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let contract_status = ReadonlyConfig::from_storage(&deps.storage).contract_status();
+        let contract_status = ContractStatusStore::may_load(&deps.storage)?;
         assert!(matches!(
             contract_status,
             ContractStatusLevel::StopAll { .. }
@@ -3194,7 +3174,7 @@ mod tests {
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Burn functionality is not enabled for this token."));
 
-        let supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        let supply = TotalSupplyStore::may_load(&deps.storage)?;
         let burn_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(burn_amount),
@@ -3211,7 +3191,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let new_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        let new_supply = TotalSupplyStore::may_load(&deps.storage)?;
         assert_eq!(new_supply, supply - burn_amount);
     }
 
@@ -3257,7 +3237,7 @@ mod tests {
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Mint functionality is not enabled for this token"));
 
-        let supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        let supply = TotalSupplyStore::may_load(&deps.storage)?;
         let mint_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr("lebron".to_string()),
@@ -3275,7 +3255,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let new_supply = ReadonlyConfig::from_storage(&deps.storage).total_supply();
+        let new_supply = TotalSupplyStore::may_load(&deps.storage)?;
         assert_eq!(new_supply, supply + mint_amount);
     }
 
