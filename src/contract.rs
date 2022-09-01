@@ -18,7 +18,8 @@ use crate::state::{
     BalancesStore, Constants, ConstantsStore, ContractStatusStore, MintersStore, TotalSupplyStore,
 };
 use crate::transaction_history::{
-    get_transfers, get_txs, store_burn, store_deposit, store_mint, store_redeem, store_transfer,
+    store_burn, store_deposit, store_mint, store_redeem, store_transfer, TransactionsStore,
+    TransfersStore,
 };
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
 use secret_toolkit::permit::{validate, Permit, RevokedPermits, TokenPermissions};
@@ -435,7 +436,8 @@ fn query_contract_status(storage: &dyn Storage) -> StdResult<Binary> {
 
 pub fn query_transfers(deps: Deps, account: &Addr, page: u32, page_size: u32) -> StdResult<Binary> {
     let address = deps.api.addr_canonicalize(account.as_str())?;
-    let (txs, total) = get_transfers(&deps.api, &deps.storage, &address, page, page_size)?;
+    let (txs, total) =
+        TransfersStore::get_transfers(&deps.api, &deps.storage, &address, page, page_size)?;
 
     let result = QueryAnswer::TransferHistory {
         txs,
@@ -451,7 +453,8 @@ pub fn query_transactions(
     page_size: u32,
 ) -> StdResult<Binary> {
     let address = deps.api.addr_canonicalize(account.as_str())?;
-    let (txs, total) = get_txs(&deps.api, &deps.storage, &address, page, page_size)?;
+    let (txs, total) =
+        TransactionsStore::get_txs(&deps.api, &deps.storage, &address, page, page_size)?;
 
     let result = QueryAnswer::TransactionHistory {
         txs,

@@ -12,7 +12,6 @@ use crate::viewing_key::ViewingKey;
 use serde::de::DeserializeOwned;
 
 pub static CONFIG_KEY: &[u8] = b"config";
-pub const PREFIX_TXS: &[u8] = b"transfers";
 
 pub const KEY_CONSTANTS: &[u8] = b"constants";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
@@ -92,22 +91,22 @@ impl ContractStatusStore {
     }
 }
 
-pub static MINTERS: Item<Vec<String>> = Item::new(KEY_MINTERS);
+pub static MINTERS: Item<Vec<Addr>> = Item::new(KEY_MINTERS);
 pub struct MintersStore {}
 impl MintersStore {
-    pub fn may_load(store: &dyn Storage) -> StdResult<Vec<String>> {
+    pub fn may_load(store: &dyn Storage) -> StdResult<Vec<Addr>> {
         MINTERS
             .may_load(store)?
             .ok_or_else(|| StdError::generic_err(""))
     }
 
-    pub fn save(store: &mut dyn Storage, minters_to_set: Vec<String>) -> StdResult<()> {
+    pub fn save(store: &mut dyn Storage, minters_to_set: Vec<Addr>) -> StdResult<()> {
         // Elad check serialization for minters_to_set
         MINTERS.save(store, &minters_to_set)
     }
 
     // Elad: Add ref to minters_to_add?
-    pub fn add_minters(store: &mut dyn Storage, minters_to_add: Vec<String>) -> StdResult<()> {
+    pub fn add_minters(store: &mut dyn Storage, minters_to_add: Vec<Addr>) -> StdResult<()> {
         let mut loaded_minters = MINTERS.may_load(store)?;
 
         loaded_minters.extend(minters_to_add);
@@ -115,10 +114,7 @@ impl MintersStore {
         MINTERS.save(&mut store, &loaded_minters)
     }
 
-    pub fn remove_minters(
-        store: &mut dyn Storage,
-        minters_to_remove: Vec<String>,
-    ) -> StdResult<()> {
+    pub fn remove_minters(store: &mut dyn Storage, minters_to_remove: Vec<Addr>) -> StdResult<()> {
         let mut loaded_minters = MINTERS.may_load(store)?;
 
         for minter in minters_to_remove {
