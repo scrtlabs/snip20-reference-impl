@@ -45,16 +45,12 @@ impl Snip20ReceiveMsg {
     }
 
     /// creates a cosmos_msg sending this struct to the named contract
-    pub fn into_cosmos_msg(
-        self,
-        callback_code_hash: String,
-        contract_addr: Addr,
-    ) -> StdResult<CosmosMsg> {
+    pub fn into_cosmos_msg(self, code_hash: String, contract_addr: Addr) -> StdResult<CosmosMsg> {
         let msg = self.into_binary()?;
         let execute = WasmMsg::Execute {
             msg,
             code_hash,
-            contract_addr,
+            contract_addr: contract_addr.into_string(),
             funds: vec![],
         };
         Ok(execute.into())

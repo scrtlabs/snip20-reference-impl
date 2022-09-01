@@ -6,7 +6,7 @@ use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
 use secret_toolkit::storage::{AppendStore, Keymap};
 
-use crate::state::Config;
+use crate::state::TxCountStore;
 
 const PREFIX_TXS: &[u8] = b"transactions";
 const PREFIX_TRANSFERS: &[u8] = b"transfers";
@@ -86,9 +86,9 @@ impl StoredLegacyTransfer {
     pub fn into_humanized(self, api: &dyn Api) -> StdResult<Tx> {
         let tx = Tx {
             id: self.id,
-            from: api.human_address(&self.from)?,
-            sender: api.human_address(&self.sender)?,
-            receiver: api.human_address(&self.receiver)?,
+            from: api.addr_humanize(&self.from)?,
+            sender: api.addr_humanize(&self.sender)?,
+            receiver: api.addr_humanize(&self.receiver)?,
             coins: self.coins,
             memo: self.memo,
             block_time: Some(self.block_time),
@@ -199,9 +199,9 @@ impl StoredTxAction {
                 let from = self.address1.ok_or_else(transfer_addr_err)?;
                 let sender = self.address2.ok_or_else(transfer_addr_err)?;
                 let recipient = self.address3.ok_or_else(transfer_addr_err)?;
-                let from = api.human_address(&from)?;
-                let sender = api.human_address(&sender)?;
-                let recipient = api.human_address(&recipient)?;
+                let from = api.addr_humanize(&from)?;
+                let sender = api.addr_humanize(&sender)?;
+                let recipient = api.addr_humanize(&recipient)?;
                 TxAction::Transfer {
                     from,
                     sender,
@@ -211,15 +211,15 @@ impl StoredTxAction {
             TxCode::Mint => {
                 let minter = self.address1.ok_or_else(mint_addr_err)?;
                 let recipient = self.address2.ok_or_else(mint_addr_err)?;
-                let minter = api.human_address(&minter)?;
-                let recipient = api.human_address(&recipient)?;
+                let minter = api.addr_humanize(&minter)?;
+                let recipient = api.addr_humanize(&recipient)?;
                 TxAction::Mint { minter, recipient }
             }
             TxCode::Burn => {
                 let burner = self.address1.ok_or_else(burn_addr_err)?;
                 let owner = self.address2.ok_or_else(burn_addr_err)?;
-                let burner = api.human_address(&burner)?;
-                let owner = api.human_address(&owner)?;
+                let burner = api.addr_humanize(&burner)?;
+                let owner = api.addr_humanize(&owner)?;
                 TxAction::Burn { burner, owner }
             }
             TxCode::Deposit => TxAction::Deposit {},
@@ -254,7 +254,7 @@ impl StoredRichTx {
             action,
             coins,
             memo,
-            block_time: block.time,
+            block_time: block.time.seconds(),
             block_height: block.height,
         }
     }
@@ -311,7 +311,7 @@ pub fn store_transfer(
         receiver: receiver.clone(),
         coins,
         memo,
-        block_time: block.time,
+        block_time: block.time.seconds(),
         block_height: block.height,
     };
     let tx = StoredRichTx::from_stored_legacy_transfer(transfer.clone());

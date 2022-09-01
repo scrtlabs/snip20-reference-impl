@@ -279,7 +279,7 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
         deps,
         PREFIX_REVOKED_PERMITS,
         &permit,
-        token_address,
+        token_address.into_string(),
         None,
     )?);
 
@@ -341,7 +341,7 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
     for address in addresses {
         let canonical_addr = deps.api.addr_canonicalize(address.as_str())?;
 
-        let expected_key = read_viewing_key(&deps.storage, &canonical_addr);
+        let expected_key = read_viewing_key(deps.storage, &canonical_addr);
 
         if expected_key.is_none() {
             // Checking the key will take significant time. We don't want to exit immediately if it isn't set
@@ -401,7 +401,7 @@ fn query_token_info(storage: &dyn Storage) -> StdResult<Binary> {
     let constants = ConstantsStore::may_load(storage)?;
 
     let total_supply = if constants.total_supply_is_public {
-        Some(Uint128::new(config.total_supply()))
+        Some(Uint128::new(TotalSupplyStore::may_load(storage)?))
     } else {
         None
     };
@@ -437,7 +437,7 @@ fn query_contract_status(storage: &dyn Storage) -> StdResult<Binary> {
 pub fn query_transfers(deps: Deps, account: &Addr, page: u32, page_size: u32) -> StdResult<Binary> {
     let address = deps.api.addr_canonicalize(account.as_str())?;
     let (txs, total) =
-        TransfersStore::get_transfers(&deps.api, &deps.storage, &address, page, page_size)?;
+        TransfersStore::get_transfers(deps.api, deps.storage, &address, page, page_size)?;
 
     let result = QueryAnswer::TransferHistory {
         txs,
@@ -454,7 +454,7 @@ pub fn query_transactions(
 ) -> StdResult<Binary> {
     let address = deps.api.addr_canonicalize(account.as_str())?;
     let (txs, total) =
-        TransactionsStore::get_txs(&deps.api, &deps.storage, &address, page, page_size)?;
+        TransactionsStore::get_txs(deps.api, deps.storage, &address, page, page_size)?;
 
     let result = QueryAnswer::TransactionHistory {
         txs,
@@ -492,9 +492,9 @@ fn change_admin(deps: DepsMut, env: Env, info: &MessageInfo, address: Addr) -> S
 }
 
 fn try_mint_impl<S: Storage>(
-    storage: &mut S,
-    minter: &CanonicalAddr,
-    recipient: &CanonicalAddr,
+    deps: &DepsMut,
+    minter: &Addr,
+    recipient: &Addr,
     amount: Uint128,
     denom: String,
     memo: Option<String>,
@@ -502,7 +502,7 @@ fn try_mint_impl<S: Storage>(
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
 
-    let mut account_balance = BalancesStore::load(storage, recipient);
+    let mut account_balance = BalancesStore::load(deps.storage, recipient);
 
     if let Some(new_balance) = account_balance.checked_add(raw_amount) {
         account_balance = new_balance;
@@ -516,9 +516,20 @@ fn try_mint_impl<S: Storage>(
         ));
     }
 
-    BalancesStore::save(storage, recipient, account_balance);
+    BalancesStore::save(deps.storage, recipient, account_balance);
 
-    store_mint(storage, minter, recipient, amount, denom, memo, block)?;
+    let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
+    let minter = deps.api.addr_canonicalize(&minter.as_str())?;
+
+    store_mint(
+        deps.storage,
+        &minter,
+        &recipient,
+        amount,
+        denom,
+        memo,
+        block,
+    )?;
 
     Ok(())
 }
@@ -556,11 +567,9 @@ fn try_mint(
     }
     TotalSupplyStore::save(deps.storage, total_supply)?;
 
-    let minter = deps.api.addr_canonicalize(&info.sender.as_str())?;
-    let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
     try_mint_impl(
-        deps.storage,
-        &minter,
+        &deps,
+        &info.sender,
         &recipient,
         amount,
         constants.symbol,
@@ -614,13 +623,11 @@ fn try_batch_mint(
 
     TotalSupplyStore::save(deps.storage, total_supply)?;
 
-    let minter = deps.api.addr_canonicalize(&info.sender.as_str())?;
     for action in actions {
-        let recipient = deps.api.addr_canonicalize(&action.recipient.as_str())?;
         try_mint_impl(
-            deps.storage,
-            &minter,
-            &recipient,
+            &deps,
+            &info.sender,
+            &action.recipient,
             action.amount,
             constants.symbol.clone(),
             action.memo,
@@ -667,7 +674,7 @@ pub fn try_create_key(
 ) -> StdResult<Response> {
     let prng_seed = ConstantsStore::may_load(deps.storage)?.prng_seed;
 
-    let key = ViewingKey::new(&env, &prng_seed, (&entropy).as_ref());
+    let key = ViewingKey::new(&env, info, &prng_seed, (&entropy).as_ref());
 
     let message_sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
     write_viewing_key(deps.storage, &message_sender, &key);
@@ -715,7 +722,7 @@ pub fn query_allowance(deps: Deps, owner: Addr, spender: Addr) -> StdResult<Bina
 fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Response> {
     let mut amount = Uint128::zero();
 
-    for coin in &env.message.sent_funds {
+    for coin in &info.funds {
         if coin.denom == "uscrt" {
             amount = coin.amount
         } else {
@@ -777,7 +784,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Respons
 }
 
 fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> StdResult<Response> {
-    let constants = ConstantsStore::may_load(storage)?;
+    let constants = ConstantsStore::may_load(deps.storage)?;
     if !constants.redeem_is_enabled {
         return Err(StdError::generic_err(
             "Redeem functionality is not enabled for this token.",
@@ -832,7 +839,7 @@ fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> S
     let res = Response {
         messages: vec![CosmosMsg::Bank(BankMsg::Send {
             // from_address: env.contract.address, //elad
-            to_address: info.sender,
+            to_address: info.sender.into_string(),
             amount: withdrawal_coins,
         })],
         attributes: vec![],
@@ -845,8 +852,8 @@ fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> S
 
 fn try_transfer_impl(
     deps: DepsMut,
-    sender: &CanonicalAddr,
-    recipient: &CanonicalAddr,
+    sender: &Addr,
+    recipient: &Addr,
     amount: Uint128,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
@@ -855,11 +862,13 @@ fn try_transfer_impl(
 
     let symbol = ConstantsStore::may_load(deps.storage)?.symbol;
 
+    let sender = deps.api.addr_canonicalize(&sender.as_str())?;
+    let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
     store_transfer(
         deps.storage,
-        sender,
-        sender,
-        recipient,
+        &sender,
+        &sender,
+        &recipient,
         amount,
         symbol,
         memo,
@@ -877,9 +886,7 @@ fn try_transfer(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
-    let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
-    try_transfer_impl(deps, &sender, &recipient, amount, memo, &env.block)?;
+    try_transfer_impl(deps, &info.sender, &recipient, amount, memo, &env.block)?;
 
     let res = Response {
         messages: vec![],
@@ -896,13 +903,11 @@ fn try_batch_transfer(
     info: &MessageInfo,
     actions: Vec<batch::TransferAction>,
 ) -> StdResult<Response> {
-    let sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
     for action in actions {
-        let recipient = deps.api.addr_canonicalize(&action.recipient.as_str())?;
         try_transfer_impl(
             deps,
-            &sender,
-            &recipient,
+            &info.sender,
+            &action.recipient,
             action.amount,
             action.memo,
             &env.block,
@@ -964,15 +969,7 @@ fn try_send_impl(
     msg: Option<Binary>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
-    let recipient_canon = deps.api.addr_canonicalize(&recipient.as_str())?;
-    try_transfer_impl(
-        deps,
-        sender_canon,
-        &recipient_canon,
-        amount,
-        memo.clone(),
-        block,
-    )?;
+    try_transfer_impl(deps, &sender, &recipient, amount, memo.clone(), block)?;
 
     try_add_receiver_api_callback(
         deps.storage,
@@ -1101,7 +1098,7 @@ fn use_allowance(
         return Err(insufficient_allowance(allowance.amount, amount));
     }
 
-    AllowancesStore::save(storage, owner, spender, allowance)?;
+    AllowancesStore::save(storage, owner, spender, &allowance)?;
 
     Ok(())
 }
@@ -1109,9 +1106,9 @@ fn use_allowance(
 fn try_transfer_from_impl(
     deps: DepsMut,
     env: &Env,
-    spender: &CanonicalAddr,
-    owner: &CanonicalAddr,
-    recipient: &CanonicalAddr,
+    spender: &Addr,
+    owner: &Addr,
+    recipient: &Addr,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<()> {
@@ -1123,11 +1120,14 @@ fn try_transfer_from_impl(
 
     let symbol = ConstantsStore::may_load(deps.storage)?.symbol;
 
+    let owner = deps.api.addr_canonicalize(&owner.as_str())?;
+    let spender = deps.api.addr_canonicalize(&spender.as_str())?;
+    let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
     store_transfer(
         deps.storage,
-        owner,
-        spender,
-        recipient,
+        &owner,
+        &spender,
+        &recipient,
         amount,
         symbol,
         memo,
@@ -1146,10 +1146,7 @@ fn try_transfer_from(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let spender = deps.api.addr_canonicalize(&info.sender.as_str())?;
-    let owner = deps.api.addr_canonicalize(owner.as_str())?;
-    let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
-    try_transfer_from_impl(deps, env, &spender, &owner, &recipient, amount, memo)?;
+    try_transfer_from_impl(deps, env, &info.sender, &owner, &recipient, amount, memo)?;
 
     let res = Response {
         messages: vec![],
@@ -1166,16 +1163,13 @@ fn try_batch_transfer_from(
     info: &MessageInfo,
     actions: Vec<batch::TransferFromAction>,
 ) -> StdResult<Response> {
-    let spender = deps.api.addr_canonicalize(&info.sender.as_str())?;
     for action in actions {
-        let owner = deps.api.addr_canonicalize(&action.owner.as_str())?;
-        let recipient = deps.api.addr_canonicalize(&action.recipient.as_str())?;
         try_transfer_from_impl(
             deps,
             env,
-            &spender,
-            &owner,
-            &recipient,
+            &info.sender,
+            &action.owner,
+            &action.recipient,
             action.amount,
             action.memo,
         )?;
@@ -1196,8 +1190,9 @@ fn try_batch_transfer_from(
 fn try_send_from_impl(
     deps: DepsMut,
     env: Env,
+    info: &MessageInfo,
     messages: &mut Vec<CosmosMsg>,
-    spender_canon: &CanonicalAddr, // redundant but more efficient
+    spender: Addr, // redundant but more efficient
     owner: Addr,
     recipient: Addr,
     recipient_code_hash: Option<String>,
@@ -1205,20 +1200,18 @@ fn try_send_from_impl(
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<()> {
-    let owner_canon = deps.api.addr_canonicalize(&owner.as_str())?;
-    let recipient_canon = deps.api.addr_canonicalize(&recipient.as_str())?;
     try_transfer_from_impl(
         deps,
         &env,
-        spender_canon,
-        &owner_canon,
-        &recipient_canon,
+        &spender,
+        &owner,
+        &recipient,
         amount,
         memo.clone(),
     )?;
 
     try_add_receiver_api_callback(
-        &deps.storage,
+        deps.storage,
         messages,
         recipient,
         recipient_code_hash,
@@ -1244,15 +1237,13 @@ fn try_send_from(
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<Response> {
-    let spender = &info.sender;
-    let spender_canon = deps.api.addr_canonicalize(spender.as_str())?;
-
     let mut messages = vec![];
     try_send_from_impl(
         deps,
         env,
+        info,
         &mut messages,
-        &spender_canon,
+        info.sender,
         owner,
         recipient,
         recipient_code_hash,
@@ -1276,16 +1267,15 @@ fn try_batch_send_from(
     info: &MessageInfo,
     actions: Vec<batch::SendFromAction>,
 ) -> StdResult<Response> {
-    let spender = &info.sender;
-    let spender_canon = deps.api.addr_canonicalize(spender.as_str())?;
     let mut messages = vec![];
 
     for action in actions {
         try_send_from_impl(
             deps,
             env.clone(),
+            info,
             &mut messages,
-            &spender_canon,
+            info.sender,
             action.owner,
             action.recipient,
             action.recipient_code_hash,
@@ -1384,7 +1374,7 @@ fn try_batch_burn_from(
         ));
     }
 
-    let spender = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    let spender = info.sender;
 
     let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
 
@@ -1416,6 +1406,8 @@ fn try_batch_burn_from(
             )));
         }
 
+        let owner = deps.api.addr_canonicalize(&owner.as_str())?;
+        let spender = deps.api.addr_canonicalize(&spender.as_str())?;
         store_burn(
             deps.storage,
             &owner,
@@ -1661,10 +1653,10 @@ fn try_burn(
     Ok(res)
 }
 
-fn perform_transfer<T: Storage>(
-    store: &mut T,
-    from: &CanonicalAddr,
-    to: &CanonicalAddr,
+fn perform_transfer(
+    store: &mut dyn Storage,
+    from: &Addr,
+    to: &Addr,
     amount: u128,
 ) -> StdResult<()> {
     let mut from_balance = BalancesStore::load(store, from);
@@ -1697,7 +1689,7 @@ fn revoke_permit(
     RevokedPermits::revoke_permit(
         deps.storage,
         PREFIX_REVOKED_PERMITS,
-        &info.sender,
+        &info.sender.as_str(),
         &permit_name,
     );
 

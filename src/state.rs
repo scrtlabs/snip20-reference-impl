@@ -107,21 +107,25 @@ impl MintersStore {
 
     // Elad: Add ref to minters_to_add?
     pub fn add_minters(store: &mut dyn Storage, minters_to_add: Vec<Addr>) -> StdResult<()> {
-        let mut loaded_minters = MINTERS.may_load(store)?;
+        let mut loaded_minters = MINTERS
+            .may_load(store)?
+            .ok_or_else(|| StdError::not_found("Key not found in storage"))?;
 
         loaded_minters.extend(minters_to_add);
 
-        MINTERS.save(&mut store, &loaded_minters)
+        MINTERS.save(store, &loaded_minters)
     }
 
     pub fn remove_minters(store: &mut dyn Storage, minters_to_remove: Vec<Addr>) -> StdResult<()> {
-        let mut loaded_minters = MINTERS.may_load(store)?;
+        let mut loaded_minters = MINTERS
+            .may_load(store)?
+            .ok_or_else(|| StdError::generic_err(""))?;
 
         for minter in minters_to_remove {
             loaded_minters.retain(|x| x != &minter);
         }
 
-        MINTERS.save(&mut store, &loaded_minters)
+        MINTERS.save(store, &loaded_minters)
     }
 }
 
@@ -144,7 +148,7 @@ pub static BALANCES: Keymap<Addr, u128> = Keymap::new(PREFIX_BALANCES);
 pub struct BalancesStore {}
 impl BalancesStore {
     pub fn load(store: &dyn Storage, account: &Addr) -> u128 {
-        BALANCES.get(store, account)?.ok_or_else(|| 0)
+        BALANCES.get(store, account).unwrap_or_default()
     }
 
     pub fn save(store: &mut dyn Storage, account: &Addr, amount: u128) -> StdResult<()> {
@@ -163,7 +167,7 @@ pub struct Allowance {
 impl Allowance {
     pub fn is_expired_at(&self, block: &cosmwasm_std::BlockInfo) -> bool {
         match self.expiration {
-            Some(time) => block.time >= time,
+            Some(time) => block.time.seconds() >= time,
             None => false, // allowance has no expiration
         }
     }
@@ -174,10 +178,8 @@ pub struct AllowancesStore {}
 impl AllowancesStore {
     pub fn may_load(store: &dyn Storage, owner: &Addr, spender: &Addr) -> StdResult<Allowance> {
         ALLOWANCES
-            .get(store, (owner, spender))?
-            .ok_or_else(|| Option::unwrap_or_default)
-        // let loaded_allowance = ALLOWANCES.may_load(&store, (owner, spender))?;
-        // loaded_allowance.map(Option::unwrap_or_default)
+            .get(store, &(*owner, *spender))
+            .ok_or_else(|| StdError::generic_err(""))
     }
 
     pub fn save(
@@ -186,26 +188,26 @@ impl AllowancesStore {
         spender: &Addr,
         allowance: &Allowance,
     ) -> StdResult<()> {
-        ALLOWANCES.insert(store, (owner, spender), allowance)
+        ALLOWANCES.insert(store, &(*owner, *spender), allowance)
     }
 }
 
 // Viewing Keys
 
 pub fn write_viewing_key(store: &mut dyn Storage, owner: &CanonicalAddr, key: &ViewingKey) {
-    let mut balance_store = PrefixedStorage::new(PREFIX_VIEW_KEY, store);
+    let mut balance_store = PrefixedStorage::new(store, PREFIX_VIEW_KEY);
     balance_store.set(owner.as_slice(), &key.to_hashed());
 }
 
 pub fn read_viewing_key(store: &dyn Storage, owner: &CanonicalAddr) -> Option<Vec<u8>> {
-    let balance_store = ReadonlyPrefixedStorage::new(PREFIX_VIEW_KEY, store);
+    let balance_store = ReadonlyPrefixedStorage::new(store, PREFIX_VIEW_KEY);
     balance_store.get(owner.as_slice())
 }
 
 // Receiver Interface
 
 pub fn get_receiver_hash(store: &dyn Storage, account: &Addr) -> Option<StdResult<String>> {
-    let store = ReadonlyPrefixedStorage::new(PREFIX_RECEIVERS, store);
+    let store = ReadonlyPrefixedStorage::new(store, PREFIX_RECEIVERS);
     store.get(account.as_str().as_bytes()).map(|data| {
         String::from_utf8(data)
             .map_err(|_err| StdError::invalid_utf8("stored code hash was not a valid String"))
@@ -213,6 +215,6 @@ pub fn get_receiver_hash(store: &dyn Storage, account: &Addr) -> Option<StdResul
 }
 
 pub fn set_receiver_hash(store: &mut dyn Storage, account: &Addr, code_hash: String) {
-    let mut store = PrefixedStorage::new(PREFIX_RECEIVERS, store);
+    let mut store = PrefixedStorage::new(store, PREFIX_RECEIVERS);
     store.set(account.as_str().as_bytes(), code_hash.as_bytes());
 }
