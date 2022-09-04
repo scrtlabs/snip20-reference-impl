@@ -483,15 +483,10 @@ fn change_admin(deps: DepsMut, env: Env, info: &MessageInfo, address: Addr) -> S
     constants.admin = address;
     ConstantsStore::save(deps.storage, &constants)?;
 
-    Ok(Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::ChangeAdmin { status: Success })?),
-    })
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::ChangeAdmin { status: Success })?))
 }
 
-fn try_mint_impl<S: Storage>(
+fn try_mint_impl(
     deps: &DepsMut,
     minter: &Addr,
     recipient: &Addr,
@@ -577,14 +572,7 @@ fn try_mint(
         &env.block,
     )?;
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::Mint { status: Success })?),
-    };
-
-    Ok(res)
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?))
 }
 
 fn try_batch_mint(
@@ -635,14 +623,7 @@ fn try_batch_mint(
         )?;
     }
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::BatchMint { status: Success })?),
-    };
-
-    Ok(res)
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BatchMint { status: Success })?))
 }
 
 pub fn try_set_key(
@@ -656,14 +637,11 @@ pub fn try_set_key(
     let message_sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
     write_viewing_key(deps.storage, &message_sender, &vk);
 
-    Ok(Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::SetViewingKey {
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::SetViewingKey {
             status: Success,
         })?),
-    })
+    )
 }
 
 pub fn try_create_key(
@@ -679,12 +657,7 @@ pub fn try_create_key(
     let message_sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
     write_viewing_key(deps.storage, &message_sender, &key);
 
-    Ok(Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::CreateViewingKey { key })?),
-    })
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::CreateViewingKey { key })?))
 }
 
 fn set_contract_status(
@@ -697,14 +670,12 @@ fn set_contract_status(
     check_if_admin(&constants.admin, &info.sender)?;
 
     ContractStatusStore::save(deps.storage, status_level)?;
-    Ok(Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::SetContractStatus {
+
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::SetContractStatus {
             status: Success,
         })?),
-    })
+    )
 }
 
 pub fn query_allowance(deps: Deps, owner: Addr, spender: Addr) -> StdResult<Binary> {
@@ -773,14 +744,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Respons
         &env.block,
     )?;
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::Deposit { status: Success })?),
-    };
-
-    Ok(res)
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?))
 }
 
 fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> StdResult<Response> {
@@ -836,17 +800,12 @@ fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> S
         &env.block,
     )?;
 
-    let res = Response {
-        messages: vec![CosmosMsg::Bank(BankMsg::Send {
-            // from_address: env.contract.address, //elad
-            to_address: info.sender.into_string(),
-            amount: withdrawal_coins,
-        })],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::Redeem { status: Success })?),
-    };
-
+    let message = CosmosMsg::Bank(BankMsg::Send {
+        to_address: info.sender.into_string(),
+        amount: withdrawal_coins,
+    });
+    let data = to_binary(&ExecuteAnswer::Redeem { status: Success })?;
+    let res = Response::new().add_message(message).set_data(data);
     Ok(res)
 }
 
@@ -888,13 +847,7 @@ fn try_transfer(
 ) -> StdResult<Response> {
     try_transfer_impl(deps, &info.sender, &recipient, amount, memo, &env.block)?;
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::Transfer { status: Success })?),
-    };
-    Ok(res)
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?))
 }
 
 fn try_batch_transfer(
@@ -914,15 +867,11 @@ fn try_batch_transfer(
         )?;
     }
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::BatchTransfer {
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::BatchTransfer {
             status: Success,
         })?),
-    };
-    Ok(res)
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1012,13 +961,7 @@ fn try_send(
         &env.block,
     )?;
 
-    let res = Response {
-        messages,
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::BatchSend { status: Success })?),
-    };
-    Ok(res)
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?))
 }
 
 fn try_batch_send(
@@ -1045,13 +988,7 @@ fn try_batch_send(
         )?;
     }
 
-    let res = Response {
-        messages,
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::BatchSend { status: Success })?),
-    };
-    Ok(res)
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?))
 }
 
 fn try_register_receive(
@@ -1061,16 +998,11 @@ fn try_register_receive(
     code_hash: String,
 ) -> StdResult<Response> {
     set_receiver_hash(deps.storage, &info.sender, code_hash);
-    let res = Response {
-        messages: vec![],
-        // log: vec![log("register_status", "success")],
-        attributes: vec![attr("register_status", "success")],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::RegisterReceive {
-            status: Success,
-        })?),
-    };
-    Ok(res)
+
+    let data = to_binary(&ExecuteAnswer::RegisterReceive { status: Success })?;
+    Ok(Response::new()
+        .add_attribute("register_status", "success")
+        .set_data(data))
 }
 
 fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
@@ -1148,13 +1080,7 @@ fn try_transfer_from(
 ) -> StdResult<Response> {
     try_transfer_from_impl(deps, env, &info.sender, &owner, &recipient, amount, memo)?;
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?),
-    };
-    Ok(res)
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?))
 }
 
 fn try_batch_transfer_from(
@@ -1175,15 +1101,11 @@ fn try_batch_transfer_from(
         )?;
     }
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::BatchTransferFrom {
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::BatchTransferFrom {
             status: Success,
         })?),
-    };
-    Ok(res)
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1252,13 +1174,7 @@ fn try_send_from(
         msg,
     )?;
 
-    let res = Response {
-        messages,
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::SendFrom { status: Success })?),
-    };
-    Ok(res)
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::SendFrom { status: Success })?))
 }
 
 fn try_batch_send_from(
@@ -1285,15 +1201,11 @@ fn try_batch_send_from(
         )?;
     }
 
-    let res = Response {
-        messages,
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::BatchSendFrom {
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::BatchSendFrom {
             status: Success,
         })?),
-    };
-    Ok(res)
+    )
 }
 
 fn try_burn_from(
@@ -1351,14 +1263,7 @@ fn try_burn_from(
         &env.block,
     )?;
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::BurnFrom { status: Success })?),
-    };
-
-    Ok(res)
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BurnFrom { status: Success })?))
 }
 
 fn try_batch_burn_from(
@@ -1421,16 +1326,11 @@ fn try_batch_burn_from(
 
     TotalSupplyStore::save(deps.storage, total_supply)?;
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::BatchBurnFrom {
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::BatchBurnFrom {
             status: Success,
         })?),
-    };
-
-    Ok(res)
+    )
 }
 
 fn try_increase_allowance(
@@ -1459,17 +1359,13 @@ fn try_increase_allowance(
     let new_amount = allowance.amount;
     AllowancesStore::save(deps.storage, &info.sender, &spender, &allowance)?;
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::IncreaseAllowance {
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::IncreaseAllowance {
             owner: info.sender,
             spender,
             allowance: Uint128::from(new_amount),
         })?),
-    };
-    Ok(res)
+    )
 }
 
 fn try_decrease_allowance(
@@ -1498,17 +1394,13 @@ fn try_decrease_allowance(
     let new_amount = allowance.amount;
     AllowancesStore::save(deps.storage, &info.sender, &spender, &allowance)?;
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::DecreaseAllowance {
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::DecreaseAllowance {
             owner: info.sender,
             spender,
             allowance: Uint128::from(new_amount),
         })?),
-    };
-    Ok(res)
+    )
 }
 
 fn add_minters(
@@ -1528,12 +1420,7 @@ fn add_minters(
 
     MintersStore::add_minters(deps.storage, minters_to_add)?;
 
-    Ok(Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::AddMinters { status: Success })?),
-    })
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::AddMinters { status: Success })?))
 }
 
 fn remove_minters(
@@ -1553,14 +1440,11 @@ fn remove_minters(
 
     MintersStore::remove_minters(deps.storage, minters_to_remove)?;
 
-    Ok(Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::RemoveMinters {
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::RemoveMinters {
             status: Success,
         })?),
-    })
+    )
 }
 
 fn set_minters(
@@ -1580,12 +1464,7 @@ fn set_minters(
 
     MintersStore::save(deps.storage, minters_to_set)?;
 
-    Ok(Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::SetMinters { status: Success })?),
-    })
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::SetMinters { status: Success })?))
 }
 
 /// Burn tokens
@@ -1643,14 +1522,7 @@ fn try_burn(
         &env.block,
     )?;
 
-    let res = Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::Burn { status: Success })?),
-    };
-
-    Ok(res)
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?))
 }
 
 fn perform_transfer(
@@ -1693,12 +1565,7 @@ fn revoke_permit(
         &permit_name,
     );
 
-    Ok(Response {
-        messages: vec![],
-        attributes: vec![],
-        events: vec![],
-        data: Some(to_binary(&ExecuteAnswer::RevokePermit { status: Success })?),
-    })
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::RevokePermit { status: Success })?))
 }
 
 fn check_if_admin(config_admin: &Addr, account: &Addr) -> StdResult<()> {
