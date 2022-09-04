@@ -1,34 +1,34 @@
-use cosmwasm_std::{Binary, HumanAddr, Uint128};
+use cosmwasm_std::{Addr, Binary, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct InitMsg {
+pub struct InstantiateMsg {
     pub count: i32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum HandleMsg {
+pub enum ExecuteMsg {
     Increment {},
     Reset {
         count: i32,
     },
     Register {
-        reg_addr: HumanAddr,
+        reg_addr: Addr,
         reg_hash: String,
     },
     Receive {
-        sender: HumanAddr,
-        from: HumanAddr,
+        sender: Addr,
+        from: Addr,
         amount: Uint128,
         memo: Option<String>,
         msg: Binary,
     },
     Redeem {
-        addr: HumanAddr,
+        addr: Addr,
         hash: String,
-        to: HumanAddr,
+        to: Addr,
         amount: Uint128,
     },
     Fail {},
