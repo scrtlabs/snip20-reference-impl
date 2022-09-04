@@ -421,7 +421,8 @@ impl TransactionsStore {
         tx: &StoredRichTx,
         for_address: &CanonicalAddr,
     ) -> StdResult<()> {
-        TRANSACTIONS.insert(store, for_address, tx)
+        let current_addr_store = TRANSACTIONS.add_suffix(for_address);
+        current_addr_store.insert(store, for_address, tx)
     }
 
     pub fn get_txs(
@@ -431,11 +432,12 @@ impl TransactionsStore {
         page: u32,
         page_size: u32,
     ) -> StdResult<(Vec<RichTx>, u64)> {
-        let len = TRANSACTIONS.get_len(storage)? as u64;
+        let current_addr_store = TRANSACTIONS.add_suffix(for_address);
+        let len = current_addr_store.get_len(storage)? as u64;
 
         // Take `page_size` txs starting from the latest tx, potentially skipping `page * page_size`
         // txs from the start.
-        let tx_iter = TRANSACTIONS
+        let tx_iter = current_addr_store
             .iter(storage)?
             .rev()
             .skip((page * page_size) as _)
@@ -457,7 +459,8 @@ impl TransfersStore {
         tx: &StoredLegacyTransfer,
         for_address: &CanonicalAddr,
     ) -> StdResult<()> {
-        TRANSFERS.insert(store, for_address, tx)
+        let current_addr_store = TRANSFERS.add_suffix(for_address);
+        current_addr_store.insert(store, for_address, tx)
     }
 
     pub fn get_transfers(
@@ -467,10 +470,11 @@ impl TransfersStore {
         page: u32,
         page_size: u32,
     ) -> StdResult<(Vec<Tx>, u64)> {
-        let len = TRANSFERS.get_len(storage)? as u64;
+        let current_addr_store = TRANSFERS.add_suffix(for_address);
+        let len = current_addr_store.get_len(storage)? as u64;
         // Take `page_size` txs starting from the latest tx, potentially skipping `page * page_size`
         // txs from the start.
-        let transfer_iter = TRANSFERS
+        let transfer_iter = current_addr_store
             .iter(storage)?
             .rev()
             .skip((page * page_size) as _)
