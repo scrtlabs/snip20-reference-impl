@@ -2,9 +2,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Api, CanonicalAddr, Coin, StdError, StdResult, Storage, Uint128};
-use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 
-use secret_toolkit::storage::{AppendStore, Keymap};
+use secret_toolkit::storage::Keymap;
 
 use crate::state::TxCountStore;
 

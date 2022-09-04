@@ -1,8 +1,8 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    attr, entry_point, to_binary, Addr, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Deps,
-    DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128,
+    entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
+    MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
 
 use crate::batch;
@@ -60,7 +60,7 @@ pub fn instantiate(
         for balance in initial_balances {
             let balance_address = deps.api.addr_canonicalize(&balance.address.as_str())?;
             let amount = balance.amount.u128();
-            BalancesStore::save(deps.storage, &balance.address, amount);
+            BalancesStore::save(deps.storage, &balance.address, amount)?;
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
                 total_supply = new_total_supply;
             } else {
@@ -128,7 +128,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
             let response = match msg {
                 ExecuteMsg::SetContractStatus { level, .. } => {
-                    set_contract_status(deps, env, &info, level)
+                    set_contract_status(deps, &info, level)
                 }
                 ExecuteMsg::Redeem { amount, .. }
                     if contract_status == ContractStatusLevel::StopAllButRedeems =>
@@ -177,10 +177,10 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ExecuteMsg::BatchSend { actions, .. } => try_batch_send(deps, env, &info, actions),
         ExecuteMsg::Burn { amount, memo, .. } => try_burn(deps, env, &info, amount, memo),
         ExecuteMsg::RegisterReceive { code_hash, .. } => {
-            try_register_receive(deps, env, &info, code_hash)
+            try_register_receive(deps, &info, code_hash)
         }
         ExecuteMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, &info, entropy),
-        ExecuteMsg::SetViewingKey { key, .. } => try_set_key(deps, env, &info, key),
+        ExecuteMsg::SetViewingKey { key, .. } => try_set_key(deps, &info, key),
 
         // Allowance
         ExecuteMsg::IncreaseAllowance {
@@ -245,21 +245,19 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ExecuteMsg::BatchMint { actions, .. } => try_batch_mint(deps, env, &info, actions),
 
         // Other
-        ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, env, &info, address),
-        ExecuteMsg::SetContractStatus { level, .. } => set_contract_status(deps, env, &info, level),
-        ExecuteMsg::AddMinters { minters, .. } => add_minters(deps, env, &info, minters),
-        ExecuteMsg::RemoveMinters { minters, .. } => remove_minters(deps, env, &info, minters),
-        ExecuteMsg::SetMinters { minters, .. } => set_minters(deps, env, &info, minters),
-        ExecuteMsg::RevokePermit { permit_name, .. } => {
-            revoke_permit(deps, env, &info, permit_name)
-        }
+        ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, &info, address),
+        ExecuteMsg::SetContractStatus { level, .. } => set_contract_status(deps, &info, level),
+        ExecuteMsg::AddMinters { minters, .. } => add_minters(deps, &info, minters),
+        ExecuteMsg::RemoveMinters { minters, .. } => remove_minters(deps, &info, minters),
+        ExecuteMsg::SetMinters { minters, .. } => set_minters(deps, &info, minters),
+        ExecuteMsg::RevokePermit { permit_name, .. } => revoke_permit(deps, &info, permit_name),
     };
 
     pad_response(response)
 }
 
 #[entry_point]
-pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::TokenInfo {} => query_token_info(deps.storage),
         QueryMsg::TokenConfig {} => query_token_config(deps.storage),
@@ -476,7 +474,7 @@ fn query_minters(deps: Deps) -> StdResult<Binary> {
     to_binary(&response)
 }
 
-fn change_admin(deps: DepsMut, env: Env, info: &MessageInfo, address: Addr) -> StdResult<Response> {
+fn change_admin(deps: DepsMut, info: &MessageInfo, address: Addr) -> StdResult<Response> {
     let mut constants = ConstantsStore::may_load(deps.storage)?;
     check_if_admin(&constants.admin, &info.sender)?;
 
@@ -511,7 +509,7 @@ fn try_mint_impl(
         ));
     }
 
-    BalancesStore::save(deps.storage, recipient, account_balance);
+    BalancesStore::save(deps.storage, recipient, account_balance)?;
 
     let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
     let minter = deps.api.addr_canonicalize(&minter.as_str())?;
@@ -626,12 +624,7 @@ fn try_batch_mint(
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BatchMint { status: Success })?))
 }
 
-pub fn try_set_key(
-    deps: DepsMut,
-    env: Env,
-    info: &MessageInfo,
-    key: String,
-) -> StdResult<Response> {
+pub fn try_set_key(deps: DepsMut, info: &MessageInfo, key: String) -> StdResult<Response> {
     let vk = ViewingKey(key);
 
     let message_sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
@@ -662,7 +655,6 @@ pub fn try_create_key(
 
 fn set_contract_status(
     deps: DepsMut,
-    env: Env,
     info: &MessageInfo,
     status_level: ContractStatusLevel,
 ) -> StdResult<Response> {
@@ -729,7 +721,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Respons
 
     let account_balance = BalancesStore::load(deps.storage, &info.sender);
     if let Some(account_balance) = account_balance.checked_add(raw_amount) {
-        BalancesStore::save(deps.storage, &info.sender, account_balance);
+        BalancesStore::save(deps.storage, &info.sender, account_balance)?;
     } else {
         return Err(StdError::generic_err(
             "This deposit would overflow your balance",
@@ -760,7 +752,7 @@ fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> S
 
     let account_balance = BalancesStore::load(deps.storage, &info.sender);
     if let Some(account_balance) = account_balance.checked_sub(amount_raw) {
-        BalancesStore::save(deps.storage, &info.sender, account_balance);
+        BalancesStore::save(deps.storage, &info.sender, account_balance)?;
     } else {
         return Err(StdError::generic_err(format!(
             "insufficient funds to redeem: balance={}, required={}",
@@ -917,7 +909,6 @@ fn try_send_impl(
     deps: &mut DepsMut,
     messages: &mut Vec<CosmosMsg>,
     sender: Addr,
-    sender_canon: &CanonicalAddr, // redundant but more efficient
     recipient: Addr,
     recipient_code_hash: Option<String>,
     amount: Uint128,
@@ -953,13 +944,10 @@ fn try_send(
     msg: Option<Binary>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
-    let sender = info.sender.clone();
-    let sender_canon = deps.api.addr_canonicalize(&sender.as_str())?;
     try_send_impl(
         &mut deps,
         &mut messages,
-        sender,
-        &sender_canon,
+        info.sender.clone(),
         recipient,
         recipient_code_hash,
         amount,
@@ -978,14 +966,11 @@ fn try_batch_send(
     actions: Vec<batch::SendAction>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
-    let sender = info.sender.clone();
-    let sender_canon = deps.api.addr_canonicalize(&sender.as_str())?;
     for action in actions {
         try_send_impl(
             &mut deps,
             &mut messages,
-            sender.clone(),
-            &sender_canon,
+            info.sender.clone(),
             action.recipient,
             action.recipient_code_hash,
             action.amount,
@@ -1000,7 +985,6 @@ fn try_batch_send(
 
 fn try_register_receive(
     deps: DepsMut,
-    env: Env,
     info: &MessageInfo,
     code_hash: String,
 ) -> StdResult<Response> {
@@ -1251,7 +1235,7 @@ fn try_burn_from(
             account_balance, raw_amount
         )));
     }
-    BalancesStore::save(deps.storage, &owner, account_balance);
+    BalancesStore::save(deps.storage, &owner, account_balance)?;
 
     let spender = deps.api.addr_canonicalize(&info.sender.as_str())?;
     let owner = deps.api.addr_canonicalize(owner.as_str())?;
@@ -1314,7 +1298,7 @@ fn try_batch_burn_from(
                 account_balance, amount
             )));
         }
-        BalancesStore::save(deps.storage, &owner, account_balance);
+        BalancesStore::save(deps.storage, &owner, account_balance)?;
 
         // remove from supply
         if let Some(new_total_supply) = total_supply.checked_sub(amount) {
@@ -1420,7 +1404,6 @@ fn try_decrease_allowance(
 
 fn add_minters(
     deps: DepsMut,
-    env: Env,
     info: &MessageInfo,
     minters_to_add: Vec<Addr>,
 ) -> StdResult<Response> {
@@ -1440,7 +1423,6 @@ fn add_minters(
 
 fn remove_minters(
     deps: DepsMut,
-    env: Env,
     info: &MessageInfo,
     minters_to_remove: Vec<Addr>,
 ) -> StdResult<Response> {
@@ -1464,7 +1446,6 @@ fn remove_minters(
 
 fn set_minters(
     deps: DepsMut,
-    env: Env,
     info: &MessageInfo,
     minters_to_set: Vec<Addr>,
 ) -> StdResult<Response> {
@@ -1515,7 +1496,7 @@ fn try_burn(
         )));
     }
 
-    BalancesStore::save(deps.storage, &info.sender, account_balance);
+    BalancesStore::save(deps.storage, &info.sender, account_balance)?;
 
     let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
@@ -1556,23 +1537,18 @@ fn perform_transfer(
             from_balance, amount
         )));
     }
-    BalancesStore::save(store, from, from_balance);
+    BalancesStore::save(store, from, from_balance)?;
 
     let mut to_balance = BalancesStore::load(store, to);
     to_balance = to_balance.checked_add(amount).ok_or_else(|| {
         StdError::generic_err("This tx will literally make them too rich. Try transferring less")
     })?;
-    BalancesStore::save(store, to, to_balance);
+    BalancesStore::save(store, to, to_balance)?;
 
     Ok(())
 }
 
-fn revoke_permit(
-    deps: DepsMut,
-    env: Env,
-    info: &MessageInfo,
-    permit_name: String,
-) -> StdResult<Response> {
+fn revoke_permit(deps: DepsMut, info: &MessageInfo, permit_name: String) -> StdResult<Response> {
     RevokedPermits::revoke_permit(
         deps.storage,
         PREFIX_REVOKED_PERMITS,

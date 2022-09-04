@@ -1,15 +1,11 @@
-use std::any::type_name;
-use std::convert::TryFrom;
-
 use cosmwasm_std::{Addr, CanonicalAddr, StdError, StdResult, Storage};
 use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use schemars::JsonSchema;
 use secret_toolkit::storage::{Item, Keymap};
 use serde::{Deserialize, Serialize};
 
-use crate::msg::{status_level_to_u8, u8_to_status_level, ContractStatusLevel};
+use crate::msg::ContractStatusLevel;
 use crate::viewing_key::ViewingKey;
-use serde::de::DeserializeOwned;
 
 pub static CONFIG_KEY: &[u8] = b"config";
 
