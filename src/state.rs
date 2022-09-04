@@ -23,7 +23,7 @@ pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 
 // Config
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, JsonSchema)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
 pub struct Constants {
     pub name: String,
     pub admin: Addr,
@@ -154,7 +154,7 @@ impl BalancesStore {
 
 // Allowances
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Default, JsonSchema)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Eq, Default, JsonSchema)]
 pub struct Allowance {
     pub amount: u128,
     pub expiration: Option<u64>,

@@ -8,7 +8,7 @@ use cosmwasm_std::{to_binary, Addr, Binary, CosmosMsg, StdResult, Uint128, WasmM
 use crate::{contract::RESPONSE_BLOCK_SIZE, msg::space_pad};
 
 /// Snip20ReceiveMsg should be de/serialized under `Receive()` variant in a HandleMsg
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct Snip20ReceiveMsg {
     pub sender: Addr,

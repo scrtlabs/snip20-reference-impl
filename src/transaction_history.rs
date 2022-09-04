@@ -29,7 +29,7 @@ pub struct Tx {
     pub block_height: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum TxAction {
     Transfer {

@@ -1858,9 +1858,9 @@ mod tests {
 
         assert_eq!(
             5000 - 1000,
-            BalancesStore::load(deps.storage, &bob_canonical)
+            BalancesStore::load(&deps.storage, &bob_canonical)
         );
-        assert_eq!(1000, BalancesStore::load(deps.storage, &alice_canonical));
+        assert_eq!(1000, BalancesStore::load(&deps.storage, &alice_canonical));
 
         let handle_msg = ExecuteMsg::Transfer {
             recipient: Addr("alice".to_string()),
