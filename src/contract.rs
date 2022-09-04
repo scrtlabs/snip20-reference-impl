@@ -52,13 +52,13 @@ pub fn instantiate(
 
     let init_config = msg.config();
     let admin = msg.admin.unwrap_or(info.sender);
-    let canon_admin = deps.api.addr_canonicalize(&admin.as_str())?;
+    let canon_admin = deps.api.addr_canonicalize(admin.as_str())?;
 
     let mut total_supply: u128 = 0;
     {
         let initial_balances = msg.initial_balances.unwrap_or_default();
         for balance in initial_balances {
-            let balance_address = deps.api.addr_canonicalize(&balance.address.as_str())?;
+            let balance_address = deps.api.addr_canonicalize(balance.address.as_str())?;
             let amount = balance.amount.u128();
             BalancesStore::save(deps.storage, &balance.address, amount)?;
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
@@ -511,8 +511,8 @@ fn try_mint_impl(
 
     BalancesStore::save(deps.storage, recipient, account_balance)?;
 
-    let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
-    let minter = deps.api.addr_canonicalize(&minter.as_str())?;
+    let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
+    let minter = deps.api.addr_canonicalize(minter.as_str())?;
 
     store_mint(
         deps.storage,
@@ -627,7 +627,7 @@ fn try_batch_mint(
 pub fn try_set_key(deps: DepsMut, info: &MessageInfo, key: String) -> StdResult<Response> {
     let vk = ViewingKey(key);
 
-    let message_sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    let message_sender = deps.api.addr_canonicalize(info.sender.as_str())?;
     write_viewing_key(deps.storage, &message_sender, &vk);
 
     Ok(
@@ -647,7 +647,7 @@ pub fn try_create_key(
 
     let key = ViewingKey::new(&env, info, &prng_seed, (&entropy).as_ref());
 
-    let message_sender = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    let message_sender = deps.api.addr_canonicalize(info.sender.as_str())?;
     write_viewing_key(deps.storage, &message_sender, &key);
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::CreateViewingKey { key })?))
@@ -717,7 +717,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Respons
         ));
     }
 
-    let sender_address = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
 
     let account_balance = BalancesStore::load(deps.storage, &info.sender);
     if let Some(account_balance) = account_balance.checked_add(raw_amount) {
@@ -747,7 +747,7 @@ fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> S
         ));
     }
 
-    let sender_address = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
     let amount_raw = amount.u128();
 
     let account_balance = BalancesStore::load(deps.storage, &info.sender);
@@ -813,8 +813,8 @@ fn try_transfer_impl(
 
     let symbol = ConstantsStore::may_load(deps.storage)?.symbol;
 
-    let sender = deps.api.addr_canonicalize(&sender.as_str())?;
-    let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
+    let sender = deps.api.addr_canonicalize(sender.as_str())?;
+    let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
     store_transfer(
         deps.storage,
         &sender,
@@ -933,6 +933,7 @@ fn try_send_impl(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_send(
     mut deps: DepsMut,
     env: Env,
@@ -1043,9 +1044,9 @@ fn try_transfer_from_impl(
 
     let symbol = ConstantsStore::may_load(deps.storage)?.symbol;
 
-    let owner = deps.api.addr_canonicalize(&owner.as_str())?;
-    let spender = deps.api.addr_canonicalize(&spender.as_str())?;
-    let recipient = deps.api.addr_canonicalize(&recipient.as_str())?;
+    let owner = deps.api.addr_canonicalize(owner.as_str())?;
+    let spender = deps.api.addr_canonicalize(spender.as_str())?;
+    let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
     store_transfer(
         deps.storage,
         &owner,
@@ -1069,15 +1070,7 @@ fn try_transfer_from(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    try_transfer_from_impl(
-        &mut deps,
-        env,
-        &info.sender,
-        &owner,
-        &recipient,
-        amount,
-        memo,
-    )?;
+    try_transfer_from_impl(&mut deps, env, &info.sender, owner, recipient, amount, memo)?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?))
 }
@@ -1235,9 +1228,9 @@ fn try_burn_from(
             account_balance, raw_amount
         )));
     }
-    BalancesStore::save(deps.storage, &owner, account_balance)?;
+    BalancesStore::save(deps.storage, owner, account_balance)?;
 
-    let spender = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    let spender = deps.api.addr_canonicalize(info.sender.as_str())?;
     let owner = deps.api.addr_canonicalize(owner.as_str())?;
 
     // remove from supply
@@ -1310,8 +1303,8 @@ fn try_batch_burn_from(
             )));
         }
 
-        let owner = deps.api.addr_canonicalize(&owner.as_str())?;
-        let spender = deps.api.addr_canonicalize(&spender.as_str())?;
+        let owner = deps.api.addr_canonicalize(owner.as_str())?;
+        let spender = deps.api.addr_canonicalize(spender.as_str())?;
         store_burn(
             deps.storage,
             &owner,
@@ -1482,7 +1475,7 @@ fn try_burn(
         ));
     }
 
-    let sender_address = deps.api.addr_canonicalize(&info.sender.as_str())?;
+    let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
     let raw_amount = amount.u128();
 
     let mut account_balance = BalancesStore::load(deps.storage, &info.sender);
@@ -1552,7 +1545,7 @@ fn revoke_permit(deps: DepsMut, info: &MessageInfo, permit_name: String) -> StdR
     RevokedPermits::revoke_permit(
         deps.storage,
         PREFIX_REVOKED_PERMITS,
-        &info.sender.as_str(),
+        info.sender.as_str(),
         &permit_name,
     );
 
