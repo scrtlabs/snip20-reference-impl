@@ -178,7 +178,7 @@ pub struct AllowancesStore {}
 impl AllowancesStore {
     pub fn may_load(store: &dyn Storage, owner: &Addr, spender: &Addr) -> StdResult<Allowance> {
         ALLOWANCES
-            .get(store, &(*owner, *spender))
+            .get(store, &(owner.clone(), spender.clone()))
             .ok_or_else(|| StdError::generic_err(""))
     }
 
@@ -188,7 +188,7 @@ impl AllowancesStore {
         spender: &Addr,
         allowance: &Allowance,
     ) -> StdResult<()> {
-        ALLOWANCES.insert(store, &(*owner, *spender), allowance)
+        ALLOWANCES.insert(store, &(owner.clone(), spender.clone()), allowance)
     }
 }
 

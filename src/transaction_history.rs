@@ -414,7 +414,7 @@ pub fn store_redeem(
     Ok(())
 }
 
-pub static TRANSACTIONS: Keymap<CanonicalAddr, StoredRichTx> = Keymap::new(PREFIX_TXS);
+static TRANSACTIONS: Keymap<CanonicalAddr, StoredRichTx> = Keymap::new(PREFIX_TXS);
 pub struct TransactionsStore {}
 impl TransactionsStore {
     fn append_tx(
@@ -450,7 +450,7 @@ impl TransactionsStore {
     }
 }
 
-pub static TRANSFERS: Keymap<CanonicalAddr, StoredLegacyTransfer> = Keymap::new(PREFIX_TRANSFERS);
+static TRANSFERS: Keymap<CanonicalAddr, StoredLegacyTransfer> = Keymap::new(PREFIX_TRANSFERS);
 pub struct TransfersStore {}
 impl TransfersStore {
     fn append_transfer(

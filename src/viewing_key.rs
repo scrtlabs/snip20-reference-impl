@@ -23,7 +23,7 @@ impl ViewingKey {
 
     pub fn new(env: &Env, info: &MessageInfo, seed: &[u8], entropy: &[u8]) -> Self {
         // 16 here represents the lengths in bytes of the block height and time.
-        let entropy_len = 16 + info.sender.into_string().len() + entropy.len();
+        let entropy_len = 16 + info.sender.clone().into_string().len() + entropy.len();
         let mut rng_entropy = Vec::with_capacity(entropy_len);
         rng_entropy.extend_from_slice(&env.block.height.to_be_bytes());
         rng_entropy.extend_from_slice(&env.block.time.seconds().to_be_bytes());

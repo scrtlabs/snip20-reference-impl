@@ -487,7 +487,7 @@ fn change_admin(deps: DepsMut, env: Env, info: &MessageInfo, address: Addr) -> S
 }
 
 fn try_mint_impl(
-    deps: &DepsMut,
+    deps: &mut DepsMut,
     minter: &Addr,
     recipient: &Addr,
     amount: Uint128,
@@ -530,7 +530,7 @@ fn try_mint_impl(
 }
 
 fn try_mint(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
     recipient: Addr,
@@ -563,7 +563,7 @@ fn try_mint(
     TotalSupplyStore::save(deps.storage, total_supply)?;
 
     try_mint_impl(
-        &deps,
+        &mut deps,
         &info.sender,
         &recipient,
         amount,
@@ -576,7 +576,7 @@ fn try_mint(
 }
 
 fn try_batch_mint(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
     actions: Vec<batch::MintAction>,
@@ -613,7 +613,7 @@ fn try_batch_mint(
 
     for action in actions {
         try_mint_impl(
-            &deps,
+            &mut deps,
             &info.sender,
             &action.recipient,
             action.amount,
@@ -801,7 +801,7 @@ fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> S
     )?;
 
     let message = CosmosMsg::Bank(BankMsg::Send {
-        to_address: info.sender.into_string(),
+        to_address: info.sender.clone().into_string(),
         amount: withdrawal_coins,
     });
     let data = to_binary(&ExecuteAnswer::Redeem { status: Success })?;
@@ -810,7 +810,7 @@ fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> S
 }
 
 fn try_transfer_impl(
-    deps: DepsMut,
+    deps: &mut DepsMut,
     sender: &Addr,
     recipient: &Addr,
     amount: Uint128,
@@ -838,27 +838,34 @@ fn try_transfer_impl(
 }
 
 fn try_transfer(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
     recipient: Addr,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    try_transfer_impl(deps, &info.sender, &recipient, amount, memo, &env.block)?;
+    try_transfer_impl(
+        &mut deps,
+        &info.sender,
+        &recipient,
+        amount,
+        memo,
+        &env.block,
+    )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?))
 }
 
 fn try_batch_transfer(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
     actions: Vec<batch::TransferAction>,
 ) -> StdResult<Response> {
     for action in actions {
         try_transfer_impl(
-            deps,
+            &mut deps,
             &info.sender,
             &action.recipient,
             action.amount,
@@ -907,7 +914,7 @@ fn try_add_receiver_api_callback(
 
 #[allow(clippy::too_many_arguments)]
 fn try_send_impl(
-    deps: DepsMut,
+    deps: &mut DepsMut,
     messages: &mut Vec<CosmosMsg>,
     sender: Addr,
     sender_canon: &CanonicalAddr, // redundant but more efficient
@@ -936,7 +943,7 @@ fn try_send_impl(
 }
 
 fn try_send(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
     recipient: Addr,
@@ -946,10 +953,10 @@ fn try_send(
     msg: Option<Binary>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
-    let sender = info.sender;
+    let sender = info.sender.clone();
     let sender_canon = deps.api.addr_canonicalize(&sender.as_str())?;
     try_send_impl(
-        deps,
+        &mut deps,
         &mut messages,
         sender,
         &sender_canon,
@@ -965,17 +972,17 @@ fn try_send(
 }
 
 fn try_batch_send(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
     actions: Vec<batch::SendAction>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
-    let sender = info.sender;
+    let sender = info.sender.clone();
     let sender_canon = deps.api.addr_canonicalize(&sender.as_str())?;
     for action in actions {
         try_send_impl(
-            deps,
+            &mut deps,
             &mut messages,
             sender.clone(),
             &sender_canon,
@@ -1036,7 +1043,7 @@ fn use_allowance(
 }
 
 fn try_transfer_from_impl(
-    deps: DepsMut,
+    deps: &mut DepsMut,
     env: &Env,
     spender: &Addr,
     owner: &Addr,
@@ -1070,7 +1077,7 @@ fn try_transfer_from_impl(
 }
 
 fn try_transfer_from(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: &Env,
     info: &MessageInfo,
     owner: &Addr,
@@ -1078,20 +1085,28 @@ fn try_transfer_from(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    try_transfer_from_impl(deps, env, &info.sender, &owner, &recipient, amount, memo)?;
+    try_transfer_from_impl(
+        &mut deps,
+        env,
+        &info.sender,
+        &owner,
+        &recipient,
+        amount,
+        memo,
+    )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?))
 }
 
 fn try_batch_transfer_from(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: &Env,
     info: &MessageInfo,
     actions: Vec<batch::TransferFromAction>,
 ) -> StdResult<Response> {
     for action in actions {
         try_transfer_from_impl(
-            deps,
+            &mut deps,
             env,
             &info.sender,
             &action.owner,
@@ -1110,7 +1125,7 @@ fn try_batch_transfer_from(
 
 #[allow(clippy::too_many_arguments)]
 fn try_send_from_impl(
-    deps: DepsMut,
+    deps: &mut DepsMut,
     env: Env,
     info: &MessageInfo,
     messages: &mut Vec<CosmosMsg>,
@@ -1138,7 +1153,7 @@ fn try_send_from_impl(
         recipient,
         recipient_code_hash,
         msg,
-        info.sender,
+        info.sender.clone(),
         owner,
         amount,
         memo,
@@ -1149,7 +1164,7 @@ fn try_send_from_impl(
 
 #[allow(clippy::too_many_arguments)]
 fn try_send_from(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
     owner: Addr,
@@ -1161,11 +1176,11 @@ fn try_send_from(
 ) -> StdResult<Response> {
     let mut messages = vec![];
     try_send_from_impl(
-        deps,
+        &mut deps,
         env,
         info,
         &mut messages,
-        info.sender,
+        info.sender.clone(),
         owner,
         recipient,
         recipient_code_hash,
@@ -1178,7 +1193,7 @@ fn try_send_from(
 }
 
 fn try_batch_send_from(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
     actions: Vec<batch::SendFromAction>,
@@ -1187,11 +1202,11 @@ fn try_batch_send_from(
 
     for action in actions {
         try_send_from_impl(
-            deps,
+            &mut deps,
             env.clone(),
             info,
             &mut messages,
-            info.sender,
+            info.sender.clone(),
             action.owner,
             action.recipient,
             action.recipient_code_hash,
@@ -1279,12 +1294,12 @@ fn try_batch_burn_from(
         ));
     }
 
-    let spender = info.sender;
+    let spender = info.sender.clone();
 
     let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
 
     for action in actions {
-        let owner = action.owner;
+        let owner = action.owner.clone();
         let amount = action.amount.u128();
         use_allowance(deps.storage, env, &owner, &spender, amount)?;
 
@@ -1361,7 +1376,7 @@ fn try_increase_allowance(
 
     Ok(
         Response::new().set_data(to_binary(&ExecuteAnswer::IncreaseAllowance {
-            owner: info.sender,
+            owner: info.sender.clone(),
             spender,
             allowance: Uint128::from(new_amount),
         })?),
@@ -1396,7 +1411,7 @@ fn try_decrease_allowance(
 
     Ok(
         Response::new().set_data(to_binary(&ExecuteAnswer::DecreaseAllowance {
-            owner: info.sender,
+            owner: info.sender.clone(),
             spender,
             allowance: Uint128::from(new_amount),
         })?),
