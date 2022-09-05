@@ -68,12 +68,12 @@ impl Snip20ReceiveMsg {
         let msg = self.into_binary()?;
         let execute = SubMsg {
             id,
-            msg: CosmosMsg::Wasm(WasmMsg::Execute {
+            msg: WasmMsg::Execute {
                 contract_addr: contract_addr.into_string(),
                 code_hash,
                 msg,
                 funds: vec![],
-            })
+            }
             .into(),
             // Elad: Discuss the wanted behavior
             reply_on: match id {
@@ -83,7 +83,7 @@ impl Snip20ReceiveMsg {
             gas_limit: None,
         };
 
-        Ok(execute.into())
+        Ok(execute)
     }
 }
 
