@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Api, CanonicalAddr, Coin, StdError, StdResult, Storage, Uint128};
 
-use secret_toolkit::storage::Keymap;
+use secret_toolkit::storage::AppendStore;
 
 use crate::state::TxCountStore;
 
@@ -413,7 +413,7 @@ pub fn store_redeem(
     Ok(())
 }
 
-static TRANSACTIONS: Keymap<CanonicalAddr, StoredRichTx> = Keymap::new(PREFIX_TXS);
+static TRANSACTIONS: AppendStore<StoredRichTx> = AppendStore::new(PREFIX_TXS);
 pub struct TransactionsStore {}
 impl TransactionsStore {
     fn append_tx(
@@ -422,7 +422,7 @@ impl TransactionsStore {
         for_address: &CanonicalAddr,
     ) -> StdResult<()> {
         let current_addr_store = TRANSACTIONS.add_suffix(for_address);
-        current_addr_store.insert(store, for_address, tx)
+        current_addr_store.push(store, tx)
     }
 
     pub fn get_txs(
@@ -445,13 +445,13 @@ impl TransactionsStore {
 
         // The `and_then` here flattens the `StdResult<StdResult<RichTx>>` to an `StdResult<RichTx>`
         let txs: StdResult<Vec<RichTx>> = tx_iter
-            .map(|tx| tx.map(|tx| tx.1.into_humanized(api)).and_then(|x| x))
+            .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
             .collect();
         txs.map(|txs| (txs, len))
     }
 }
 
-static TRANSFERS: Keymap<CanonicalAddr, StoredLegacyTransfer> = Keymap::new(PREFIX_TRANSFERS);
+static TRANSFERS: AppendStore<StoredLegacyTransfer> = AppendStore::new(PREFIX_TRANSFERS);
 pub struct TransfersStore {}
 impl TransfersStore {
     fn append_transfer(
@@ -460,7 +460,7 @@ impl TransfersStore {
         for_address: &CanonicalAddr,
     ) -> StdResult<()> {
         let current_addr_store = TRANSFERS.add_suffix(for_address);
-        current_addr_store.insert(store, for_address, tx)
+        current_addr_store.push(store, tx)
     }
 
     pub fn get_transfers(
@@ -482,7 +482,7 @@ impl TransfersStore {
 
         // The `and_then` here flattens the `StdResult<StdResult<RichTx>>` to an `StdResult<RichTx>`
         let transfers: StdResult<Vec<Tx>> = transfer_iter
-            .map(|tx| tx.map(|tx| tx.1.into_humanized(api)).and_then(|x| x))
+            .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
             .collect();
         transfers.map(|txs| (txs, len))
     }
