@@ -3,7 +3,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{to_binary, Addr, Binary, CosmosMsg, StdResult, Uint128, WasmMsg};
+use cosmwasm_std::{
+    to_binary, Addr, Binary, CosmosMsg, ReplyOn, StdResult, SubMsg, Uint128, WasmMsg,
+};
 
 use crate::{contract::RESPONSE_BLOCK_SIZE, msg::space_pad};
 
@@ -53,6 +55,34 @@ impl Snip20ReceiveMsg {
             contract_addr: contract_addr.into_string(),
             funds: vec![],
         };
+        Ok(execute.into())
+    }
+
+    /// creates a cosmos_msg sending this struct to the named contract
+    pub fn into_cosmos_submsg(
+        self,
+        code_hash: String,
+        contract_addr: Addr,
+        id: u64,
+    ) -> StdResult<SubMsg> {
+        let msg = self.into_binary()?;
+        let execute = SubMsg {
+            id,
+            msg: CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: contract_addr.into_string(),
+                code_hash,
+                msg,
+                funds: vec![],
+            })
+            .into(),
+            // Elad: Discuss the wanted behavior
+            reply_on: match id {
+                0 => ReplyOn::Never,
+                _ => ReplyOn::Always,
+            },
+            gas_limit: None,
+        };
+
         Ok(execute.into())
     }
 }

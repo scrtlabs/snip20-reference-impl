@@ -91,12 +91,26 @@ dependencies = [
 
 [[package]]
 name = "cosmwasm-schema"
-version = "0.9.4"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b84abfcb5e4909c1f7cf0278a8b506644fa59452933e8c47c8787691afbb5374"
+checksum = "8c742fc698a88cf02ea304cc2b5bc18ef975c5bb9eff93c3e44d2cd565e1d458"
 dependencies = [
- "schemars 0.7.6",
+ "cosmwasm-schema-derive",
+ "schemars",
+ "serde",
  "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "cosmwasm-schema-derive"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88a7c4c07be11add09dd3af3064c4f4cbc2dc99c6859129bdaf820131730e996"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -108,7 +122,7 @@ dependencies = [
  "cosmwasm-crypto",
  "cosmwasm-derive",
  "forward_ref",
- "schemars 0.8.10",
+ "schemars",
  "serde",
  "serde-json-wasm",
  "thiserror",
@@ -459,37 +473,14 @@ checksum = "73b4b750c782965c211b42f022f59af1fbceabdd026623714f104152f1ec149f"
 
 [[package]]
 name = "schemars"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be77ed66abed6954aabf6a3e31a84706bedbf93750d267e92ef4a6d90bbd6a61"
-dependencies = [
- "schemars_derive 0.7.6",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "schemars"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1847b767a3d62d95cbf3d8a9f0e421cf57a0d8aa4f411d4b16525afb0284d4ed"
 dependencies = [
  "dyn-clone",
- "schemars_derive 0.8.10",
+ "schemars_derive",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "schemars_derive"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11af7a475c9ee266cfaa9e303a47c830ebe072bf3101ab907a7b7b9d816fa01d"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde_derive_internals 0.25.0",
- "syn",
 ]
 
 [[package]]
@@ -500,7 +491,7 @@ checksum = "af4d7e1b012cb3d9129567661a63755ea4b8a7386d339dc945ae187e403c6743"
 dependencies = [
  "proc-macro2",
  "quote",
- "serde_derive_internals 0.26.0",
+ "serde_derive_internals",
  "syn",
 ]
 
@@ -549,7 +540,7 @@ dependencies = [
  "cosmwasm-std",
  "remain",
  "ripemd160",
- "schemars 0.8.10",
+ "schemars",
  "secret-toolkit-crypto",
  "serde",
 ]
@@ -561,7 +552,7 @@ source = "git+https://github.com/scrtlabs/secret-toolkit?branch=cosmwasm-v1.0#84
 dependencies = [
  "bincode2",
  "cosmwasm-std",
- "schemars 0.8.10",
+ "schemars",
  "serde",
 ]
 
@@ -571,7 +562,7 @@ version = "0.3.0"
 source = "git+https://github.com/scrtlabs/secret-toolkit?branch=cosmwasm-v1.0#8448c2a993e8e4ce48955eb7196fa20e93717d97"
 dependencies = [
  "cosmwasm-std",
- "schemars 0.8.10",
+ "schemars",
  "secret-toolkit-utils",
  "serde",
 ]
@@ -582,7 +573,7 @@ version = "0.3.0"
 source = "git+https://github.com/scrtlabs/secret-toolkit?branch=cosmwasm-v1.0#8448c2a993e8e4ce48955eb7196fa20e93717d97"
 dependencies = [
  "cosmwasm-std",
- "schemars 0.8.10",
+ "schemars",
  "secret-toolkit-utils",
  "serde",
 ]
@@ -605,7 +596,7 @@ source = "git+https://github.com/scrtlabs/secret-toolkit?branch=cosmwasm-v1.0#84
 dependencies = [
  "cosmwasm-std",
  "cosmwasm-storage",
- "schemars 0.8.10",
+ "schemars",
  "serde",
 ]
 
@@ -632,17 +623,6 @@ name = "serde_derive"
 version = "1.0.137"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f26faba0c3959972377d3b2d306ee9f71faee9714294e41bb777f83f88578be"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "serde_derive_internals"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1dbab34ca63057a1f15280bdf3c39f2b1eb1b54c17e98360e511637aef7418c6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -726,7 +706,7 @@ dependencies = [
  "cosmwasm-storage",
  "rand_chacha",
  "rand_core 0.5.1",
- "schemars 0.8.10",
+ "schemars",
  "secret-toolkit",
  "serde",
  "sha2",

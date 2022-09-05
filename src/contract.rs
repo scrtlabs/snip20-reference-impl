@@ -957,7 +957,9 @@ fn try_send(
         &env.block,
     )?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?))
+    Ok(Response::new()
+        .add_messages(messages)
+        .set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?))
 }
 
 fn try_batch_send(
@@ -981,7 +983,9 @@ fn try_batch_send(
         )?;
     }
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?))
+    Ok(Response::new()
+        .add_messages(messages)
+        .set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?))
 }
 
 fn try_register_receive(
@@ -1166,7 +1170,9 @@ fn try_send_from(
         msg,
     )?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::SendFrom { status: Success })?))
+    Ok(Response::new()
+        .add_messages(messages)
+        .set_data(to_binary(&ExecuteAnswer::SendFrom { status: Success })?))
 }
 
 fn try_batch_send_from(
@@ -1193,11 +1199,11 @@ fn try_batch_send_from(
         )?;
     }
 
-    Ok(
-        Response::new().set_data(to_binary(&ExecuteAnswer::BatchSendFrom {
+    Ok(Response::new()
+        .add_messages(messages)
+        .set_data(to_binary(&ExecuteAnswer::BatchSendFrom {
             status: Success,
-        })?),
-    )
+        })?))
 }
 
 fn try_burn_from(
@@ -1589,7 +1595,8 @@ mod tests {
     use crate::msg::{InitConfig, InitialBalance};
     use cosmwasm_std::testing::*;
     use cosmwasm_std::{
-        from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, WasmMsg,
+        from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
+        SubMsg, Timestamp, TransactionInfo, WasmMsg,
     };
     use std::any::Any;
 
@@ -1607,7 +1614,7 @@ mod tests {
 
         let init_msg = InstantiateMsg {
             name: "sec-sec".to_string(),
-            admin: Some(Addr("admin".to_string())),
+            admin: Some(Addr::unchecked("admin".to_string())),
             symbol: "SECSEC".to_string(),
             decimals: 8,
             initial_balances: Some(initial_balances),
@@ -1615,7 +1622,7 @@ mod tests {
             config: None,
         };
 
-        (instantiate(&mut deps, env, info, init_msg), deps)
+        (instantiate(deps.as_mut(), env, info, init_msg), deps)
     }
 
     fn init_helper_with_config(
@@ -1626,8 +1633,8 @@ mod tests {
         enable_burn: bool,
         contract_bal: u128,
     ) -> (
-        StdResult<InitResponse>,
-        Extern<MockStorage, MockApi, MockQuerier>,
+        StdResult<Response>,
+        OwnedDeps<MockStorage, MockApi, MockQuerier>,
     ) {
         let mut deps = mock_dependencies_with_balance(&[Coin {
             denom: "uscrt".to_string(),
@@ -1651,7 +1658,7 @@ mod tests {
         .unwrap();
         let init_msg = InstantiateMsg {
             name: "sec-sec".to_string(),
-            admin: Some(Addr("admin".to_string())),
+            admin: Some(Addr::unchecked("admin".to_string())),
             symbol: "SECSEC".to_string(),
             decimals: 8,
             initial_balances: Some(initial_balances),
@@ -1659,13 +1666,13 @@ mod tests {
             config: Some(init_config),
         };
 
-        (instantiate(&mut deps, env, info, init_msg), deps)
+        (instantiate(deps.as_mut(), env, info, init_msg), deps)
     }
 
     /// Will return a ViewingKey only for the first account in `initial_balances`
     fn _auth_query_helper(
         initial_balances: Vec<InitialBalance>,
-    ) -> (ViewingKey, Extern<MockStorage, MockApi, MockQuerier>) {
+    ) -> (ViewingKey, OwnedDeps<MockStorage, MockApi, MockQuerier>) {
         let (init_result, mut deps) = init_helper(initial_balances.clone());
         assert!(
             init_result.is_ok(),
@@ -1678,8 +1685,8 @@ mod tests {
             entropy: "42".to_string(),
             padding: None,
         };
-        let info = mock_info(account.0, &[]);
-        let handle_response = execute(&mut deps, mock_env(), info, create_vk_msg).unwrap();
+        let info = mock_info(account.as_str(), &[]);
+        let handle_response = execute(deps.as_mut(), mock_env(), info, create_vk_msg).unwrap();
         let vk = match from_binary(&handle_response.data.unwrap()).unwrap() {
             ExecuteAnswer::CreateViewingKey { key } => key,
             _ => panic!("Unexpected result from handle"),
@@ -1740,19 +1747,19 @@ mod tests {
     #[test]
     fn test_init_sanity() {
         let (init_result, deps) = init_helper(vec![InitialBalance {
-            address: Addr("lebron".to_string()),
+            address: Addr::unchecked("lebron".to_string()),
             amount: Uint128::new(5000),
         }]);
-        assert_eq!(init_result.unwrap(), InitResponse::default());
+        assert_eq!(init_result.unwrap(), Response::default());
 
-        let constants = ConstantsStore::may_load(&deps.storage)?;
-        assert_eq!(TotalSupplyStore::may_load(&deps.storage)?, 5000);
+        let constants = ConstantsStore::may_load(&deps.storage).unwrap();
+        assert_eq!(TotalSupplyStore::may_load(&deps.storage).unwrap(), 5000);
         assert_eq!(
-            ContractStatusStore::may_load(&deps.storage)?,
+            ContractStatusStore::may_load(&deps.storage).unwrap(),
             ContractStatusLevel::NormalRun
         );
         assert_eq!(constants.name, "sec-sec".to_string());
-        assert_eq!(constants.admin, Addr("admin".to_string()));
+        assert_eq!(constants.admin, Addr::unchecked("admin".to_string()));
         assert_eq!(constants.symbol, "SECSEC".to_string());
         assert_eq!(constants.decimals, 8);
         assert_eq!(
@@ -1766,7 +1773,7 @@ mod tests {
     fn test_init_with_config_sanity() {
         let (init_result, deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("lebron".to_string()),
+                address: Addr::unchecked("lebron".to_string()),
                 amount: Uint128::new(5000),
             }],
             true,
@@ -1775,16 +1782,16 @@ mod tests {
             true,
             0,
         );
-        assert_eq!(init_result.unwrap(), InitResponse::default());
+        assert_eq!(init_result.unwrap(), Response::default());
 
-        let constants = ConstantsStore::may_load(&deps.storage)?;
-        assert_eq!(TotalSupplyStore::may_load(&deps.storage)?, 5000);
+        let constants = ConstantsStore::may_load(&deps.storage).unwrap();
+        assert_eq!(TotalSupplyStore::may_load(&deps.storage).unwrap(), 5000);
         assert_eq!(
-            ContractStatusStore::may_load(&deps.storage)?,
+            ContractStatusStore::may_load(&deps.storage).unwrap(),
             ContractStatusLevel::NormalRun
         );
         assert_eq!(constants.name, "sec-sec".to_string());
-        assert_eq!(constants.admin, Addr("admin".to_string()));
+        assert_eq!(constants.admin, Addr::unchecked("admin".to_string()));
         assert_eq!(constants.symbol, "SECSEC".to_string());
         assert_eq!(constants.decimals, 8);
         assert_eq!(
@@ -1801,7 +1808,7 @@ mod tests {
     #[test]
     fn test_total_supply_overflow() {
         let (init_result, _deps) = init_helper(vec![InitialBalance {
-            address: Addr("lebron".to_string()),
+            address: Addr::unchecked("lebron".to_string()),
             amount: Uint128::new(u128::max_value()),
         }]);
         assert!(
@@ -1812,11 +1819,11 @@ mod tests {
 
         let (init_result, _deps) = init_helper(vec![
             InitialBalance {
-                address: Addr("lebron".to_string()),
+                address: Addr::unchecked("lebron".to_string()),
                 amount: Uint128::new(u128::max_value()),
             },
             InitialBalance {
-                address: Addr("giannis".to_string()),
+                address: Addr::unchecked("giannis".to_string()),
                 amount: Uint128::new(1),
             },
         ]);
@@ -1832,7 +1839,7 @@ mod tests {
     #[test]
     fn test_handle_transfer() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -1842,35 +1849,32 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr("alice".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(1000),
             memo: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
-        let bob_canonical = Addr("bob".to_string());
-        let alice_canonical = Addr("alice".to_string());
+        let bob_addr = Addr::unchecked("bob".to_string());
+        let alice_addr = Addr::unchecked("alice".to_string());
 
-        assert_eq!(
-            5000 - 1000,
-            BalancesStore::load(&deps.storage, &bob_canonical)
-        );
-        assert_eq!(1000, BalancesStore::load(&deps.storage, &alice_canonical));
+        assert_eq!(5000 - 1000, BalancesStore::load(&deps.storage, &bob_addr));
+        assert_eq!(1000, BalancesStore::load(&deps.storage, &alice_addr));
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr("alice".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(10000),
             memo: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient funds"));
@@ -1879,7 +1883,7 @@ mod tests {
     #[test]
     fn test_handle_send() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -1894,13 +1898,13 @@ mod tests {
         };
         let info = mock_info("contract", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
         let handle_msg = ExecuteMsg::Send {
-            recipient: Addr("contract".to_string()),
+            recipient: Addr::unchecked("contract".to_string()),
             recipient_code_hash: None,
             amount: Uint128::new(100),
             memo: Some("my memo".to_string()),
@@ -1909,30 +1913,40 @@ mod tests {
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result.clone()));
-        assert!(result.messages.contains(&CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: Addr("contract".to_string()),
-            code_hash: "this_is_a_hash_of_a_code".to_string(),
-            msg: Snip20ReceiveMsg::new(
-                Addr("bob".to_string()),
-                Addr("bob".to_string()),
-                Uint128::new(100),
-                Some("my memo".to_string()),
-                Some(to_binary("hey hey you you").unwrap())
-            )
-            .into_binary()
-            .unwrap(),
-            funds: vec![]
-        })));
+        let id = 0;
+        assert!(result.messages.contains(&SubMsg {
+            id,
+            msg: CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: "contract".to_string(),
+                code_hash: "this_is_a_hash_of_a_code".to_string(),
+                msg: Snip20ReceiveMsg::new(
+                    Addr::unchecked("bob".to_string()),
+                    Addr::unchecked("bob".to_string()),
+                    Uint128::new(100),
+                    Some("my memo".to_string()),
+                    Some(to_binary("hey hey you you").unwrap())
+                )
+                .into_binary()
+                .unwrap(),
+                funds: vec![],
+            })
+            .into(),
+            reply_on: match id {
+                0 => ReplyOn::Never,
+                _ => ReplyOn::Always,
+            },
+            gas_limit: None,
+        }));
     }
 
     #[test]
     fn test_handle_register_receive() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -1947,12 +1961,12 @@ mod tests {
         };
         let info = mock_info("contract", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        let hash = get_receiver_hash(&deps.storage, &Addr("contract".to_string()))
+        let hash = get_receiver_hash(&deps.storage, &Addr::unchecked("contract".to_string()))
             .unwrap()
             .unwrap();
         assert_eq!(hash, "this_is_a_hash_of_a_code".to_string());
@@ -1961,7 +1975,7 @@ mod tests {
     #[test]
     fn test_handle_create_viewing_key() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -1976,7 +1990,7 @@ mod tests {
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -1989,7 +2003,7 @@ mod tests {
             ExecuteAnswer::CreateViewingKey { key } => key,
             _ => panic!("NOPE"),
         };
-        let bob_canonical = deps.api.addr_canonicalize("bob").unwrap();
+        let bob_canonical = deps.as_mut().api.addr_canonicalize("bob").unwrap();
         let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
         assert!(key.check_viewing_key(saved_vk.as_slice()));
     }
@@ -1997,7 +2011,7 @@ mod tests {
     #[test]
     fn test_handle_set_viewing_key() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2013,7 +2027,7 @@ mod tests {
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let unwrapped_result: ExecuteAnswer =
             from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
@@ -2033,7 +2047,7 @@ mod tests {
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let unwrapped_result: ExecuteAnswer =
             from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
@@ -2041,7 +2055,7 @@ mod tests {
             to_binary(&unwrapped_result).unwrap(),
             to_binary(&ExecuteAnswer::SetViewingKey { status: Success }).unwrap(),
         );
-        let bob_canonical = deps.api.addr_canonicalize("bob").unwrap();
+        let bob_canonical = deps.as_mut().api.addr_canonicalize("bob").unwrap();
         let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
         assert!(actual_vk.check_viewing_key(&saved_vk));
     }
@@ -2049,7 +2063,7 @@ mod tests {
     #[test]
     fn test_handle_transfer_from() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2060,29 +2074,29 @@ mod tests {
 
         // Transfer before allowance
         let handle_msg = ExecuteMsg::TransferFrom {
-            owner: Addr("bob".to_string()),
-            recipient: Addr("alice".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient allowance"));
 
         // Transfer more than allowance
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr("alice".to_string()),
+            spender: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(2000),
             padding: None,
             expiration: Some(1_571_797_420),
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2090,44 +2104,44 @@ mod tests {
             handle_result.err().unwrap()
         );
         let handle_msg = ExecuteMsg::TransferFrom {
-            owner: Addr("bob".to_string()),
-            recipient: Addr("alice".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient allowance"));
 
         // Transfer after allowance expired
         let handle_msg = ExecuteMsg::TransferFrom {
-            owner: Addr("bob".to_string()),
-            recipient: Addr("alice".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(2000),
             memo: None,
             padding: None,
         };
 
         let info = MessageInfo {
-            sender: Addr("bob".to_string()),
+            sender: Addr::unchecked("bob".to_string()),
             funds: vec![],
         };
 
         let handle_result = execute(
-            &mut deps,
+            deps.as_mut(),
             Env {
                 block: BlockInfo {
                     height: 12_345,
-                    time: 1_571_797_420,
+                    time: Timestamp::from_seconds(1_571_797_420),
                     chain_id: "cosmos-testnet-14002".to_string(),
                 },
                 transaction: Some(TransactionInfo { index: 3 }),
                 contract: ContractInfo {
-                    address: Addr::from(MOCK_CONTRACT_ADDR),
+                    address: Addr::unchecked(MOCK_CONTRACT_ADDR.to_string()),
                     code_hash: "".to_string(),
                 },
             },
@@ -2139,42 +2153,42 @@ mod tests {
 
         // Sanity check
         let handle_msg = ExecuteMsg::TransferFrom {
-            owner: Addr("bob".to_string()),
-            recipient: Addr("alice".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(2000),
             memo: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
             "handle() failed: {}",
             handle_result.err().unwrap()
         );
-        let bob_canonical = Addr("bob".to_string());
-        let alice_canonical = Addr("alice".to_string());
+        let bob_canonical = Addr::unchecked("bob".to_string());
+        let alice_canonical = Addr::unchecked("alice".to_string());
 
         let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
         let alice_balance = BalancesStore::load(&deps.storage, &alice_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
         assert_eq!(alice_balance, 2000);
-        let total_supply = TotalSupplyStore::may_load(&deps.storage)?;
+        let total_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
         assert_eq!(total_supply, 5000);
 
         // Second send more than allowance
         let handle_msg = ExecuteMsg::TransferFrom {
-            owner: Addr("bob".to_string()),
-            recipient: Addr("alice".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(1),
             memo: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient allowance"));
@@ -2183,7 +2197,7 @@ mod tests {
     #[test]
     fn test_handle_send_from() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2194,8 +2208,8 @@ mod tests {
 
         // Send before allowance
         let handle_msg = ExecuteMsg::SendFrom {
-            owner: Addr("bob".to_string()),
-            recipient: Addr("alice".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             recipient_code_hash: None,
             amount: Uint128::new(2500),
             memo: None,
@@ -2204,21 +2218,21 @@ mod tests {
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient allowance"));
 
         // Send more than allowance
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr("alice".to_string()),
+            spender: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2226,8 +2240,8 @@ mod tests {
             handle_result.err().unwrap()
         );
         let handle_msg = ExecuteMsg::SendFrom {
-            owner: Addr("bob".to_string()),
-            recipient: Addr("alice".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             recipient_code_hash: None,
             amount: Uint128::new(2500),
             memo: None,
@@ -2236,7 +2250,7 @@ mod tests {
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient allowance"));
@@ -2248,7 +2262,7 @@ mod tests {
         };
         let info = mock_info("contract", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2257,15 +2271,15 @@ mod tests {
         );
         let send_msg = Binary::from(r#"{ "some_msg": { "some_key": "some_val" } }"#.as_bytes());
         let snip20_msg = Snip20ReceiveMsg::new(
-            Addr("alice".to_string()),
-            Addr("bob".to_string()),
+            Addr::unchecked("alice".to_string()),
+            Addr::unchecked("bob".to_string()),
             Uint128::new(2000),
             Some("my memo".to_string()),
             Some(send_msg.clone()),
         );
         let handle_msg = ExecuteMsg::SendFrom {
-            owner: Addr("bob".to_string()),
-            recipient: Addr("contract".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
+            recipient: Addr::unchecked("contract".to_string()),
             recipient_code_hash: None,
             amount: Uint128::new(2000),
             memo: Some("my memo".to_string()),
@@ -2274,7 +2288,7 @@ mod tests {
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2283,22 +2297,26 @@ mod tests {
         );
         assert!(handle_result.unwrap().messages.contains(
             &snip20_msg
-                .into_cosmos_msg("lolz".to_string(), Addr("contract".to_string()))
+                .into_cosmos_submsg(
+                    "lolz".to_string(),
+                    Addr::unchecked("contract".to_string()),
+                    0
+                )
                 .unwrap()
         ));
-        let bob_canonical = Addr("bob".to_string());
-        let contract_canonical = Addr("contract".to_string());
+        let bob_canonical = Addr::unchecked("bob".to_string());
+        let contract_canonical = Addr::unchecked("contract".to_string());
         let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
         let contract_balance = BalancesStore::load(&deps.storage, &contract_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
         assert_eq!(contract_balance, 2000);
-        let total_supply = TotalSupplyStore::may_load(&deps.storage)?;
+        let total_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
         assert_eq!(total_supply, 5000);
 
         // Second send more than allowance
         let handle_msg = ExecuteMsg::SendFrom {
-            owner: Addr("bob".to_string()),
-            recipient: Addr("alice".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             recipient_code_hash: None,
             amount: Uint128::new(1),
             memo: None,
@@ -2307,7 +2325,7 @@ mod tests {
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient allowance"));
@@ -2317,7 +2335,7 @@ mod tests {
     fn test_handle_burn_from() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("bob".to_string()),
+                address: Addr::unchecked("bob".to_string()),
                 amount: Uint128::new(10000),
             }],
             false,
@@ -2333,7 +2351,7 @@ mod tests {
         );
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(10000),
         }]);
         assert!(
@@ -2343,42 +2361,42 @@ mod tests {
         );
         // test when burn disabled
         let handle_msg = ExecuteMsg::BurnFrom {
-            owner: Addr("bob".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps_for_failure, mock_env(), info, handle_msg);
+        let handle_result = execute(deps_for_failure.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Burn functionality is not enabled for this token."));
 
         // Burn before allowance
         let handle_msg = ExecuteMsg::BurnFrom {
-            owner: Addr("bob".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient allowance"));
 
         // Burn more than allowance
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr("alice".to_string()),
+            spender: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2386,50 +2404,50 @@ mod tests {
             handle_result.err().unwrap()
         );
         let handle_msg = ExecuteMsg::BurnFrom {
-            owner: Addr("bob".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient allowance"));
 
         // Sanity check
         let handle_msg = ExecuteMsg::BurnFrom {
-            owner: Addr("bob".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(2000),
             memo: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
             "handle() failed: {}",
             handle_result.err().unwrap()
         );
-        let bob_canonical = Addr("bob".to_string());
+        let bob_canonical = Addr::unchecked("bob".to_string());
         let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
         assert_eq!(bob_balance, 10000 - 2000);
-        let total_supply = TotalSupplyStore::may_load(&deps.storage)?;
+        let total_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
         assert_eq!(total_supply, 10000 - 2000);
 
         // Second burn more than allowance
         let handle_msg = ExecuteMsg::BurnFrom {
-            owner: Addr("bob".to_string()),
+            owner: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(1),
             memo: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient allowance"));
@@ -2440,15 +2458,15 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![
                 InitialBalance {
-                    address: Addr("bob".to_string()),
+                    address: Addr::unchecked("bob".to_string()),
                     amount: Uint128::new(10000),
                 },
                 InitialBalance {
-                    address: Addr("jerry".to_string()),
+                    address: Addr::unchecked("jerry".to_string()),
                     amount: Uint128::new(10000),
                 },
                 InitialBalance {
-                    address: Addr("mike".to_string()),
+                    address: Addr::unchecked("mike".to_string()),
                     amount: Uint128::new(10000),
                 },
             ],
@@ -2465,7 +2483,7 @@ mod tests {
         );
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(10000),
         }]);
         assert!(
@@ -2477,7 +2495,7 @@ mod tests {
         let actions: Vec<_> = ["bob", "jerry", "mike"]
             .iter()
             .map(|name| batch::BurnFromAction {
-                owner: Addr(name.to_string()),
+                owner: Addr::unchecked(name.to_string()),
                 amount: Uint128::new(2500),
                 memo: None,
             })
@@ -2487,14 +2505,19 @@ mod tests {
             padding: None,
         };
         let info = mock_info("alice", &[]);
-        let handle_result = execute(&mut deps_for_failure, mock_env(), info, handle_msg.clone());
+        let handle_result = execute(
+            deps_for_failure.as_mut(),
+            mock_env(),
+            info,
+            handle_msg.clone(),
+        );
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Burn functionality is not enabled for this token."));
 
         // Burn before allowance
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient allowance"));
@@ -2503,13 +2526,13 @@ mod tests {
         let allowance_size = 2000;
         for name in &["bob", "jerry", "mike"] {
             let handle_msg = ExecuteMsg::IncreaseAllowance {
-                spender: Addr("alice".to_string()),
+                spender: Addr::unchecked("alice".to_string()),
                 amount: Uint128::new(allowance_size),
                 padding: None,
                 expiration: None,
             };
             let info = mock_info(*name, &[]);
-            let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+            let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
             assert!(
                 handle_result.is_ok(),
@@ -2517,14 +2540,14 @@ mod tests {
                 handle_result.err().unwrap()
             );
             let handle_msg = ExecuteMsg::BurnFrom {
-                owner: Addr(name.to_string()),
+                owner: Addr::unchecked(name.to_string()),
                 amount: Uint128::new(2500),
                 memo: None,
                 padding: None,
             };
             let info = mock_info("alice", &[]);
 
-            let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+            let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
             let error = extract_error_msg(handle_result);
             assert!(error.contains("insufficient allowance"));
@@ -2534,7 +2557,7 @@ mod tests {
         let actions: Vec<_> = [("bob", 200_u128), ("jerry", 300), ("mike", 400)]
             .iter()
             .map(|(name, amount)| batch::BurnFromAction {
-                owner: Addr(name.to_string()),
+                owner: Addr::unchecked(name.to_string()),
                 amount: Uint128::new(*amount),
                 memo: None,
             })
@@ -2546,7 +2569,7 @@ mod tests {
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2554,18 +2577,18 @@ mod tests {
             handle_result.err().unwrap()
         );
         for (name, amount) in &[("bob", 200_u128), ("jerry", 300), ("mike", 400)] {
-            let name_canon = Addr(name.to_string());
+            let name_canon = Addr::unchecked(name.to_string());
             let balance = BalancesStore::load(&deps.storage, &name_canon);
             assert_eq!(balance, 10000 - amount);
         }
-        let total_supply = TotalSupplyStore::may_load(&deps.storage)?;
+        let total_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
         assert_eq!(total_supply, 10000 * 3 - (200 + 300 + 400));
 
         // Burn the rest of the allowance
         let actions: Vec<_> = [("bob", 200_u128), ("jerry", 300), ("mike", 400)]
             .iter()
             .map(|(name, amount)| batch::BurnFromAction {
-                owner: Addr(name.to_string()),
+                owner: Addr::unchecked(name.to_string()),
                 amount: Uint128::new(allowance_size - *amount),
                 memo: None,
             })
@@ -2577,7 +2600,7 @@ mod tests {
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2585,18 +2608,18 @@ mod tests {
             handle_result.err().unwrap()
         );
         for name in &["bob", "jerry", "mike"] {
-            let name_canon = Addr(name.to_string());
-            let balance = BalancesStore::load(deps.storage, &name_canon);
+            let name_canon = Addr::unchecked(name.to_string());
+            let balance = BalancesStore::load(&deps.storage, &name_canon);
             assert_eq!(balance, 10000 - allowance_size);
         }
-        let total_supply = TotalSupplyStore::may_load(&deps.storage)?;
+        let total_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
         assert_eq!(total_supply, 3 * (10000 - allowance_size));
 
         // Second burn more than allowance
         let actions: Vec<_> = ["bob", "jerry", "mike"]
             .iter()
             .map(|name| batch::BurnFromAction {
-                owner: Addr(name.to_string()),
+                owner: Addr::unchecked(name.to_string()),
                 amount: Uint128::new(1),
                 memo: None,
             })
@@ -2607,7 +2630,7 @@ mod tests {
         };
         let info = mock_info("alice", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient allowance"));
@@ -2616,7 +2639,7 @@ mod tests {
     #[test]
     fn test_handle_decrease_allowance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2626,14 +2649,14 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::DecreaseAllowance {
-            spender: Addr("alice".to_string()),
+            spender: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2641,10 +2664,11 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let bob_canonical = Addr("bob".to_string());
-        let alice_canonical = Addr("alice".to_string());
+        let bob_canonical = Addr::unchecked("bob".to_string());
+        let alice_canonical = Addr::unchecked("alice".to_string());
 
-        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical)?;
+        let allowance =
+            AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2654,14 +2678,14 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr("alice".to_string()),
+            spender: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2670,14 +2694,14 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::DecreaseAllowance {
-            spender: Addr("alice".to_string()),
+            spender: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(50),
             padding: None,
             expiration: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2685,7 +2709,8 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let allowance = read_allowance(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        let allowance =
+            AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2698,7 +2723,7 @@ mod tests {
     #[test]
     fn test_handle_increase_allowance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2708,14 +2733,14 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr("alice".to_string()),
+            spender: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2723,10 +2748,11 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let bob_canonical = Addr("bob".to_string());
-        let alice_canonical = Addr("alice".to_string());
+        let bob_canonical = Addr::unchecked("bob".to_string());
+        let alice_canonical = Addr::unchecked("alice".to_string());
 
-        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical)?;
+        let allowance =
+            AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2736,14 +2762,14 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr("alice".to_string()),
+            spender: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2751,7 +2777,8 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical)?;
+        let allowance =
+            AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2764,7 +2791,7 @@ mod tests {
     #[test]
     fn test_handle_change_admin() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2774,12 +2801,12 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::ChangeAdmin {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2787,14 +2814,14 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let admin = ConstantsStore::may_load(&deps.storage)?.admin;
-        assert_eq!(admin, Addr("bob".to_string()));
+        let admin = ConstantsStore::may_load(&deps.storage).unwrap().admin;
+        assert_eq!(admin, Addr::unchecked("bob".to_string()));
     }
 
     #[test]
     fn test_handle_set_contract_status() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("admin".to_string()),
+            address: Addr::unchecked("admin".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2809,7 +2836,7 @@ mod tests {
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2817,7 +2844,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let contract_status = ContractStatusStore::may_load(&deps.storage)?;
+        let contract_status = ContractStatusStore::may_load(&deps.storage).unwrap();
         assert!(matches!(
             contract_status,
             ContractStatusLevel::StopAll { .. }
@@ -2828,7 +2855,7 @@ mod tests {
     fn test_handle_redeem() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("butler".to_string()),
+                address: Addr::unchecked("butler".to_string()),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -2845,7 +2872,7 @@ mod tests {
 
         let (init_result_no_reserve, mut deps_no_reserve) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("butler".to_string()),
+                address: Addr::unchecked("butler".to_string()),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -2861,7 +2888,7 @@ mod tests {
         );
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr("butler".to_string()),
+            address: Addr::unchecked("butler".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2877,7 +2904,7 @@ mod tests {
         };
         let info = mock_info("butler", &[]);
 
-        let handle_result = execute(&mut deps_for_failure, mock_env(), info, handle_msg);
+        let handle_result = execute(deps_for_failure.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Redeem functionality is not enabled for this token."));
@@ -2890,7 +2917,7 @@ mod tests {
         };
         let info = mock_info("butler", &[]);
 
-        let handle_result = execute(&mut deps_no_reserve, mock_env(), info, handle_msg);
+        let handle_result = execute(deps_no_reserve.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains(
@@ -2904,7 +2931,7 @@ mod tests {
         };
         let info = mock_info("butler", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -2912,15 +2939,15 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let canonical = Addr("butler".to_string());
-        assert_eq!(BalancesStore::load(deps.storage, &canonical), 4000)
+        let canonical = Addr::unchecked("butler".to_string());
+        assert_eq!(BalancesStore::load(&deps.storage, &canonical), 4000)
     }
 
     #[test]
     fn test_handle_deposit() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("lebron".to_string()),
+                address: Addr::unchecked("lebron".to_string()),
                 amount: Uint128::new(5000),
             }],
             true,
@@ -2936,7 +2963,7 @@ mod tests {
         );
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr("lebron".to_string()),
+            address: Addr::unchecked("lebron".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2954,7 +2981,7 @@ mod tests {
             }],
         );
 
-        let handle_result = execute(&mut deps_for_failure, mock_env(), info, handle_msg);
+        let handle_result = execute(deps_for_failure.as_mut(), mock_env(), info, handle_msg);
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Deposit functionality is not enabled for this token."));
 
@@ -2968,22 +2995,22 @@ mod tests {
             }],
         );
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
         assert!(
             handle_result.is_ok(),
             "handle() failed: {}",
             handle_result.err().unwrap()
         );
 
-        let canonical = Addr("lebron".to_string());
-        assert_eq!(BalancesStore::load(deps.storage, &canonical), 6000)
+        let canonical = Addr::unchecked("lebron".to_string());
+        assert_eq!(BalancesStore::load(&deps.storage, &canonical), 6000)
     }
 
     #[test]
     fn test_handle_burn() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("lebron".to_string()),
+                address: Addr::unchecked("lebron".to_string()),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -2999,7 +3026,7 @@ mod tests {
         );
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr("lebron".to_string()),
+            address: Addr::unchecked("lebron".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3015,12 +3042,12 @@ mod tests {
         };
         let info = mock_info("lebron", &[]);
 
-        let handle_result = execute(&mut deps_for_failure, mock_env(), info, handle_msg);
+        let handle_result = execute(deps_for_failure.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Burn functionality is not enabled for this token."));
 
-        let supply = TotalSupplyStore::may_load(&deps.storage)?;
+        let supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
         let burn_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(burn_amount),
@@ -3029,7 +3056,7 @@ mod tests {
         };
         let info = mock_info("lebron", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -3037,7 +3064,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let new_supply = TotalSupplyStore::may_load(&deps.storage)?;
+        let new_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
         assert_eq!(new_supply, supply - burn_amount);
     }
 
@@ -3045,7 +3072,7 @@ mod tests {
     fn test_handle_mint() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("lebron".to_string()),
+                address: Addr::unchecked("lebron".to_string()),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3060,7 +3087,7 @@ mod tests {
             init_result.err().unwrap()
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr("lebron".to_string()),
+            address: Addr::unchecked("lebron".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3071,29 +3098,29 @@ mod tests {
         // try to mint when mint is disabled
         let mint_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr("lebron".to_string()),
+            recipient: Addr::unchecked("lebron".to_string()),
             amount: Uint128::new(mint_amount),
             memo: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps_for_failure, mock_env(), info, handle_msg);
+        let handle_result = execute(deps_for_failure.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Mint functionality is not enabled for this token"));
 
-        let supply = TotalSupplyStore::may_load(&deps.storage)?;
+        let supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
         let mint_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr("lebron".to_string()),
+            recipient: Addr::unchecked("lebron".to_string()),
             amount: Uint128::new(mint_amount),
             memo: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -3101,7 +3128,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let new_supply = TotalSupplyStore::may_load(&deps.storage)?;
+        let new_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
         assert_eq!(new_supply, supply + mint_amount);
     }
 
@@ -3110,7 +3137,7 @@ mod tests {
         let admin_err = "Admin commands can only be run from admin address".to_string();
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("lebron".to_string()),
+                address: Addr::unchecked("lebron".to_string()),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3131,51 +3158,51 @@ mod tests {
         };
         let info = mock_info("not_admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, pause_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, pause_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains(&admin_err.clone()));
 
         let mint_msg = ExecuteMsg::AddMinters {
-            minters: vec![Addr("not_admin".to_string())],
+            minters: vec![Addr::unchecked("not_admin".to_string())],
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, mint_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, mint_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains(&admin_err.clone()));
 
         let mint_msg = ExecuteMsg::RemoveMinters {
-            minters: vec![Addr("admin".to_string())],
+            minters: vec![Addr::unchecked("admin".to_string())],
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, mint_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, mint_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains(&admin_err.clone()));
 
         let mint_msg = ExecuteMsg::SetMinters {
-            minters: vec![Addr("not_admin".to_string())],
+            minters: vec![Addr::unchecked("not_admin".to_string())],
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, mint_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, mint_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains(&admin_err.clone()));
 
         let change_admin_msg = ExecuteMsg::ChangeAdmin {
-            address: Addr("not_admin".to_string()),
+            address: Addr::unchecked("not_admin".to_string()),
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, change_admin_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, change_admin_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains(&admin_err.clone()));
@@ -3185,7 +3212,7 @@ mod tests {
     fn test_handle_pause_with_withdrawals() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("lebron".to_string()),
+                address: Addr::unchecked("lebron".to_string()),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3207,7 +3234,7 @@ mod tests {
 
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, pause_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, pause_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -3216,14 +3243,14 @@ mod tests {
         );
 
         let send_msg = ExecuteMsg::Transfer {
-            recipient: Addr("account".to_string()),
+            recipient: Addr::unchecked("account".to_string()),
             amount: Uint128::new(123),
             memo: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, send_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, send_msg);
 
         let error = extract_error_msg(handle_result);
         assert_eq!(
@@ -3238,7 +3265,7 @@ mod tests {
         };
         let info = mock_info("lebron", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, withdraw_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, withdraw_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -3250,7 +3277,7 @@ mod tests {
     #[test]
     fn test_handle_pause_all() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("lebron".to_string()),
+            address: Addr::unchecked("lebron".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3266,7 +3293,7 @@ mod tests {
 
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, pause_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, pause_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -3275,14 +3302,14 @@ mod tests {
         );
 
         let send_msg = ExecuteMsg::Transfer {
-            recipient: Addr("account".to_string()),
+            recipient: Addr::unchecked("account".to_string()),
             amount: Uint128::new(123),
             memo: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, send_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, send_msg);
 
         let error = extract_error_msg(handle_result);
         assert_eq!(
@@ -3297,7 +3324,7 @@ mod tests {
         };
         let info = mock_info("lebron", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, withdraw_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, withdraw_msg);
 
         let error = extract_error_msg(handle_result);
         assert_eq!(
@@ -3310,7 +3337,7 @@ mod tests {
     fn test_handle_set_minters() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("bob".to_string()),
+                address: Addr::unchecked("bob".to_string()),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3325,7 +3352,7 @@ mod tests {
             init_result.err().unwrap()
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3335,58 +3362,58 @@ mod tests {
         );
         // try when mint disabled
         let handle_msg = ExecuteMsg::SetMinters {
-            minters: vec![Addr("bob".to_string())],
+            minters: vec![Addr::unchecked("bob".to_string())],
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps_for_failure, mock_env(), info, handle_msg);
+        let handle_result = execute(deps_for_failure.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Mint functionality is not enabled for this token"));
 
         let handle_msg = ExecuteMsg::SetMinters {
-            minters: vec![Addr("bob".to_string())],
+            minters: vec![Addr::unchecked("bob".to_string())],
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Admin commands can only be run from admin address"));
 
         let handle_msg = ExecuteMsg::SetMinters {
-            minters: vec![Addr("bob".to_string())],
+            minters: vec![Addr::unchecked("bob".to_string())],
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr("bob".to_string()),
+            recipient: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr("bob".to_string()),
+            recipient: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("allowed to minter accounts only"));
@@ -3396,7 +3423,7 @@ mod tests {
     fn test_handle_add_minters() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("bob".to_string()),
+                address: Addr::unchecked("bob".to_string()),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3411,7 +3438,7 @@ mod tests {
             init_result.err().unwrap()
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3421,58 +3448,58 @@ mod tests {
         );
         // try when mint disabled
         let handle_msg = ExecuteMsg::AddMinters {
-            minters: vec![Addr("bob".to_string())],
+            minters: vec![Addr::unchecked("bob".to_string())],
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps_for_failure, mock_env(), info, handle_msg);
+        let handle_result = execute(deps_for_failure.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Mint functionality is not enabled for this token"));
 
         let handle_msg = ExecuteMsg::AddMinters {
-            minters: vec![Addr("bob".to_string())],
+            minters: vec![Addr::unchecked("bob".to_string())],
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Admin commands can only be run from admin address"));
 
         let handle_msg = ExecuteMsg::AddMinters {
-            minters: vec![Addr("bob".to_string())],
+            minters: vec![Addr::unchecked("bob".to_string())],
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr("bob".to_string()),
+            recipient: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr("bob".to_string()),
+            recipient: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(ensure_success(handle_result.unwrap()));
     }
@@ -3481,7 +3508,7 @@ mod tests {
     fn test_handle_remove_minters() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("bob".to_string()),
+                address: Addr::unchecked("bob".to_string()),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3496,7 +3523,7 @@ mod tests {
             init_result.err().unwrap()
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3506,96 +3533,96 @@ mod tests {
         );
         // try when mint disabled
         let handle_msg = ExecuteMsg::RemoveMinters {
-            minters: vec![Addr("bob".to_string())],
+            minters: vec![Addr::unchecked("bob".to_string())],
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps_for_failure, mock_env(), info, handle_msg);
+        let handle_result = execute(deps_for_failure.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Mint functionality is not enabled for this token"));
 
         let handle_msg = ExecuteMsg::RemoveMinters {
-            minters: vec![Addr("admin".to_string())],
+            minters: vec![Addr::unchecked("admin".to_string())],
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Admin commands can only be run from admin address"));
 
         let handle_msg = ExecuteMsg::RemoveMinters {
-            minters: vec![Addr("admin".to_string())],
+            minters: vec![Addr::unchecked("admin".to_string())],
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr("bob".to_string()),
+            recipient: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("allowed to minter accounts only"));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr("bob".to_string()),
+            recipient: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("allowed to minter accounts only"));
 
         // Removing another extra time to ensure nothing funky happens
         let handle_msg = ExecuteMsg::RemoveMinters {
-            minters: vec![Addr("admin".to_string())],
+            minters: vec![Addr::unchecked("admin".to_string())],
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr("bob".to_string()),
+            recipient: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("allowed to minter accounts only"));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr("bob".to_string()),
+            recipient: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("allowed to minter accounts only"));
@@ -3606,7 +3633,7 @@ mod tests {
     #[test]
     fn test_authenticated_queries() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("giannis".to_string()),
+            address: Addr::unchecked("giannis".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3616,10 +3643,10 @@ mod tests {
         );
 
         let no_vk_yet_query_msg = QueryMsg::Balance {
-            address: Addr("giannis".to_string()),
+            address: Addr::unchecked("giannis".to_string()),
             key: "no_vk_yet".to_string(),
         };
-        let query_result = query(&deps, mock_env(), no_vk_yet_query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), no_vk_yet_query_msg);
         let error = extract_error_msg(query_result);
         assert_eq!(
             error,
@@ -3631,18 +3658,18 @@ mod tests {
             padding: None,
         };
         let info = mock_info("giannis", &[]);
-        let handle_response = execute(&mut deps, mock_env(), info, create_vk_msg).unwrap();
+        let handle_response = execute(deps.as_mut(), mock_env(), info, create_vk_msg).unwrap();
         let vk = match from_binary(&handle_response.data.unwrap()).unwrap() {
             ExecuteAnswer::CreateViewingKey { key } => key,
             _ => panic!("Unexpected result from handle"),
         };
 
         let query_balance_msg = QueryMsg::Balance {
-            address: Addr("giannis".to_string()),
+            address: Addr::unchecked("giannis".to_string()),
             key: vk.0,
         };
 
-        let query_response = query(&deps, mock_env(), query_balance_msg).unwrap();
+        let query_response = query(deps.as_ref(), mock_env(), query_balance_msg).unwrap();
         let balance = match from_binary(&query_response).unwrap() {
             QueryAnswer::Balance { amount } => amount,
             _ => panic!("Unexpected result from query"),
@@ -3650,10 +3677,10 @@ mod tests {
         assert_eq!(balance, Uint128::new(5000));
 
         let wrong_vk_query_msg = QueryMsg::Balance {
-            address: Addr("giannis".to_string()),
+            address: Addr::unchecked("giannis".to_string()),
             key: "wrong_vk".to_string(),
         };
-        let query_result = query(&deps, mock_env(), wrong_vk_query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), wrong_vk_query_msg);
         let error = extract_error_msg(query_result);
         assert_eq!(
             error,
@@ -3664,7 +3691,7 @@ mod tests {
     #[test]
     fn test_query_token_info() {
         let init_name = "sec-sec".to_string();
-        let init_admin = Addr("admin".to_string());
+        let init_admin = Addr::unchecked("admin".to_string());
         let init_symbol = "SECSEC".to_string();
         let init_decimals = 8;
         let init_config: InitConfig = from_binary(&Binary::from(
@@ -3682,13 +3709,13 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr("giannis".to_string()),
+                address: Addr::unchecked("giannis".to_string()),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
         };
-        let init_result = instantiate(&mut deps, env, info, init_msg);
+        let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -3696,7 +3723,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::TokenInfo {};
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -3722,7 +3749,7 @@ mod tests {
     #[test]
     fn test_query_token_config() {
         let init_name = "sec-sec".to_string();
-        let init_admin = Addr("admin".to_string());
+        let init_admin = Addr::unchecked("admin".to_string());
         let init_symbol = "SECSEC".to_string();
         let init_decimals = 8;
         let init_config: InitConfig = from_binary(&Binary::from(
@@ -3749,13 +3776,13 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr("giannis".to_string()),
+                address: Addr::unchecked("giannis".to_string()),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
         };
-        let init_result = instantiate(&mut deps, env, info, init_msg);
+        let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -3763,7 +3790,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::TokenConfig {};
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -3792,7 +3819,7 @@ mod tests {
     fn test_query_exchange_rate() {
         // test more dec than SCRT
         let init_name = "sec-sec".to_string();
-        let init_admin = Addr("admin".to_string());
+        let init_admin = Addr::unchecked("admin".to_string());
         let init_symbol = "SECSEC".to_string();
         let init_decimals = 8;
 
@@ -3819,13 +3846,13 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr("giannis".to_string()),
+                address: Addr::unchecked("giannis".to_string()),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
         };
-        let init_result = instantiate(&mut deps, env, info, init_msg);
+        let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -3833,7 +3860,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::ExchangeRate {};
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -3850,7 +3877,7 @@ mod tests {
 
         // test same number of decimals as SCRT
         let init_name = "sec-sec".to_string();
-        let init_admin = Addr("admin".to_string());
+        let init_admin = Addr::unchecked("admin".to_string());
         let init_symbol = "SECSEC".to_string();
         let init_decimals = 6;
 
@@ -3877,13 +3904,13 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr("giannis".to_string()),
+                address: Addr::unchecked("giannis".to_string()),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
         };
-        let init_result = instantiate(&mut deps, env, info, init_msg);
+        let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -3891,7 +3918,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::ExchangeRate {};
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -3908,7 +3935,7 @@ mod tests {
 
         // test less decimal places than SCRT
         let init_name = "sec-sec".to_string();
-        let init_admin = Addr("admin".to_string());
+        let init_admin = Addr::unchecked("admin".to_string());
         let init_symbol = "SECSEC".to_string();
         let init_decimals = 3;
 
@@ -3935,13 +3962,13 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr("giannis".to_string()),
+                address: Addr::unchecked("giannis".to_string()),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
         };
-        let init_result = instantiate(&mut deps, env, info, init_msg);
+        let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -3949,7 +3976,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::ExchangeRate {};
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -3966,7 +3993,7 @@ mod tests {
 
         // test depost/redeem not enabled
         let init_name = "sec-sec".to_string();
-        let init_admin = Addr("admin".to_string());
+        let init_admin = Addr::unchecked("admin".to_string());
         let init_symbol = "SECSEC".to_string();
         let init_decimals = 3;
 
@@ -3981,13 +4008,13 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr("giannis".to_string()),
+                address: Addr::unchecked("giannis".to_string()),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: None,
         };
-        let init_result = instantiate(&mut deps, env, info, init_msg);
+        let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -3995,7 +4022,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::ExchangeRate {};
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Init failed: {}",
@@ -4014,7 +4041,7 @@ mod tests {
     #[test]
     fn test_query_allowance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("giannis".to_string()),
+            address: Addr::unchecked("giannis".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -4024,14 +4051,14 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr("lebron".to_string()),
+            spender: Addr::unchecked("lebron".to_string()),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
         };
         let info = mock_info("giannis", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -4043,11 +4070,11 @@ mod tests {
         let vk2 = ViewingKey("key2".to_string());
 
         let query_msg = QueryMsg::Allowance {
-            owner: Addr("giannis".to_string()),
-            spender: Addr("lebron".to_string()),
+            owner: Addr::unchecked("giannis".to_string()),
+            spender: Addr::unchecked("lebron".to_string()),
             key: vk1.0.clone(),
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         assert!(
             query_result.is_ok(),
             "Query failed: {}",
@@ -4062,7 +4089,7 @@ mod tests {
         };
         let info = mock_info("lebron", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let unwrapped_result: ExecuteAnswer =
             from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
@@ -4080,7 +4107,7 @@ mod tests {
         };
         let info = mock_info("giannis", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let unwrapped_result: ExecuteAnswer =
             from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
@@ -4093,11 +4120,11 @@ mod tests {
         );
 
         let query_msg = QueryMsg::Allowance {
-            owner: Addr("giannis".to_string()),
-            spender: Addr("lebron".to_string()),
+            owner: Addr::unchecked("giannis".to_string()),
+            spender: Addr::unchecked("lebron".to_string()),
             key: vk1.0.clone(),
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::Allowance { allowance, .. } => allowance,
             _ => panic!("Unexpected"),
@@ -4105,11 +4132,11 @@ mod tests {
         assert_eq!(allowance, Uint128::new(2000));
 
         let query_msg = QueryMsg::Allowance {
-            owner: Addr("giannis".to_string()),
-            spender: Addr("lebron".to_string()),
+            owner: Addr::unchecked("giannis".to_string()),
+            spender: Addr::unchecked("lebron".to_string()),
             key: vk2.0.clone(),
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::Allowance { allowance, .. } => allowance,
             _ => panic!("Unexpected"),
@@ -4117,11 +4144,11 @@ mod tests {
         assert_eq!(allowance, Uint128::new(2000));
 
         let query_msg = QueryMsg::Allowance {
-            owner: Addr("lebron".to_string()),
-            spender: Addr("giannis".to_string()),
+            owner: Addr::unchecked("lebron".to_string()),
+            spender: Addr::unchecked("giannis".to_string()),
             key: vk2.0.clone(),
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::Allowance { allowance, .. } => allowance,
             _ => panic!("Unexpected"),
@@ -4132,7 +4159,7 @@ mod tests {
     #[test]
     fn test_query_balance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -4147,7 +4174,7 @@ mod tests {
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let unwrapped_result: ExecuteAnswer =
             from_binary(&handle_result.unwrap().data.unwrap()).unwrap();
@@ -4160,18 +4187,18 @@ mod tests {
         );
 
         let query_msg = QueryMsg::Balance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             key: "wrong_key".to_string(),
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let error = extract_error_msg(query_result);
         assert!(error.contains("Wrong viewing key"));
 
         let query_msg = QueryMsg::Balance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             key: "key".to_string(),
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let balance = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::Balance { amount } => amount,
             _ => panic!("Unexpected"),
@@ -4182,7 +4209,7 @@ mod tests {
     #[test]
     fn test_query_transfer_history() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -4197,54 +4224,54 @@ mod tests {
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr("alice".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(1000),
             memo: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr("banana".to_string()),
+            recipient: Addr::unchecked("banana".to_string()),
             amount: Uint128::new(500),
             memo: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr("mango".to_string()),
+            recipient: Addr::unchecked("mango".to_string()),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
         let query_msg = QueryMsg::TransferHistory {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             key: "key".to_string(),
             page: None,
             page_size: 0,
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         // let a: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
         // println!("{:?}", a);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -4254,12 +4281,12 @@ mod tests {
         assert!(transfers.is_empty());
 
         let query_msg = QueryMsg::TransferHistory {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             key: "key".to_string(),
             page: None,
             page_size: 10,
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::TransferHistory { txs, .. } => txs,
             _ => panic!("Unexpected"),
@@ -4267,12 +4294,12 @@ mod tests {
         assert_eq!(transfers.len(), 3);
 
         let query_msg = QueryMsg::TransferHistory {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             key: "key".to_string(),
             page: None,
             page_size: 2,
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::TransferHistory { txs, .. } => txs,
             _ => panic!("Unexpected"),
@@ -4280,12 +4307,12 @@ mod tests {
         assert_eq!(transfers.len(), 2);
 
         let query_msg = QueryMsg::TransferHistory {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             key: "key".to_string(),
             page: Some(1),
             page_size: 2,
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::TransferHistory { txs, .. } => txs,
             _ => panic!("Unexpected"),
@@ -4297,7 +4324,7 @@ mod tests {
     fn test_query_transaction_history() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr("bob".to_string()),
+                address: Addr::unchecked("bob".to_string()),
                 amount: Uint128::new(10000),
             }],
             true,
@@ -4318,7 +4345,7 @@ mod tests {
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(ensure_success(handle_result.unwrap()));
 
@@ -4329,7 +4356,7 @@ mod tests {
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -4344,7 +4371,7 @@ mod tests {
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(
             handle_result.is_ok(),
@@ -4353,14 +4380,14 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr("bob".to_string()),
+            recipient: Addr::unchecked("bob".to_string()),
             amount: Uint128::new(100),
             memo: Some("my mint message".to_string()),
             padding: None,
         };
         let info = mock_info("admin", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         assert!(ensure_success(handle_result.unwrap()));
 
@@ -4373,7 +4400,7 @@ mod tests {
             }],
         );
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
         assert!(
             handle_result.is_ok(),
             "handle() failed: {}",
@@ -4381,51 +4408,51 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr("alice".to_string()),
+            recipient: Addr::unchecked("alice".to_string()),
             amount: Uint128::new(1000),
             memo: Some("my transfer message #1".to_string()),
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr("banana".to_string()),
+            recipient: Addr::unchecked("banana".to_string()),
             amount: Uint128::new(500),
             memo: Some("my transfer message #2".to_string()),
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr("mango".to_string()),
+            recipient: Addr::unchecked("mango".to_string()),
             amount: Uint128::new(2500),
             memo: Some("my transfer message #3".to_string()),
             padding: None,
         };
         let info = mock_info("bob", &[]);
 
-        let handle_result = execute(&mut deps, mock_env(), info, handle_msg);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
         let query_msg = QueryMsg::TransferHistory {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             key: "key".to_string(),
             page: None,
             page_size: 10,
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::TransferHistory { txs, .. } => txs,
             _ => panic!("Unexpected"),
@@ -4433,12 +4460,12 @@ mod tests {
         assert_eq!(transfers.len(), 3);
 
         let query_msg = QueryMsg::TransactionHistory {
-            address: Addr("bob".to_string()),
+            address: Addr::unchecked("bob".to_string()),
             key: "key".to_string(),
             page: None,
             page_size: 10,
         };
-        let query_result = query(&deps, mock_env(), query_msg);
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::TransactionHistory { txs, .. } => txs,
             other => panic!("Unexpected: {:?}", other),
@@ -4449,9 +4476,9 @@ mod tests {
             RichTx {
                 id: 8,
                 action: TxAction::Transfer {
-                    from: Addr("bob".to_string()),
-                    sender: Addr("bob".to_string()),
-                    recipient: Addr("mango".to_string()),
+                    from: Addr::unchecked("bob".to_string()),
+                    sender: Addr::unchecked("bob".to_string()),
+                    recipient: Addr::unchecked("mango".to_string()),
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
@@ -4464,9 +4491,9 @@ mod tests {
             RichTx {
                 id: 7,
                 action: TxAction::Transfer {
-                    from: Addr("bob".to_string()),
-                    sender: Addr("bob".to_string()),
-                    recipient: Addr("banana".to_string()),
+                    from: Addr::unchecked("bob".to_string()),
+                    sender: Addr::unchecked("bob".to_string()),
+                    recipient: Addr::unchecked("banana".to_string()),
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
@@ -4479,9 +4506,9 @@ mod tests {
             RichTx {
                 id: 6,
                 action: TxAction::Transfer {
-                    from: Addr("bob".to_string()),
-                    sender: Addr("bob".to_string()),
-                    recipient: Addr("alice".to_string()),
+                    from: Addr::unchecked("bob".to_string()),
+                    sender: Addr::unchecked("bob".to_string()),
+                    recipient: Addr::unchecked("alice".to_string()),
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
@@ -4505,8 +4532,8 @@ mod tests {
             RichTx {
                 id: 4,
                 action: TxAction::Mint {
-                    minter: Addr("admin".to_string()),
-                    recipient: Addr("bob".to_string()),
+                    minter: Addr::unchecked("admin".to_string()),
+                    recipient: Addr::unchecked("bob".to_string()),
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
@@ -4530,8 +4557,8 @@ mod tests {
             RichTx {
                 id: 2,
                 action: TxAction::Burn {
-                    burner: Addr("bob".to_string()),
-                    owner: Addr("bob".to_string()),
+                    burner: Addr::unchecked("bob".to_string()),
+                    owner: Addr::unchecked("bob".to_string()),
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
@@ -4544,8 +4571,8 @@ mod tests {
             RichTx {
                 id: 1,
                 action: TxAction::Mint {
-                    minter: Addr("admin".to_string()),
-                    recipient: Addr("bob".to_string()),
+                    minter: Addr::unchecked("admin".to_string()),
+                    recipient: Addr::unchecked("bob".to_string()),
                 },
                 coins: Coin {
                     denom: "SECSEC".to_string(),
