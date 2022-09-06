@@ -43,14 +43,12 @@ pub struct Constants {
     // the address of this contract, used to validate query permits
     pub contract_address: Addr,
 }
-
 pub static CONSTANTS: Item<Constants> = Item::new(KEY_CONSTANTS);
-pub struct ConstantsStore {}
-impl ConstantsStore {
-    pub fn may_load(store: &dyn Storage) -> StdResult<Constants> {
+impl Constants {
+    pub fn load(store: &dyn Storage) -> StdResult<Constants> {
         CONSTANTS
-            .may_load(store)?
-            .ok_or_else(|| StdError::generic_err("no constants stored"))
+            .load(store)
+            .map_err(|_err| StdError::generic_err("no constants stored"))
     }
 
     pub fn save(store: &mut dyn Storage, constants: &Constants) -> StdResult<()> {
@@ -61,10 +59,10 @@ impl ConstantsStore {
 pub static TOTAL_SUPPLY: Item<u128> = Item::new(KEY_TOTAL_SUPPLY);
 pub struct TotalSupplyStore {}
 impl TotalSupplyStore {
-    pub fn may_load(store: &dyn Storage) -> StdResult<u128> {
+    pub fn load(store: &dyn Storage) -> StdResult<u128> {
         TOTAL_SUPPLY
-            .may_load(store)?
-            .ok_or_else(|| StdError::generic_err("no total supply stored"))
+            .load(store)
+            .map_err(|_err| StdError::generic_err("no total supply stored"))
     }
 
     pub fn save(store: &mut dyn Storage, supply: u128) -> StdResult<()> {
@@ -75,14 +73,13 @@ impl TotalSupplyStore {
 pub static CONTRACT_STATUS: Item<ContractStatusLevel> = Item::new(KEY_CONTRACT_STATUS);
 pub struct ContractStatusStore {}
 impl ContractStatusStore {
-    pub fn may_load(store: &dyn Storage) -> StdResult<ContractStatusLevel> {
+    pub fn load(store: &dyn Storage) -> StdResult<ContractStatusLevel> {
         CONTRACT_STATUS
-            .may_load(store)?
-            .ok_or_else(|| StdError::generic_err("no contract status stored"))
+            .load(store)
+            .map_err(|_err| StdError::generic_err("no contract status stored"))
     }
 
     pub fn save(store: &mut dyn Storage, status: ContractStatusLevel) -> StdResult<()> {
-        // Elad check supply because it's a primitive (serializable? should send as: &supply.to_be_bytes() maybe?)
         CONTRACT_STATUS.save(store, &status)
     }
 }
@@ -90,22 +87,20 @@ impl ContractStatusStore {
 pub static MINTERS: Item<Vec<Addr>> = Item::new(KEY_MINTERS);
 pub struct MintersStore {}
 impl MintersStore {
-    pub fn may_load(store: &dyn Storage) -> StdResult<Vec<Addr>> {
+    pub fn load(store: &dyn Storage) -> StdResult<Vec<Addr>> {
         MINTERS
-            .may_load(store)?
-            .ok_or_else(|| StdError::generic_err(""))
+            .load(store)
+            .map_err(|_err| StdError::generic_err(""))
     }
 
     pub fn save(store: &mut dyn Storage, minters_to_set: Vec<Addr>) -> StdResult<()> {
-        // Elad check serialization for minters_to_set
         MINTERS.save(store, &minters_to_set)
     }
 
-    // Elad: Add ref to minters_to_add?
     pub fn add_minters(store: &mut dyn Storage, minters_to_add: Vec<Addr>) -> StdResult<()> {
         let mut loaded_minters = MINTERS
-            .may_load(store)?
-            .ok_or_else(|| StdError::not_found("Key not found in storage"))?;
+            .load(store)
+            .map_err(|_err| StdError::not_found("Key not found in storage"))?;
 
         loaded_minters.extend(minters_to_add);
 
@@ -114,8 +109,8 @@ impl MintersStore {
 
     pub fn remove_minters(store: &mut dyn Storage, minters_to_remove: Vec<Addr>) -> StdResult<()> {
         let mut loaded_minters = MINTERS
-            .may_load(store)?
-            .ok_or_else(|| StdError::generic_err(""))?;
+            .load(store)
+            .map_err(|_err| StdError::generic_err(""))?;
 
         for minter in minters_to_remove {
             loaded_minters.retain(|x| x != &minter);
@@ -128,11 +123,8 @@ impl MintersStore {
 pub static TX_COUNT: Item<u64> = Item::new(KEY_TX_COUNT);
 pub struct TxCountStore {}
 impl TxCountStore {
-    pub fn may_load(store: &dyn Storage) -> u64 {
-        TX_COUNT
-            .may_load(store)
-            .unwrap_or_default()
-            .unwrap_or_default()
+    pub fn load(store: &dyn Storage) -> u64 {
+        TX_COUNT.load(store).unwrap_or_default()
     }
 
     pub fn save(store: &mut dyn Storage, count: u64) -> StdResult<()> {
@@ -140,7 +132,6 @@ impl TxCountStore {
     }
 }
 
-// elad: maybe use Uint128,
 pub static BALANCES: Keymap<Addr, u128> = Keymap::new(PREFIX_BALANCES);
 pub struct BalancesStore {}
 impl BalancesStore {
@@ -173,7 +164,7 @@ impl Allowance {
 pub static ALLOWANCES: Keymap<(Addr, Addr), Allowance> = Keymap::new(PREFIX_ALLOWANCES);
 pub struct AllowancesStore {}
 impl AllowancesStore {
-    pub fn may_load(store: &dyn Storage, owner: &Addr, spender: &Addr) -> Allowance {
+    pub fn load(store: &dyn Storage, owner: &Addr, spender: &Addr) -> Allowance {
         ALLOWANCES
             .get(store, &(owner.clone(), spender.clone()))
             .unwrap_or_default()

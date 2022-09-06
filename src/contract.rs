@@ -15,11 +15,11 @@ use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     get_receiver_hash, read_viewing_key, set_receiver_hash, write_viewing_key, AllowancesStore,
-    BalancesStore, Constants, ConstantsStore, ContractStatusStore, MintersStore, TotalSupplyStore,
+    BalancesStore, Constants, ContractStatusStore, MintersStore, TotalSupplyStore,
 };
 use crate::transaction_history::{
-    store_burn, store_deposit, store_mint, store_redeem, store_transfer, TransactionsStore,
-    TransfersStore,
+    store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredLegacyTransfer,
+    StoredRichTx,
 };
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
 use secret_toolkit::permit::{validate, Permit, RevokedPermits, TokenPermissions};
@@ -82,7 +82,7 @@ pub fn instantiate(
 
     let prng_seed_hashed = sha_256(&msg.prng_seed.0);
 
-    ConstantsStore::save(
+    Constants::save(
         deps.storage,
         &Constants {
             name: msg.name,
@@ -122,7 +122,7 @@ fn pad_response(response: StdResult<Response>) -> StdResult<Response> {
 
 #[entry_point]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
-    let contract_status = ContractStatusStore::may_load(deps.storage)?;
+    let contract_status = ContractStatusStore::load(deps.storage)?;
 
     match contract_status {
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
@@ -271,7 +271,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<Binary, StdError> {
     // Validate permit content
-    let token_address = ConstantsStore::may_load(deps.storage)?.contract_address;
+    let token_address = Constants::load(deps.storage)?.contract_address;
 
     let account = Addr::unchecked(validate(
         deps,
@@ -373,7 +373,7 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 fn query_exchange_rate(storage: &dyn Storage) -> StdResult<Binary> {
-    let constants = ConstantsStore::may_load(storage)?;
+    let constants = Constants::load(storage)?;
 
     if constants.deposit_is_enabled || constants.redeem_is_enabled {
         let rate: Uint128;
@@ -396,10 +396,10 @@ fn query_exchange_rate(storage: &dyn Storage) -> StdResult<Binary> {
 }
 
 fn query_token_info(storage: &dyn Storage) -> StdResult<Binary> {
-    let constants = ConstantsStore::may_load(storage)?;
+    let constants = Constants::load(storage)?;
 
     let total_supply = if constants.total_supply_is_public {
-        Some(Uint128::new(TotalSupplyStore::may_load(storage)?))
+        Some(Uint128::new(TotalSupplyStore::load(storage)?))
     } else {
         None
     };
@@ -413,7 +413,7 @@ fn query_token_info(storage: &dyn Storage) -> StdResult<Binary> {
 }
 
 fn query_token_config(storage: &dyn Storage) -> StdResult<Binary> {
-    let constants = ConstantsStore::may_load(storage)?;
+    let constants = Constants::load(storage)?;
 
     to_binary(&QueryAnswer::TokenConfig {
         public_total_supply: constants.total_supply_is_public,
@@ -425,7 +425,7 @@ fn query_token_config(storage: &dyn Storage) -> StdResult<Binary> {
 }
 
 fn query_contract_status(storage: &dyn Storage) -> StdResult<Binary> {
-    let contract_status = ContractStatusStore::may_load(storage)?;
+    let contract_status = ContractStatusStore::load(storage)?;
 
     to_binary(&QueryAnswer::ContractStatus {
         status: contract_status,
@@ -435,7 +435,7 @@ fn query_contract_status(storage: &dyn Storage) -> StdResult<Binary> {
 pub fn query_transfers(deps: Deps, account: &Addr, page: u32, page_size: u32) -> StdResult<Binary> {
     let address = deps.api.addr_canonicalize(account.as_str())?;
     let (txs, total) =
-        TransfersStore::get_transfers(deps.api, deps.storage, &address, page, page_size)?;
+        StoredLegacyTransfer::get_transfers(deps.api, deps.storage, &address, page, page_size)?;
 
     let result = QueryAnswer::TransferHistory {
         txs,
@@ -451,8 +451,7 @@ pub fn query_transactions(
     page_size: u32,
 ) -> StdResult<Binary> {
     let address = deps.api.addr_canonicalize(account.as_str())?;
-    let (txs, total) =
-        TransactionsStore::get_txs(deps.api, deps.storage, &address, page, page_size)?;
+    let (txs, total) = StoredRichTx::get_txs(deps.api, deps.storage, &address, page, page_size)?;
 
     let result = QueryAnswer::TransactionHistory {
         txs,
@@ -468,18 +467,18 @@ pub fn query_balance(deps: Deps, account: &Addr) -> StdResult<Binary> {
 }
 
 fn query_minters(deps: Deps) -> StdResult<Binary> {
-    let minters = MintersStore::may_load(deps.storage)?;
+    let minters = MintersStore::load(deps.storage)?;
 
     let response = QueryAnswer::Minters { minters };
     to_binary(&response)
 }
 
 fn change_admin(deps: DepsMut, info: &MessageInfo, address: Addr) -> StdResult<Response> {
-    let mut constants = ConstantsStore::may_load(deps.storage)?;
+    let mut constants = Constants::load(deps.storage)?;
     check_if_admin(&constants.admin, &info.sender)?;
 
     constants.admin = address;
-    ConstantsStore::save(deps.storage, &constants)?;
+    Constants::save(deps.storage, &constants)?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::ChangeAdmin { status: Success })?))
 }
@@ -535,7 +534,7 @@ fn try_mint(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let constants = ConstantsStore::may_load(deps.storage)?;
+    let constants = Constants::load(deps.storage)?;
 
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
@@ -543,14 +542,14 @@ fn try_mint(
         ));
     }
 
-    let minters = MintersStore::may_load(deps.storage)?;
+    let minters = MintersStore::load(deps.storage)?;
     if !minters.contains(&info.sender) {
         return Err(StdError::generic_err(
             "Minting is allowed to minter accounts only",
         ));
     }
 
-    let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
+    let mut total_supply = TotalSupplyStore::load(deps.storage)?;
     if let Some(new_total_supply) = total_supply.checked_add(amount.u128()) {
         total_supply = new_total_supply;
     } else {
@@ -579,7 +578,7 @@ fn try_batch_mint(
     info: &MessageInfo,
     actions: Vec<batch::MintAction>,
 ) -> StdResult<Response> {
-    let constants = ConstantsStore::may_load(deps.storage)?;
+    let constants = Constants::load(deps.storage)?;
 
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
@@ -587,14 +586,14 @@ fn try_batch_mint(
         ));
     }
 
-    let minters = MintersStore::may_load(deps.storage)?;
+    let minters = MintersStore::load(deps.storage)?;
     if !minters.contains(&info.sender) {
         return Err(StdError::generic_err(
             "Minting is allowed to minter accounts only",
         ));
     }
 
-    let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
+    let mut total_supply = TotalSupplyStore::load(deps.storage)?;
 
     // Quick loop to check that the total of amounts is valid
     for action in &actions {
@@ -643,7 +642,7 @@ pub fn try_create_key(
     info: &MessageInfo,
     entropy: String,
 ) -> StdResult<Response> {
-    let prng_seed = ConstantsStore::may_load(deps.storage)?.prng_seed;
+    let prng_seed = Constants::load(deps.storage)?.prng_seed;
 
     let key = ViewingKey::new(&env, info, &prng_seed, (&entropy).as_ref());
 
@@ -658,7 +657,7 @@ fn set_contract_status(
     info: &MessageInfo,
     status_level: ContractStatusLevel,
 ) -> StdResult<Response> {
-    let constants = ConstantsStore::may_load(deps.storage)?;
+    let constants = Constants::load(deps.storage)?;
     check_if_admin(&constants.admin, &info.sender)?;
 
     ContractStatusStore::save(deps.storage, status_level)?;
@@ -671,7 +670,7 @@ fn set_contract_status(
 }
 
 pub fn query_allowance(deps: Deps, owner: Addr, spender: Addr) -> StdResult<Binary> {
-    let allowance = AllowancesStore::may_load(deps.storage, &owner, &spender);
+    let allowance = AllowancesStore::load(deps.storage, &owner, &spender);
 
     let response = QueryAnswer::Allowance {
         owner,
@@ -701,14 +700,14 @@ fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Respons
 
     let raw_amount = amount.u128();
 
-    let constants = ConstantsStore::may_load(deps.storage)?;
+    let constants = Constants::load(deps.storage)?;
     if !constants.deposit_is_enabled {
         return Err(StdError::generic_err(
             "Deposit functionality is not enabled for this token.",
         ));
     }
 
-    let total_supply = TotalSupplyStore::may_load(deps.storage)?;
+    let total_supply = TotalSupplyStore::load(deps.storage)?;
     if let Some(total_supply) = total_supply.checked_add(raw_amount) {
         TotalSupplyStore::save(deps.storage, total_supply)?;
     } else {
@@ -740,7 +739,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Respons
 }
 
 fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> StdResult<Response> {
-    let constants = ConstantsStore::may_load(deps.storage)?;
+    let constants = Constants::load(deps.storage)?;
     if !constants.redeem_is_enabled {
         return Err(StdError::generic_err(
             "Redeem functionality is not enabled for this token.",
@@ -760,7 +759,7 @@ fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> S
         )));
     }
 
-    let total_supply = TotalSupplyStore::may_load(deps.storage)?;
+    let total_supply = TotalSupplyStore::load(deps.storage)?;
     if let Some(total_supply) = total_supply.checked_sub(amount_raw) {
         TotalSupplyStore::save(deps.storage, total_supply)?;
     } else {
@@ -811,7 +810,7 @@ fn try_transfer_impl(
 ) -> StdResult<()> {
     perform_transfer(deps.storage, sender, recipient, amount.u128())?;
 
-    let symbol = ConstantsStore::may_load(deps.storage)?.symbol;
+    let symbol = Constants::load(deps.storage)?.symbol;
 
     let sender = deps.api.addr_canonicalize(sender.as_str())?;
     let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
@@ -1015,7 +1014,7 @@ fn use_allowance(
     spender: &Addr,
     amount: u128,
 ) -> StdResult<()> {
-    let mut allowance = AllowancesStore::may_load(storage, owner, spender);
+    let mut allowance = AllowancesStore::load(storage, owner, spender);
 
     if allowance.is_expired_at(&env.block) {
         return Err(insufficient_allowance(0, amount));
@@ -1046,7 +1045,7 @@ fn try_transfer_from_impl(
 
     perform_transfer(deps.storage, owner, recipient, raw_amount)?;
 
-    let symbol = ConstantsStore::may_load(deps.storage)?.symbol;
+    let symbol = Constants::load(deps.storage)?.symbol;
 
     let owner = deps.api.addr_canonicalize(owner.as_str())?;
     let spender = deps.api.addr_canonicalize(spender.as_str())?;
@@ -1214,7 +1213,7 @@ fn try_burn_from(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let constants = ConstantsStore::may_load(deps.storage)?;
+    let constants = Constants::load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
             "Burn functionality is not enabled for this token.",
@@ -1240,7 +1239,7 @@ fn try_burn_from(
     let owner = deps.api.addr_canonicalize(owner.as_str())?;
 
     // remove from supply
-    let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
+    let mut total_supply = TotalSupplyStore::load(deps.storage)?;
 
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
         total_supply = new_total_supply;
@@ -1270,7 +1269,7 @@ fn try_batch_burn_from(
     info: &MessageInfo,
     actions: Vec<batch::BurnFromAction>,
 ) -> StdResult<Response> {
-    let constants = ConstantsStore::may_load(deps.storage)?;
+    let constants = Constants::load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
             "Burn functionality is not enabled for this token.",
@@ -1279,7 +1278,7 @@ fn try_batch_burn_from(
 
     let spender = info.sender.clone();
 
-    let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
+    let mut total_supply = TotalSupplyStore::load(deps.storage)?;
 
     for action in actions {
         let owner = action.owner.clone();
@@ -1339,7 +1338,7 @@ fn try_increase_allowance(
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
-    let mut allowance = AllowancesStore::may_load(deps.storage, &info.sender, &spender);
+    let mut allowance = AllowancesStore::load(deps.storage, &info.sender, &spender);
 
     // If the previous allowance has expired, reset the allowance.
     // Without this users can take advantage of an expired allowance given to
@@ -1374,7 +1373,7 @@ fn try_decrease_allowance(
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
-    let mut allowance = AllowancesStore::may_load(deps.storage, &info.sender, &spender);
+    let mut allowance = AllowancesStore::load(deps.storage, &info.sender, &spender);
 
     // If the previous allowance has expired, reset the allowance.
     // Without this users can take advantage of an expired allowance given to
@@ -1406,7 +1405,7 @@ fn add_minters(
     info: &MessageInfo,
     minters_to_add: Vec<Addr>,
 ) -> StdResult<Response> {
-    let constants = ConstantsStore::may_load(deps.storage)?;
+    let constants = Constants::load(deps.storage)?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
             "Mint functionality is not enabled for this token.",
@@ -1425,7 +1424,7 @@ fn remove_minters(
     info: &MessageInfo,
     minters_to_remove: Vec<Addr>,
 ) -> StdResult<Response> {
-    let constants = ConstantsStore::may_load(deps.storage)?;
+    let constants = Constants::load(deps.storage)?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
             "Mint functionality is not enabled for this token.",
@@ -1448,7 +1447,7 @@ fn set_minters(
     info: &MessageInfo,
     minters_to_set: Vec<Addr>,
 ) -> StdResult<Response> {
-    let constants = ConstantsStore::may_load(deps.storage)?;
+    let constants = Constants::load(deps.storage)?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
             "Mint functionality is not enabled for this token.",
@@ -1474,7 +1473,7 @@ fn try_burn(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let constants = ConstantsStore::may_load(deps.storage)?;
+    let constants = Constants::load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
             "Burn functionality is not enabled for this token.",
@@ -1497,7 +1496,7 @@ fn try_burn(
 
     BalancesStore::save(deps.storage, &info.sender, account_balance)?;
 
-    let mut total_supply = TotalSupplyStore::may_load(deps.storage)?;
+    let mut total_supply = TotalSupplyStore::load(deps.storage)?;
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
         total_supply = new_total_supply;
     } else {
@@ -1752,10 +1751,10 @@ mod tests {
         }]);
         assert_eq!(init_result.unwrap(), Response::default());
 
-        let constants = ConstantsStore::may_load(&deps.storage).unwrap();
-        assert_eq!(TotalSupplyStore::may_load(&deps.storage).unwrap(), 5000);
+        let constants = Constants::load(&deps.storage).unwrap();
+        assert_eq!(TotalSupplyStore::load(&deps.storage).unwrap(), 5000);
         assert_eq!(
-            ContractStatusStore::may_load(&deps.storage).unwrap(),
+            ContractStatusStore::load(&deps.storage).unwrap(),
             ContractStatusLevel::NormalRun
         );
         assert_eq!(constants.name, "sec-sec".to_string());
@@ -1784,10 +1783,10 @@ mod tests {
         );
         assert_eq!(init_result.unwrap(), Response::default());
 
-        let constants = ConstantsStore::may_load(&deps.storage).unwrap();
-        assert_eq!(TotalSupplyStore::may_load(&deps.storage).unwrap(), 5000);
+        let constants = Constants::load(&deps.storage).unwrap();
+        assert_eq!(TotalSupplyStore::load(&deps.storage).unwrap(), 5000);
         assert_eq!(
-            ContractStatusStore::may_load(&deps.storage).unwrap(),
+            ContractStatusStore::load(&deps.storage).unwrap(),
             ContractStatusLevel::NormalRun
         );
         assert_eq!(constants.name, "sec-sec".to_string());
@@ -2175,7 +2174,7 @@ mod tests {
         let alice_balance = BalancesStore::load(&deps.storage, &alice_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
         assert_eq!(alice_balance, 2000);
-        let total_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
+        let total_supply = TotalSupplyStore::load(&deps.storage).unwrap();
         assert_eq!(total_supply, 5000);
 
         // Second send more than allowance
@@ -2310,7 +2309,7 @@ mod tests {
         let contract_balance = BalancesStore::load(&deps.storage, &contract_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
         assert_eq!(contract_balance, 2000);
-        let total_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
+        let total_supply = TotalSupplyStore::load(&deps.storage).unwrap();
         assert_eq!(total_supply, 5000);
 
         // Second send more than allowance
@@ -2435,7 +2434,7 @@ mod tests {
         let bob_canonical = Addr::unchecked("bob".to_string());
         let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
         assert_eq!(bob_balance, 10000 - 2000);
-        let total_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
+        let total_supply = TotalSupplyStore::load(&deps.storage).unwrap();
         assert_eq!(total_supply, 10000 - 2000);
 
         // Second burn more than allowance
@@ -2581,7 +2580,7 @@ mod tests {
             let balance = BalancesStore::load(&deps.storage, &name_canon);
             assert_eq!(balance, 10000 - amount);
         }
-        let total_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
+        let total_supply = TotalSupplyStore::load(&deps.storage).unwrap();
         assert_eq!(total_supply, 10000 * 3 - (200 + 300 + 400));
 
         // Burn the rest of the allowance
@@ -2612,7 +2611,7 @@ mod tests {
             let balance = BalancesStore::load(&deps.storage, &name_canon);
             assert_eq!(balance, 10000 - allowance_size);
         }
-        let total_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
+        let total_supply = TotalSupplyStore::load(&deps.storage).unwrap();
         assert_eq!(total_supply, 3 * (10000 - allowance_size));
 
         // Second burn more than allowance
@@ -2667,7 +2666,7 @@ mod tests {
         let bob_canonical = Addr::unchecked("bob".to_string());
         let alice_canonical = Addr::unchecked("alice".to_string());
 
-        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical);
+        let allowance = AllowancesStore::load(&deps.storage, &bob_canonical, &alice_canonical);
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2708,7 +2707,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical);
+        let allowance = AllowancesStore::load(&deps.storage, &bob_canonical, &alice_canonical);
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2749,7 +2748,7 @@ mod tests {
         let bob_canonical = Addr::unchecked("bob".to_string());
         let alice_canonical = Addr::unchecked("alice".to_string());
 
-        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical);
+        let allowance = AllowancesStore::load(&deps.storage, &bob_canonical, &alice_canonical);
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2774,7 +2773,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical);
+        let allowance = AllowancesStore::load(&deps.storage, &bob_canonical, &alice_canonical);
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2810,7 +2809,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let admin = ConstantsStore::may_load(&deps.storage).unwrap().admin;
+        let admin = Constants::load(&deps.storage).unwrap().admin;
         assert_eq!(admin, Addr::unchecked("bob".to_string()));
     }
 
@@ -2840,7 +2839,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let contract_status = ContractStatusStore::may_load(&deps.storage).unwrap();
+        let contract_status = ContractStatusStore::load(&deps.storage).unwrap();
         assert!(matches!(
             contract_status,
             ContractStatusLevel::StopAll { .. }
@@ -3043,7 +3042,7 @@ mod tests {
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Burn functionality is not enabled for this token."));
 
-        let supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
+        let supply = TotalSupplyStore::load(&deps.storage).unwrap();
         let burn_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(burn_amount),
@@ -3060,7 +3059,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let new_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
+        let new_supply = TotalSupplyStore::load(&deps.storage).unwrap();
         assert_eq!(new_supply, supply - burn_amount);
     }
 
@@ -3106,7 +3105,7 @@ mod tests {
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Mint functionality is not enabled for this token"));
 
-        let supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
+        let supply = TotalSupplyStore::load(&deps.storage).unwrap();
         let mint_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Mint {
             recipient: Addr::unchecked("lebron".to_string()),
@@ -3124,7 +3123,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let new_supply = TotalSupplyStore::may_load(&deps.storage).unwrap();
+        let new_supply = TotalSupplyStore::load(&deps.storage).unwrap();
         assert_eq!(new_supply, supply + mint_amount);
     }
 

@@ -70,7 +70,7 @@ pub struct RichTx {
 /// This type is the stored version of the legacy transfers
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
-struct StoredLegacyTransfer {
+pub struct StoredLegacyTransfer {
     id: u64,
     from: CanonicalAddr,
     sender: CanonicalAddr,
@@ -95,7 +95,42 @@ impl StoredLegacyTransfer {
         };
         Ok(tx)
     }
+
+    fn append_transfer(
+        store: &mut dyn Storage,
+        tx: &StoredLegacyTransfer,
+        for_address: &CanonicalAddr,
+    ) -> StdResult<()> {
+        let current_addr_store = TRANSFERS.add_suffix(for_address);
+        current_addr_store.push(store, tx)
+    }
+
+    pub fn get_transfers(
+        api: &dyn Api,
+        storage: &dyn Storage,
+        for_address: &CanonicalAddr,
+        page: u32,
+        page_size: u32,
+    ) -> StdResult<(Vec<Tx>, u64)> {
+        let current_addr_store = TRANSFERS.add_suffix(for_address);
+        let len = current_addr_store.get_len(storage)? as u64;
+        // Take `page_size` txs starting from the latest tx, potentially skipping `page * page_size`
+        // txs from the start.
+        let transfer_iter = current_addr_store
+            .iter(storage)?
+            .rev()
+            .skip((page * page_size) as _)
+            .take(page_size as _);
+
+        // The `and_then` here flattens the `StdResult<StdResult<RichTx>>` to an `StdResult<RichTx>`
+        let transfers: StdResult<Vec<Tx>> = transfer_iter
+            .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
+            .collect();
+        transfers.map(|txs| (txs, len))
+    }
 }
+
+static TRANSFERS: AppendStore<StoredLegacyTransfer> = AppendStore::new(PREFIX_TRANSFERS);
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
@@ -231,7 +266,7 @@ impl StoredTxAction {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
-struct StoredRichTx {
+pub struct StoredRichTx {
     id: u64,
     action: StoredTxAction,
     coins: Coin,
@@ -280,142 +315,7 @@ impl StoredRichTx {
             block_height: transfer.block_height,
         }
     }
-}
 
-// Storage functions:
-
-fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
-    let id = TxCountStore::may_load(store) + 1;
-    TxCountStore::save(store, id)?;
-    Ok(id)
-}
-
-#[allow(clippy::too_many_arguments)] // We just need them
-pub fn store_transfer(
-    store: &mut dyn Storage,
-    owner: &CanonicalAddr,
-    sender: &CanonicalAddr,
-    receiver: &CanonicalAddr,
-    amount: Uint128,
-    denom: String,
-    memo: Option<String>,
-    block: &cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
-    let transfer = StoredLegacyTransfer {
-        id,
-        from: owner.clone(),
-        sender: sender.clone(),
-        receiver: receiver.clone(),
-        coins,
-        memo,
-        block_time: block.time.seconds(),
-        block_height: block.height,
-    };
-    let tx = StoredRichTx::from_stored_legacy_transfer(transfer.clone());
-
-    // Write to the owners history if it's different from the other two addresses
-    if owner != sender && owner != receiver {
-        // cosmwasm_std::debug_print("saving transaction history for owner");
-        TransactionsStore::append_tx(store, &tx, owner)?;
-        TransfersStore::append_transfer(store, &transfer, owner)?;
-    }
-    // Write to the sender's history if it's different from the receiver
-    if sender != receiver {
-        // cosmwasm_std::debug_print("saving transaction history for sender");
-        TransactionsStore::append_tx(store, &tx, sender)?;
-        TransfersStore::append_transfer(store, &transfer, sender)?;
-    }
-    // Always write to the recipient's history
-    // cosmwasm_std::debug_print("saving transaction history for receiver");
-    TransactionsStore::append_tx(store, &tx, receiver)?;
-    TransfersStore::append_transfer(store, &transfer, receiver)?;
-
-    Ok(())
-}
-
-pub fn store_mint(
-    store: &mut dyn Storage,
-    minter: &CanonicalAddr,
-    recipient: &CanonicalAddr,
-    amount: Uint128,
-    denom: String,
-    memo: Option<String>,
-    block: &cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
-    let action = StoredTxAction::mint(minter.clone(), recipient.clone());
-    let tx = StoredRichTx::new(id, action, coins, memo, block);
-
-    if minter != recipient {
-        TransactionsStore::append_tx(store, &tx, recipient)?;
-    }
-    TransactionsStore::append_tx(store, &tx, minter)?;
-
-    Ok(())
-}
-
-pub fn store_burn(
-    store: &mut dyn Storage,
-    owner: &CanonicalAddr,
-    burner: &CanonicalAddr,
-    amount: Uint128,
-    denom: String,
-    memo: Option<String>,
-    block: &cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
-    let action = StoredTxAction::burn(owner.clone(), burner.clone());
-    let tx = StoredRichTx::new(id, action, coins, memo, block);
-
-    if burner != owner {
-        TransactionsStore::append_tx(store, &tx, owner)?;
-    }
-    TransactionsStore::append_tx(store, &tx, burner)?;
-
-    Ok(())
-}
-
-pub fn store_deposit(
-    store: &mut dyn Storage,
-    recipient: &CanonicalAddr,
-    amount: Uint128,
-    denom: String,
-    block: &cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
-    let action = StoredTxAction::deposit();
-    let tx = StoredRichTx::new(id, action, coins, None, block);
-
-    TransactionsStore::append_tx(store, &tx, recipient)?;
-
-    Ok(())
-}
-
-pub fn store_redeem(
-    store: &mut dyn Storage,
-    redeemer: &CanonicalAddr,
-    amount: Uint128,
-    denom: String,
-    block: &cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
-    let action = StoredTxAction::redeem();
-    let tx = StoredRichTx::new(id, action, coins, None, block);
-
-    TransactionsStore::append_tx(store, &tx, redeemer)?;
-
-    Ok(())
-}
-
-static TRANSACTIONS: AppendStore<StoredRichTx> = AppendStore::new(PREFIX_TXS);
-pub struct TransactionsStore {}
-impl TransactionsStore {
     fn append_tx(
         store: &mut dyn Storage,
         tx: &StoredRichTx,
@@ -451,39 +351,135 @@ impl TransactionsStore {
     }
 }
 
-static TRANSFERS: AppendStore<StoredLegacyTransfer> = AppendStore::new(PREFIX_TRANSFERS);
-pub struct TransfersStore {}
-impl TransfersStore {
-    fn append_transfer(
-        store: &mut dyn Storage,
-        tx: &StoredLegacyTransfer,
-        for_address: &CanonicalAddr,
-    ) -> StdResult<()> {
-        let current_addr_store = TRANSFERS.add_suffix(for_address);
-        current_addr_store.push(store, tx)
-    }
+static TRANSACTIONS: AppendStore<StoredRichTx> = AppendStore::new(PREFIX_TXS);
 
-    pub fn get_transfers(
-        api: &dyn Api,
-        storage: &dyn Storage,
-        for_address: &CanonicalAddr,
-        page: u32,
-        page_size: u32,
-    ) -> StdResult<(Vec<Tx>, u64)> {
-        let current_addr_store = TRANSFERS.add_suffix(for_address);
-        let len = current_addr_store.get_len(storage)? as u64;
-        // Take `page_size` txs starting from the latest tx, potentially skipping `page * page_size`
-        // txs from the start.
-        let transfer_iter = current_addr_store
-            .iter(storage)?
-            .rev()
-            .skip((page * page_size) as _)
-            .take(page_size as _);
+// Storage functions:
 
-        // The `and_then` here flattens the `StdResult<StdResult<RichTx>>` to an `StdResult<RichTx>`
-        let transfers: StdResult<Vec<Tx>> = transfer_iter
-            .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
-            .collect();
-        transfers.map(|txs| (txs, len))
+fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
+    let id = TxCountStore::load(store) + 1;
+    TxCountStore::save(store, id)?;
+    Ok(id)
+}
+
+#[allow(clippy::too_many_arguments)] // We just need them
+pub fn store_transfer(
+    store: &mut dyn Storage,
+    owner: &CanonicalAddr,
+    sender: &CanonicalAddr,
+    receiver: &CanonicalAddr,
+    amount: Uint128,
+    denom: String,
+    memo: Option<String>,
+    block: &cosmwasm_std::BlockInfo,
+) -> StdResult<()> {
+    let id = increment_tx_count(store)?;
+    let coins = Coin { denom, amount };
+    let transfer = StoredLegacyTransfer {
+        id,
+        from: owner.clone(),
+        sender: sender.clone(),
+        receiver: receiver.clone(),
+        coins,
+        memo,
+        block_time: block.time.seconds(),
+        block_height: block.height,
+    };
+    let tx = StoredRichTx::from_stored_legacy_transfer(transfer.clone());
+
+    // Write to the owners history if it's different from the other two addresses
+    if owner != sender && owner != receiver {
+        // cosmwasm_std::debug_print("saving transaction history for owner");
+        StoredRichTx::append_tx(store, &tx, owner)?;
+        StoredLegacyTransfer::append_transfer(store, &transfer, owner)?;
     }
+    // Write to the sender's history if it's different from the receiver
+    if sender != receiver {
+        // cosmwasm_std::debug_print("saving transaction history for sender");
+        StoredRichTx::append_tx(store, &tx, sender)?;
+        StoredLegacyTransfer::append_transfer(store, &transfer, sender)?;
+    }
+    // Always write to the recipient's history
+    // cosmwasm_std::debug_print("saving transaction history for receiver");
+    StoredRichTx::append_tx(store, &tx, receiver)?;
+    StoredLegacyTransfer::append_transfer(store, &transfer, receiver)?;
+
+    Ok(())
+}
+
+pub fn store_mint(
+    store: &mut dyn Storage,
+    minter: &CanonicalAddr,
+    recipient: &CanonicalAddr,
+    amount: Uint128,
+    denom: String,
+    memo: Option<String>,
+    block: &cosmwasm_std::BlockInfo,
+) -> StdResult<()> {
+    let id = increment_tx_count(store)?;
+    let coins = Coin { denom, amount };
+    let action = StoredTxAction::mint(minter.clone(), recipient.clone());
+    let tx = StoredRichTx::new(id, action, coins, memo, block);
+
+    if minter != recipient {
+        StoredRichTx::append_tx(store, &tx, recipient)?;
+    }
+    StoredRichTx::append_tx(store, &tx, minter)?;
+
+    Ok(())
+}
+
+pub fn store_burn(
+    store: &mut dyn Storage,
+    owner: &CanonicalAddr,
+    burner: &CanonicalAddr,
+    amount: Uint128,
+    denom: String,
+    memo: Option<String>,
+    block: &cosmwasm_std::BlockInfo,
+) -> StdResult<()> {
+    let id = increment_tx_count(store)?;
+    let coins = Coin { denom, amount };
+    let action = StoredTxAction::burn(owner.clone(), burner.clone());
+    let tx = StoredRichTx::new(id, action, coins, memo, block);
+
+    if burner != owner {
+        StoredRichTx::append_tx(store, &tx, owner)?;
+    }
+    StoredRichTx::append_tx(store, &tx, burner)?;
+
+    Ok(())
+}
+
+pub fn store_deposit(
+    store: &mut dyn Storage,
+    recipient: &CanonicalAddr,
+    amount: Uint128,
+    denom: String,
+    block: &cosmwasm_std::BlockInfo,
+) -> StdResult<()> {
+    let id = increment_tx_count(store)?;
+    let coins = Coin { denom, amount };
+    let action = StoredTxAction::deposit();
+    let tx = StoredRichTx::new(id, action, coins, None, block);
+
+    StoredRichTx::append_tx(store, &tx, recipient)?;
+
+    Ok(())
+}
+
+pub fn store_redeem(
+    store: &mut dyn Storage,
+    redeemer: &CanonicalAddr,
+    amount: Uint128,
+    denom: String,
+    block: &cosmwasm_std::BlockInfo,
+) -> StdResult<()> {
+    let id = increment_tx_count(store)?;
+    let coins = Coin { denom, amount };
+    let action = StoredTxAction::redeem();
+    let tx = StoredRichTx::new(id, action, coins, None, block);
+
+    StoredRichTx::append_tx(store, &tx, redeemer)?;
+
+    Ok(())
 }
