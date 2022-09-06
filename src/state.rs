@@ -128,10 +128,11 @@ impl MintersStore {
 pub static TX_COUNT: Item<u64> = Item::new(KEY_TX_COUNT);
 pub struct TxCountStore {}
 impl TxCountStore {
-    pub fn may_load(store: &dyn Storage) -> StdResult<u64> {
+    pub fn may_load(store: &dyn Storage) -> u64 {
         TX_COUNT
-            .may_load(store)?
-            .ok_or_else(|| StdError::generic_err(""))
+            .may_load(store)
+            .unwrap_or_default()
+            .unwrap_or_default()
     }
 
     pub fn save(store: &mut dyn Storage, count: u64) -> StdResult<()> {
@@ -172,10 +173,10 @@ impl Allowance {
 pub static ALLOWANCES: Keymap<(Addr, Addr), Allowance> = Keymap::new(PREFIX_ALLOWANCES);
 pub struct AllowancesStore {}
 impl AllowancesStore {
-    pub fn may_load(store: &dyn Storage, owner: &Addr, spender: &Addr) -> StdResult<Allowance> {
+    pub fn may_load(store: &dyn Storage, owner: &Addr, spender: &Addr) -> Allowance {
         ALLOWANCES
             .get(store, &(owner.clone(), spender.clone()))
-            .ok_or_else(|| StdError::generic_err(""))
+            .unwrap_or_default()
     }
 
     pub fn save(

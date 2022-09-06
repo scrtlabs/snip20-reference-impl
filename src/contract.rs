@@ -671,7 +671,7 @@ fn set_contract_status(
 }
 
 pub fn query_allowance(deps: Deps, owner: Addr, spender: Addr) -> StdResult<Binary> {
-    let allowance = AllowancesStore::may_load(deps.storage, &owner, &spender)?;
+    let allowance = AllowancesStore::may_load(deps.storage, &owner, &spender);
 
     let response = QueryAnswer::Allowance {
         owner,
@@ -959,7 +959,7 @@ fn try_send(
 
     Ok(Response::new()
         .add_messages(messages)
-        .set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?))
+        .set_data(to_binary(&ExecuteAnswer::Send { status: Success })?))
 }
 
 fn try_batch_send(
@@ -1015,7 +1015,7 @@ fn use_allowance(
     spender: &Addr,
     amount: u128,
 ) -> StdResult<()> {
-    let mut allowance = AllowancesStore::may_load(storage, owner, spender)?;
+    let mut allowance = AllowancesStore::may_load(storage, owner, spender);
 
     if allowance.is_expired_at(&env.block) {
         return Err(insufficient_allowance(0, amount));
@@ -1339,7 +1339,7 @@ fn try_increase_allowance(
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
-    let mut allowance = AllowancesStore::may_load(deps.storage, &info.sender, &spender)?;
+    let mut allowance = AllowancesStore::may_load(deps.storage, &info.sender, &spender);
 
     // If the previous allowance has expired, reset the allowance.
     // Without this users can take advantage of an expired allowance given to
@@ -1374,7 +1374,7 @@ fn try_decrease_allowance(
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
-    let mut allowance = AllowancesStore::may_load(deps.storage, &info.sender, &spender)?;
+    let mut allowance = AllowancesStore::may_load(deps.storage, &info.sender, &spender);
 
     // If the previous allowance has expired, reset the allowance.
     // Without this users can take advantage of an expired allowance given to
@@ -2667,8 +2667,7 @@ mod tests {
         let bob_canonical = Addr::unchecked("bob".to_string());
         let alice_canonical = Addr::unchecked("alice".to_string());
 
-        let allowance =
-            AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical);
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2709,8 +2708,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let allowance =
-            AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical);
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2751,8 +2749,7 @@ mod tests {
         let bob_canonical = Addr::unchecked("bob".to_string());
         let alice_canonical = Addr::unchecked("alice".to_string());
 
-        let allowance =
-            AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical);
         assert_eq!(
             allowance,
             crate::state::Allowance {
@@ -2777,8 +2774,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let allowance =
-            AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical).unwrap();
+        let allowance = AllowancesStore::may_load(&deps.storage, &bob_canonical, &alice_canonical);
         assert_eq!(
             allowance,
             crate::state::Allowance {

@@ -285,7 +285,7 @@ impl StoredRichTx {
 // Storage functions:
 
 fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
-    let id = TxCountStore::may_load(store)? + 1;
+    let id = TxCountStore::may_load(store) + 1;
     TxCountStore::save(store, id)?;
     Ok(id)
 }
