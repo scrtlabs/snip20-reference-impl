@@ -39,6 +39,9 @@ compile-optimized-reproducible:
 contract.wasm.gz: contract.wasm
 	cat ./contract.wasm | gzip -9 > ./contract.wasm.gz
 
+contract.wasm:
+	cp ./target/wasm32-unknown-unknown/release/receiver_contract.wasm ./contract.wasm
+
 .PHONY: schema
 schema:
 	cargo run --example schema
