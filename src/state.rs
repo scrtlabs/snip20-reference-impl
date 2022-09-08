@@ -1,11 +1,12 @@
-use cosmwasm_std::{Addr, CanonicalAddr, StdError, StdResult, Storage};
-use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use schemars::JsonSchema;
-use secret_toolkit::storage::{Item, Keymap};
 use serde::{Deserialize, Serialize};
 
+use cosmwasm_std::{Addr, StdError, StdResult, Storage};
+use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
+use secret_toolkit::serialization::Json;
+use secret_toolkit::storage::{Item, Keymap};
+
 use crate::msg::ContractStatusLevel;
-use crate::viewing_key::ViewingKey;
 
 pub static CONFIG_KEY: &[u8] = b"config";
 
@@ -29,7 +30,6 @@ pub struct Constants {
     pub admin: Addr,
     pub symbol: String,
     pub decimals: u8,
-    pub prng_seed: Vec<u8>,
     // privacy configuration
     pub total_supply_is_public: bool,
     // is deposit enabled
@@ -70,7 +70,7 @@ impl TotalSupplyStore {
     }
 }
 
-pub static CONTRACT_STATUS: Item<ContractStatusLevel> = Item::new(KEY_CONTRACT_STATUS);
+pub static CONTRACT_STATUS: Item<ContractStatusLevel, Json> = Item::new(KEY_CONTRACT_STATUS);
 pub struct ContractStatusStore {}
 impl ContractStatusStore {
     pub fn load(store: &dyn Storage) -> StdResult<ContractStatusLevel> {
@@ -178,18 +178,6 @@ impl AllowancesStore {
     ) -> StdResult<()> {
         ALLOWANCES.insert(store, &(owner.clone(), spender.clone()), allowance)
     }
-}
-
-// Viewing Keys
-
-pub fn write_viewing_key(store: &mut dyn Storage, owner: &CanonicalAddr, key: &ViewingKey) {
-    let mut balance_store = PrefixedStorage::new(store, PREFIX_VIEW_KEY);
-    balance_store.set(owner.as_slice(), &key.to_hashed());
-}
-
-pub fn read_viewing_key(store: &dyn Storage, owner: &CanonicalAddr) -> Option<Vec<u8>> {
-    let balance_store = ReadonlyPrefixedStorage::new(store, PREFIX_VIEW_KEY);
-    balance_store.get(owner.as_slice())
 }
 
 // Receiver Interface

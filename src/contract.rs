@@ -11,18 +11,20 @@ use crate::msg::{
     space_pad, ContractStatusLevel, ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer,
     QueryMsg, ResponseStatus::Success,
 };
-use crate::rand::sha_256;
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    get_receiver_hash, read_viewing_key, set_receiver_hash, write_viewing_key, AllowancesStore,
-    BalancesStore, Constants, ContractStatusStore, MintersStore, TotalSupplyStore,
+    get_receiver_hash, set_receiver_hash, AllowancesStore, BalancesStore, Constants,
+    ContractStatusStore, MintersStore, TotalSupplyStore,
 };
 use crate::transaction_history::{
     store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredLegacyTransfer,
     StoredRichTx,
 };
-use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
+use secret_toolkit::crypto::sha_256;
+
+use crate::viewing_key_obj::ViewingKeyObj;
 use secret_toolkit::permit::{validate, Permit, RevokedPermits, TokenPermissions};
+use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -89,7 +91,6 @@ pub fn instantiate(
             symbol: msg.symbol,
             decimals: msg.decimals,
             admin: admin.clone(),
-            prng_seed: prng_seed_hashed.to_vec(),
             total_supply_is_public: init_config.public_total_supply(),
             deposit_is_enabled: init_config.deposit_enabled(),
             redeem_is_enabled: init_config.redeem_enabled(),
@@ -107,6 +108,7 @@ pub fn instantiate(
     };
     MintersStore::save(deps.storage, minters)?;
 
+    ViewingKey::set_seed(deps.storage, &prng_seed_hashed);
     Ok(Response::default())
 }
 
@@ -337,15 +339,8 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
     let (addresses, key) = msg.get_validation_params();
 
     for address in addresses {
-        let canonical_addr = deps.api.addr_canonicalize(address.as_str())?;
-
-        let expected_key = read_viewing_key(deps.storage, &canonical_addr);
-
-        if expected_key.is_none() {
-            // Checking the key will take significant time. We don't want to exit immediately if it isn't set
-            // in a way which will allow to time the command and determine if a viewing key doesn't exist
-            key.check_viewing_key(&[0u8; VIEWING_KEY_SIZE]);
-        } else if key.check_viewing_key(expected_key.unwrap().as_slice()) {
+        let result = ViewingKey::check(deps.storage, address.as_str(), key.as_str());
+        if result.is_ok() {
             return match msg {
                 // Base
                 QueryMsg::Balance { address, .. } => query_balance(deps, &address),
@@ -624,11 +619,7 @@ fn try_batch_mint(
 }
 
 pub fn try_set_key(deps: DepsMut, info: &MessageInfo, key: String) -> StdResult<Response> {
-    let vk = ViewingKey(key);
-
-    let message_sender = deps.api.addr_canonicalize(info.sender.as_str())?;
-    write_viewing_key(deps.storage, &message_sender, &vk);
-
+    ViewingKey::set(deps.storage, info.sender.as_str(), key.as_str());
     Ok(
         Response::new().set_data(to_binary(&ExecuteAnswer::SetViewingKey {
             status: Success,
@@ -642,14 +633,19 @@ pub fn try_create_key(
     info: &MessageInfo,
     entropy: String,
 ) -> StdResult<Response> {
-    let prng_seed = Constants::load(deps.storage)?.prng_seed;
+    let key = ViewingKey::create(
+        deps.storage,
+        info,
+        &env,
+        info.sender.as_str(),
+        (&entropy).as_ref(),
+    );
 
-    let key = ViewingKey::new(&env, info, &prng_seed, (&entropy).as_ref());
-
-    let message_sender = deps.api.addr_canonicalize(info.sender.as_str())?;
-    write_viewing_key(deps.storage, &message_sender, &key);
-
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::CreateViewingKey { key })?))
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::CreateViewingKey {
+            key: ViewingKeyObj(key),
+        })?),
+    )
 }
 
 fn set_contract_status(
@@ -1592,12 +1588,14 @@ mod tests {
     use super::*;
     use crate::msg::ResponseStatus;
     use crate::msg::{InitConfig, InitialBalance};
+    use crate::viewing_key_obj::ViewingKeyObj;
     use cosmwasm_std::testing::*;
     use cosmwasm_std::{
         from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
         SubMsg, Timestamp, TransactionInfo, WasmMsg,
     };
     use std::any::Any;
+    pub const VIEWING_KEY_SIZE: usize = 32;
 
     // Helper functions
 
@@ -1668,32 +1666,6 @@ mod tests {
         (instantiate(deps.as_mut(), env, info, init_msg), deps)
     }
 
-    /// Will return a ViewingKey only for the first account in `initial_balances`
-    fn _auth_query_helper(
-        initial_balances: Vec<InitialBalance>,
-    ) -> (ViewingKey, OwnedDeps<MockStorage, MockApi, MockQuerier>) {
-        let (init_result, mut deps) = init_helper(initial_balances.clone());
-        assert!(
-            init_result.is_ok(),
-            "Init failed: {}",
-            init_result.err().unwrap()
-        );
-
-        let account = initial_balances[0].address.clone();
-        let create_vk_msg = ExecuteMsg::CreateViewingKey {
-            entropy: "42".to_string(),
-            padding: None,
-        };
-        let info = mock_info(account.as_str(), &[]);
-        let handle_response = execute(deps.as_mut(), mock_env(), info, create_vk_msg).unwrap();
-        let vk = match from_binary(&handle_response.data.unwrap()).unwrap() {
-            ExecuteAnswer::CreateViewingKey { key } => key,
-            _ => panic!("Unexpected result from handle"),
-        };
-
-        (vk, deps)
-    }
-
     fn extract_error_msg<T: Any>(error: StdResult<T>) -> String {
         match error {
             Ok(response) => {
@@ -1745,7 +1717,7 @@ mod tests {
 
     #[test]
     fn test_init_sanity() {
-        let (init_result, deps) = init_helper(vec![InitialBalance {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: Addr::unchecked("lebron".to_string()),
             amount: Uint128::new(5000),
         }]);
@@ -1761,16 +1733,20 @@ mod tests {
         assert_eq!(constants.admin, Addr::unchecked("admin".to_string()));
         assert_eq!(constants.symbol, "SECSEC".to_string());
         assert_eq!(constants.decimals, 8);
-        assert_eq!(
-            constants.prng_seed,
-            sha_256("lolz fun yay".to_owned().as_bytes())
-        );
         assert_eq!(constants.total_supply_is_public, false);
+
+        ViewingKey::set(deps.as_mut().storage, "lebron", "lolz fun yay");
+        let is_vk_correct = ViewingKey::check(&deps.storage, "lebron", "lolz fun yay");
+        assert!(
+            is_vk_correct.is_ok(),
+            "Viewing key verification failed!: {}",
+            is_vk_correct.err().unwrap()
+        );
     }
 
     #[test]
     fn test_init_with_config_sanity() {
-        let (init_result, deps) = init_helper_with_config(
+        let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
                 address: Addr::unchecked("lebron".to_string()),
                 amount: Uint128::new(5000),
@@ -1793,15 +1769,19 @@ mod tests {
         assert_eq!(constants.admin, Addr::unchecked("admin".to_string()));
         assert_eq!(constants.symbol, "SECSEC".to_string());
         assert_eq!(constants.decimals, 8);
-        assert_eq!(
-            constants.prng_seed,
-            sha_256("lolz fun yay".to_owned().as_bytes())
-        );
         assert_eq!(constants.total_supply_is_public, false);
         assert_eq!(constants.deposit_is_enabled, true);
         assert_eq!(constants.redeem_is_enabled, true);
         assert_eq!(constants.mint_is_enabled, true);
         assert_eq!(constants.burn_is_enabled, true);
+
+        ViewingKey::set(deps.as_mut().storage, "lebron", "lolz fun yay");
+        let is_vk_correct = ViewingKey::check(&deps.storage, "lebron", "lolz fun yay");
+        assert!(
+            is_vk_correct.is_ok(),
+            "Viewing key verification failed!: {}",
+            is_vk_correct.err().unwrap()
+        );
     }
 
     #[test]
@@ -2002,9 +1982,13 @@ mod tests {
             ExecuteAnswer::CreateViewingKey { key } => key,
             _ => panic!("NOPE"),
         };
-        let bob_canonical = deps.as_mut().api.addr_canonicalize("bob").unwrap();
-        let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
-        assert!(key.check_viewing_key(saved_vk.as_slice()));
+        // let bob_canonical = deps.as_mut().api.addr_canonicalize("bob").unwrap();
+
+        let result = ViewingKey::check(&deps.storage, "bob", key.as_str());
+        assert!(result.is_ok());
+
+        // let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
+        // assert!(key.check_viewing_key(saved_vk.as_slice()));
     }
 
     #[test]
@@ -2039,7 +2023,7 @@ mod tests {
         );
 
         // Set valid VK
-        let actual_vk = ViewingKey("x".to_string().repeat(VIEWING_KEY_SIZE));
+        let actual_vk = ViewingKeyObj("x".to_string().repeat(VIEWING_KEY_SIZE));
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: actual_vk.0.clone(),
             padding: None,
@@ -2054,9 +2038,13 @@ mod tests {
             to_binary(&unwrapped_result).unwrap(),
             to_binary(&ExecuteAnswer::SetViewingKey { status: Success }).unwrap(),
         );
-        let bob_canonical = deps.as_mut().api.addr_canonicalize("bob").unwrap();
-        let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
-        assert!(actual_vk.check_viewing_key(&saved_vk));
+        // let bob_canonical = deps.as_mut().api.addr_canonicalize("bob").unwrap();
+
+        let result = ViewingKey::check(&deps.storage, "bob", actual_vk.as_str());
+        assert!(result.is_ok());
+
+        // let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
+        // assert!(actual_vk.check_viewing_key(&saved_vk));
     }
 
     #[test]
@@ -4061,8 +4049,8 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let vk1 = ViewingKey("key1".to_string());
-        let vk2 = ViewingKey("key2".to_string());
+        let vk1 = ViewingKeyObj("key1".to_string());
+        let vk2 = ViewingKeyObj("key2".to_string());
 
         let query_msg = QueryMsg::Allowance {
             owner: Addr::unchecked("giannis".to_string()),

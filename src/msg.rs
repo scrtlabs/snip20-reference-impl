@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::batch;
 use crate::transaction_history::{RichTx, Tx};
-use crate::viewing_key::ViewingKey;
+use crate::viewing_key_obj::ViewingKeyObj;
 use cosmwasm_std::{Addr, Binary, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
 
@@ -251,7 +251,7 @@ pub enum ExecuteAnswer {
         status: ResponseStatus,
     },
     CreateViewingKey {
-        key: ViewingKey,
+        key: ViewingKeyObj,
     },
     SetViewingKey {
         status: ResponseStatus,
@@ -318,7 +318,7 @@ pub enum ExecuteAnswer {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     TokenInfo {},
@@ -354,19 +354,21 @@ pub enum QueryMsg {
 }
 
 impl QueryMsg {
-    pub fn get_validation_params(&self) -> (Vec<&Addr>, ViewingKey) {
+    pub fn get_validation_params(&self) -> (Vec<&Addr>, ViewingKeyObj) {
         match self {
-            Self::Balance { address, key } => (vec![address], ViewingKey(key.clone())),
-            Self::TransferHistory { address, key, .. } => (vec![address], ViewingKey(key.clone())),
+            Self::Balance { address, key } => (vec![address], ViewingKeyObj(key.clone())),
+            Self::TransferHistory { address, key, .. } => {
+                (vec![address], ViewingKeyObj(key.clone()))
+            }
             Self::TransactionHistory { address, key, .. } => {
-                (vec![address], ViewingKey(key.clone()))
+                (vec![address], ViewingKeyObj(key.clone()))
             }
             Self::Allowance {
                 owner,
                 spender,
                 key,
                 ..
-            } => (vec![owner, spender], ViewingKey(key.clone())),
+            } => (vec![owner, spender], ViewingKeyObj(key.clone())),
             _ => panic!("This query type does not require authentication"),
         }
     }
