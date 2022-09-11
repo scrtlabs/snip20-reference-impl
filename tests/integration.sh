@@ -422,6 +422,19 @@ function log_test_header() {
     log " ########### Starting ${FUNCNAME[1]} ###############################################################################################################################################"
 }
 
+function extract_viewing_key_from_result() {
+    set -e
+    local tx_hash="$1"
+    local key="$2"
+    local viewing_key
+
+    viewing_key_response="$(wait_for_compute_tx "$tx_hash" "waiting for viewing key for \"$key\" to be created")"
+    viewing_key="$(jq -ec '.answers[0].output_data_as_string' <<<"$viewing_key_response" | cut -d'\' -f 6 | cut -c2-)"
+
+    log "viewing key for \"$key\" set to ${viewing_key}"
+    echo "$viewing_key"
+}
+
 function test_viewing_key() {
     set -e
     local contract_addr="$1"
@@ -450,9 +463,9 @@ function test_viewing_key() {
     for key in "${KEY[@]}"; do
         log "creating viewing key for \"$key\""
         tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[$key]} --gas 1400000)"
-        viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for viewing key for \"$key\" to be created")"
-        VK[$key]="$(jq -er '.create_viewing_key.key' <<<"$viewing_key_response")"
-        log "viewing key for \"$key\" set to ${VK[$key]}"
+        VK[$key]="$(extract_viewing_key_from_result "$tx_hash" "$key")"
+
+
         if [[ "${VK[$key]}" =~ ^api_key_ ]]; then
             log "viewing key \"$key\" seems valid"
         else
@@ -483,9 +496,7 @@ function test_viewing_key() {
 
     log 'creating new viewing key for "a"'
     tx_hash="$(compute_execute "$contract_addr" "$create_viewing_key_message" ${FROM[a]} --gas 1400000)"
-    viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be created')"
-    vk2_a="$(jq -er '.create_viewing_key.key' <<<"$viewing_key_response")"
-    log "viewing key for \"a\" set to $vk2_a"
+    vk2_a="$(extract_viewing_key_from_result "$tx_hash" "$key")"
     assert_ne "${VK[a]}" "$vk2_a"
 
     # query balance with old keys. Should fail.
@@ -507,8 +518,9 @@ function test_viewing_key() {
     log 'setting the viewing key for "a" back to the first one'
     local set_viewing_key_message='{"set_viewing_key":{"key":"'"${VK[a]}"'"}}'
     tx_hash="$(compute_execute "$contract_addr" "$set_viewing_key_message" ${FROM[a]} --gas 1400000)"
-    viewing_key_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for viewing key for "a" to be set')"
-    assert_eq "$viewing_key_response" "$(pad_space '{"set_viewing_key":{"status":"success"}}')"
+    viewing_key_response="$(wait_for_compute_tx "$tx_hash" "waiting for viewing key for "a" to be set")"
+    viewing_key_response="$(jq -ec '.answers[0].output_data_as_string' <<<"$viewing_key_response" | cut -d'\' -f 6 | cut -c2-)"
+    assert_eq "$viewing_key_response" "success"
 
     # try to use the new key - should fail
     log 'querying balance for "a" with new viewing key'
@@ -713,6 +725,7 @@ function test_deposit() {
     for key in "${KEY[@]}"; do
         tx_hash="$(deposit "$contract_addr" "$key" "${deposits[$key]}")"
         native_tx="$(secretcli q tx "$tx_hash")"
+
         timestamp="$(unix_time_of_tx "$native_tx")"
         block_height="$(jq -r '.height' <<<"$native_tx")"
         quiet check_latest_tx_history_deposit "$contract_addr" "${ADDRESS[$key]}" "${VK[$key]}" "${deposits[$key]}" "$timestamp" "$block_height"
