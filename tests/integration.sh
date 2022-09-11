@@ -4,20 +4,13 @@ set -eu
 set -o pipefail # If anything in a pipeline fails, the pipe's exit status is a failure
 #set -x # Print all commands for debugging
 
-# declare -a KEY=(a b c d)
-
-# declare -A FROM=(
-#     [a]='-y --from a'
-#     [b]='-y --from b'
-#     [c]='-y --from c'
-#     [d]='-y --from d'
-# )
-
-declare -a KEY=(a b)
+declare -a KEY=(a b c d)
 
 declare -A FROM=(
     [a]='-y --from a'
     [b]='-y --from b'
+    [c]='-y --from c'
+    [d]='-y --from d'
 )
 
 # This means we don't need to configure the cli since it uses the preconfigured cli in the docker.
@@ -96,8 +89,7 @@ declare -A ADDRESS=(
     [d]="$(secretcli keys show --address d)"
 )
 
-# declare -A VK=([a]='' [b]='' [c]='' [d]='')
-declare -A VK=([a]='' [b]='')
+declare -A VK=([a]='' [b]='' [c]='' [d]='')
 
 # Generate a label for a contract with a given code id
 # This just adds "contract_" before the code id.
@@ -179,10 +171,6 @@ function tx_of() {
 function data_of() {
     local result="$("$@" | jq -ec '.answers[0].output_data_as_string' | sed 's/\\//g' | sed 's/ //g' | sed 's/^"\(.*\)"$/\1/')"
     echo "$result"
-}
-
-function get_generic_err() {
-    jq -r '.output_error.generic_err.msg' <<<"$1"
 }
 
 function extract_exec_error() {
@@ -283,10 +271,10 @@ function mint() {
     local mint_message='{"mint":{"recipient":"'"$recipient"'","amount":"'"$amount"'","padding":":::::::::::::::::"}}'
     local tx_hash
     local deposit_response
-    tx_hash="$(compute_execute "$contract_addr" "$mint_message" ${FROM[$key]} --gas 151000)"
+    tx_hash="$(compute_execute "$contract_addr" "$mint_message" ${FROM[$key]} --gas 251000)"
     echo "$tx_hash"
     deposit_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for mint to \"$recipient\" to process")"
-    assert_eq "$deposit_response" "$(pad_space '{"mint":{"status":"success"}}')"
+    assert_eq "$deposit_response" "$(pad_space '{"mint":{"status":"success"}}' | sed 's/ //g')"
     log "minted ${amount}uscrt for \"$recipient\" successfully"
 }
 
@@ -299,11 +287,11 @@ function burn() {
     local burn_message='{"burn":{"amount":"'"$amount"'"}}'
     local tx_hash
     local burn_response
-    tx_hash="$(compute_execute "$contract_addr" "$burn_message" ${FROM[$key]} --gas 150000)"
+    tx_hash="$(compute_execute "$contract_addr" "$burn_message" ${FROM[$key]} --gas 250000)"
     echo "$tx_hash"
     burn_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for burn for \"$key\" to process")"
     log "$burn_response"
-    assert_eq "$burn_response" "$(pad_space '{"burn":{"status":"success"}}')"
+    assert_eq "$burn_response" "$(pad_space '{"burn":{"status":"success"}}' | sed 's/ //g')"
     log "burned ${amount}uscrt for \"$key\" successfully"
 }
 
@@ -495,8 +483,8 @@ function test_viewing_key() {
 
     # Check that all viewing keys are different despite using the same entropy
     assert_ne "${VK[a]}" "${VK[b]}"
-    # assert_ne "${VK[b]}" "${VK[c]}"
-    # assert_ne "${VK[c]}" "${VK[d]}"
+    assert_ne "${VK[b]}" "${VK[c]}"
+    assert_ne "${VK[c]}" "${VK[d]}"
 
     # query balance. Should succeed.
     local balance_query
@@ -736,8 +724,7 @@ function test_deposit() {
 
     local tx_hash
 
-    # local -A deposits=([a]=1000000 [b]=2000000 [c]=3000000 [d]=4000000)
-    local -A deposits=([a]=1000000 [b]=2000000)
+    local -A deposits=([a]=1000000 [b]=2000000 [c]=3000000 [d]=4000000)
     local tx_hash
     local native_tx
     local timestamp
@@ -1140,12 +1127,14 @@ function register_receiver() {
 
     log 'registering with snip20'
     local register_message='{"register":{"reg_addr":"'"$snip20_addr"'","reg_hash":"'"${snip20_hash:2}"'"}}'
-    tx_hash="$(compute_execute "$receiver_addr" "$register_message" ${FROM[a]} --gas 200000)"
+    tx_hash="$(compute_execute "$receiver_addr" "$register_message" ${FROM[a]} --gas 300000)"
+
     # we throw away the output since we know it's empty
     local register_tx
     register_tx="$(wait_for_compute_tx "$tx_hash" 'Waiting for receiver registration')"
+
     assert_eq \
-        "$(jq -r '.output_log[] | select(.type == "wasm") | .attributes[] | select(.key == "register_status") | .value' <<<"$register_tx")" \
+        "$(jq -r '.output_logs[] | select(.type == "wasm") | .attributes[] | select(.key == "register_status") | .value' <<<"$register_tx")" \
         'success'
     log 'receiver registered successfully'
 }
@@ -1184,7 +1173,8 @@ function test_send() {
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
     log "trying to overdraft from \"a\" to send to \"b\" was rejected"
-    assert_eq "$(get_generic_err "$send_response")" "insufficient funds: balance=1000000, required=1000001"
+
+    assert_eq "$(extract_exec_error "$send_response" "error: ")" "insufficient funds: balance=1000000, required=1000001"
 
     # Check both a and b, that their last transaction is not for 1000001 uscrt
     local txs
@@ -1220,7 +1210,7 @@ function test_send() {
     tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 300000)"
     send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
     assert_eq \
-        "$(jq -r '.output_log[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
+        "$(jq -r '.output_logs[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
         "$((original_count + 1))"
     log 'received send response'
 
@@ -1267,7 +1257,7 @@ function test_send() {
     tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[a]} --gas 300000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
-    assert_eq "$(get_generic_err "$send_response")" 'intentional failure' # This comes from the receiver contract
+    assert_eq "$(extract_exec_error "$send_response" "error: ")" 'intentional failure' # This comes from the receiver contract
 
     # Check that "a" does not have fewer funds
     assert_eq "$(get_balance "$contract_addr" 'a')" 600000 # This is the same balance as before
@@ -1302,7 +1292,7 @@ function set_minters() {
     local response
     tx_hash="$(compute_execute "$contract_addr" "$set_minters_message" ${FROM[a]} --gas 150000)"
     response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for minter set to update")"
-    assert_eq "$response" "$(pad_space '{"set_minters":{"status":"success"}}')"
+    assert_eq "$response" "$(pad_space '{"set_minters":{"status":"success"}}' | sed 's/ //g')"
     log "set the minters to these addresses: $*"
 }
 
@@ -1323,7 +1313,7 @@ function test_burn() {
     set +e; tx_hash="$(mint "$contract_addr" 'a' "${ADDRESS[a]}" 1000000)"
     local _res="$?"; set -e;
     if (( _res != 0 )); then
-        assert_eq "$(get_generic_err "$(secretcli query compute tx "$tx_hash")")" 'Minting is allowed to minter accounts only'
+        assert_eq "$(extract_exec_error "$(secretcli query compute tx "$tx_hash")" "error: ")" 'Minting is allowed to minter accounts only'
         log 'minting from the wrong account failed as expected'
     else
         log 'minting was allowed from a non-minter address!'
@@ -1351,7 +1341,7 @@ function test_burn() {
     local burn_response
     tx_hash="$(compute_execute "$contract_addr" "$burn_message" ${FROM[a]} --gas 150000)"
     ! burn_response="$(wait_for_compute_tx "$tx_hash" 'waiting for burn for "a" to process')"
-    assert_eq "$(get_generic_err "$burn_response")" 'insufficient funds to burn: balance=1000000, required=10000000'
+    assert_eq "$(extract_exec_error "$burn_response" "error: ")" 'insufficient funds to burn: balance=1000000, required=10000000'
 
     # Check "a" balance - should not have changes
     assert_eq "$(get_balance "$contract_addr" 'a')" 1000000
@@ -1417,7 +1407,7 @@ function test_transfer_from() {
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "c" by "b" to process')"
     log "trying to overdraft from \"a\" to transfer to \"c\" using \"b\" was rejected"
-    assert_eq "$(get_generic_err "$transfer_response")" "insufficient allowance: allowance=1000000, required=1000001"
+    assert_eq "$(extract_exec_error "$transfer_response" "error: ")" "insufficient allowance: allowance=1000000, required=1000001"
 
     # Check both "a", "b", and "c", that their last transaction is not for 1000001 uscrt
     local txs
@@ -1436,7 +1426,7 @@ function test_transfer_from() {
     local transfer_response
     tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[b]} --gas 250000)"
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "c" by "b" to process')"
-    assert_eq "$transfer_response" "$(pad_space '{"transfer_from":{"status":"success"}}')"
+    assert_eq "$transfer_response" "$(pad_space '{"transfer_from":{"status":"success"}}' | sed 's/ //g')"
 
     local native_tx
     native_tx="$(secretcli q tx "$tx_hash")"
@@ -1526,7 +1516,7 @@ function test_send_from() {
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "c" by "b" to process')"
     log "trying to overdraft from \"a\" to send to \"c\" using \"b\" was rejected"
-    assert_eq "$(get_generic_err "$send_response")" "insufficient allowance: allowance=1000000, required=1000001"
+    assert_eq "$(extract_exec_error "$send_response" "error: ")" "insufficient allowance: allowance=1000000, required=1000001"
 
     # Check both a and b, that their last transaction is not for 1000001 uscrt
     local txs
@@ -1562,7 +1552,7 @@ function test_send_from() {
     tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[b]} --gas 302000)"
     send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
     assert_eq \
-        "$(jq -r '.output_log[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
+        "$(jq -r '.output_logs[0].attributes[] | select(.key == "count") | .value' <<<"$send_response")" \
         "$((original_count + 1))"
     log 'received send response'
 
@@ -1622,7 +1612,7 @@ function test_send_from() {
     tx_hash="$(compute_execute "$contract_addr" "$send_message" ${FROM[b]} --gas 300000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to the Receiver to process')"
-    assert_eq "$(get_generic_err "$send_response")" 'intentional failure' # This comes from the receiver contract
+    assert_eq "$(extract_exec_error "$send_response" "error: ")" 'intentional failure' # This comes from the receiver contract
 
     # Check that "a" does not have fewer funds
     assert_eq "$(get_balance "$contract_addr" 'a')" 600000 # This is the same balance as before
@@ -1658,8 +1648,8 @@ function main() {
     log "contract address: $contract_addr"
 
     wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[b]}" 100000000uscrt -y)" "waiting for send to b"
-    # wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[c]}" 100000000uscrt -y)" "waiting for send to c"
-    # wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[d]}" 100000000uscrt -y)" "waiting for send to d"
+    wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[c]}" 100000000uscrt -y)" "waiting for send to c"
+    wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[d]}" 100000000uscrt -y)" "waiting for send to d"
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
     test_viewing_key "$contract_addr"
