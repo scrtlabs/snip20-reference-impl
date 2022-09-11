@@ -13,10 +13,11 @@ set -o pipefail # If anything in a pipeline fails, the pipe's exit status is a f
 #     [d]='-y --from d'
 # )
 
-declare -a KEY=(a)
+declare -a KEY=(a b)
 
 declare -A FROM=(
     [a]='-y --from a'
+    [b]='-y --from b'
 )
 
 # This means we don't need to configure the cli since it uses the preconfigured cli in the docker.
@@ -96,7 +97,7 @@ declare -A ADDRESS=(
 )
 
 # declare -A VK=([a]='' [b]='' [c]='' [d]='')
-declare -A VK=([a]='')
+declare -A VK=([a]='' [b]='')
 
 # Generate a label for a contract with a given code id
 # This just adds "contract_" before the code id.
@@ -184,7 +185,7 @@ function get_generic_err() {
     jq -r '.output_error.generic_err.msg' <<<"$1"
 }
 
-function extract_redeem_error() {
+function extract_exec_error() {
     set -e
     local search_pattern
     local error_msg
@@ -493,7 +494,7 @@ function test_viewing_key() {
     done
 
     # Check that all viewing keys are different despite using the same entropy
-    # assert_ne "${VK[a]}" "${VK[b]}"
+    assert_ne "${VK[a]}" "${VK[b]}"
     # assert_ne "${VK[b]}" "${VK[c]}"
     # assert_ne "${VK[c]}" "${VK[d]}"
 
@@ -736,7 +737,7 @@ function test_deposit() {
     local tx_hash
 
     # local -A deposits=([a]=1000000 [b]=2000000 [c]=3000000 [d]=4000000)
-    local -A deposits=([a]=1000000)
+    local -A deposits=([a]=1000000 [b]=2000000)
     local tx_hash
     local native_tx
     local timestamp
@@ -765,10 +766,9 @@ function test_deposit() {
         tx_hash="$(compute_execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 150000)"
         # Notice the `!` before the command - it is EXPECTED to fail.
         ! redeem_response="$(wait_for_compute_tx "$tx_hash" "waiting for overdraft from \"$key\" to process")"
-        redeem_response="$(extract_redeem_error "$redeem_response" "error: ")"
         log "trying to overdraft from \"$key\" was rejected"
         assert_eq \
-            "$redeem_response" \
+            "$(extract_exec_error "$redeem_response" "error: ")" \
             "insufficient funds to redeem: balance=${deposits[$key]}, required=$overdraft"
     done
 
@@ -1022,7 +1022,7 @@ function test_transfer() {
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     log "trying to overdraft from \"a\" to transfer to \"b\" was rejected"
-    assert_eq "$(get_generic_err "$transfer_response")" "insufficient funds: balance=1000000, required=1000001"
+    assert_eq "$(extract_exec_error "$transfer_response" "error: ")" "insufficient funds: balance=1000000, required=1000001"
 
     # Check both a and b, that their last transaction is not for 1000001 uscrt
     local txs
@@ -1041,7 +1041,7 @@ function test_transfer() {
     local transfer_response
     tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 200000)"
     transfer_response="$(data_of wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
-    assert_eq "$transfer_response" "$(pad_space '{"transfer":{"status":"success"}}')"
+    assert_eq "$transfer_response" "$(pad_space '{"transfer":{"status":"success"}}' | sed 's/ //g')"
 
     local native_tx
     native_tx="$(secretcli q tx "$tx_hash")"
@@ -1079,7 +1079,7 @@ function test_transfer() {
     redeem "$contract_addr" a 600000
     redeem "$contract_addr" b 400000
     # Send the funds back
-    quiet secretcli tx send b "${ADDRESS[a]}" 400000uscrt -y -b block
+    quiet secretcli tx bank send b "${ADDRESS[a]}" 400000uscrt -y -b block
 }
 
 RECEIVER_ADDRESS=''
@@ -1482,7 +1482,7 @@ function test_transfer_from() {
     assert_eq "$(decrease_allowance "$contract_addr" 'a' 'b' 600000)" 0
     assert_eq "$(get_allowance "$contract_addr" 'a' 'b')" 0
     # Send the funds back
-    quiet secretcli tx send c "${ADDRESS[a]}" 400000uscrt -y -b block
+    quiet secretcli tx bank send c "${ADDRESS[a]}" 400000uscrt -y -b block
 }
 
 function test_send_from() {
@@ -1657,7 +1657,7 @@ function main() {
 
     log "contract address: $contract_addr"
 
-    # wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[b]}" 100000000uscrt -y)" "waiting for send to b"
+    wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[b]}" 100000000uscrt -y)" "waiting for send to b"
     # wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[c]}" 100000000uscrt -y)" "waiting for send to c"
     # wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[d]}" 100000000uscrt -y)" "waiting for send to d"
 
