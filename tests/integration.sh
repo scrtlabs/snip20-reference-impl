@@ -4,13 +4,19 @@ set -eu
 set -o pipefail # If anything in a pipeline fails, the pipe's exit status is a failure
 #set -x # Print all commands for debugging
 
-declare -a KEY=(a b c d)
+# declare -a KEY=(a b c d)
+
+# declare -A FROM=(
+#     [a]='-y --from a'
+#     [b]='-y --from b'
+#     [c]='-y --from c'
+#     [d]='-y --from d'
+# )
+
+declare -a KEY=(a)
 
 declare -A FROM=(
     [a]='-y --from a'
-    [b]='-y --from b'
-    [c]='-y --from c'
-    [d]='-y --from d'
 )
 
 # This means we don't need to configure the cli since it uses the preconfigured cli in the docker.
@@ -89,7 +95,8 @@ declare -A ADDRESS=(
     [d]="$(secretcli keys show --address d)"
 )
 
-declare -A VK=([a]='' [b]='' [c]='' [d]='')
+# declare -A VK=([a]='' [b]='' [c]='' [d]='')
+declare -A VK=([a]='')
 
 # Generate a label for a contract with a given code id
 # This just adds "contract_" before the code id.
@@ -169,11 +176,22 @@ function tx_of() {
 
 # Extract the output_data_as_string from the output of the command
 function data_of() {
-    "$@" | jq -r '.output_data_as_string'
+    local result="$("$@" | jq -ec '.answers[0].output_data_as_string' | sed 's/\\//g' | sed 's/ //g' | sed 's/^"\(.*\)"$/\1/')"
+    echo "$result"
 }
 
 function get_generic_err() {
     jq -r '.output_error.generic_err.msg' <<<"$1"
+}
+
+function extract_redeem_error() {
+    set -e
+    local search_pattern
+    local error_msg
+
+    error_msg="$(jq -r '.output_error' <<<"$1")"
+    search_pattern=${error_msg#*"$2"}
+    echo $search_pattern
 }
 
 # Send a compute transaction and return the tx hash.
@@ -247,9 +265,9 @@ function deposit() {
     local deposit_message='{"deposit":{"padding":":::::::::::::::::"}}'
     local tx_hash
     local deposit_response
-    tx_hash="$(compute_execute "$contract_addr" "$deposit_message" --amount "${amount}uscrt" ${FROM[$key]} --gas 150000)"
-    deposit_response="$(data_of wait_for_compute_tx "$tx_hash" "waiting for deposit to \"$key\" to process")"
-    assert_eq "$deposit_response" "$(pad_space '{"deposit":{"status":"success"}}')"
+    tx_hash="$(compute_execute "$contract_addr" "$deposit_message" --amount "${amount}uscrt" ${FROM[$key]} --gas 250000)"
+    deposit_response="$(wait_for_compute_tx "$tx_hash" "waiting for deposit to \"$key\" to process" | jq -ec '.answers[0].output_data_as_string' | sed 's/\\//g' | sed 's/ //g' | sed 's/^"\(.*\)"$/\1/')"
+    assert_eq "$deposit_response" "$(pad_space '{"deposit":{"status":"success"}}' | sed 's/ //g')"
     log "deposited ${amount}uscrt to \"$key\" successfully"
     echo "$tx_hash"
 }
@@ -326,7 +344,7 @@ function redeem() {
     log "redeem response for \"$key\" returned ${amount}uscrt"
 
     redeem_response="$(data_of check_tx "$tx_hash")"
-    assert_eq "$redeem_response" "$(pad_space '{"redeem":{"status":"success"}}')"
+    assert_eq "$redeem_response" "$(pad_space '{"redeem":{"status":"success"}}' | sed 's/ //g')"
     log "redeemed ${amount} from \"$key\" successfully"
     echo "$tx_hash"
 }
@@ -475,9 +493,9 @@ function test_viewing_key() {
     done
 
     # Check that all viewing keys are different despite using the same entropy
-    assert_ne "${VK[a]}" "${VK[b]}"
-    assert_ne "${VK[b]}" "${VK[c]}"
-    assert_ne "${VK[c]}" "${VK[d]}"
+    # assert_ne "${VK[a]}" "${VK[b]}"
+    # assert_ne "${VK[b]}" "${VK[c]}"
+    # assert_ne "${VK[c]}" "${VK[d]}"
 
     # query balance. Should succeed.
     local balance_query
@@ -717,7 +735,8 @@ function test_deposit() {
 
     local tx_hash
 
-    local -A deposits=([a]=1000000 [b]=2000000 [c]=3000000 [d]=4000000)
+    # local -A deposits=([a]=1000000 [b]=2000000 [c]=3000000 [d]=4000000)
+    local -A deposits=([a]=1000000)
     local tx_hash
     local native_tx
     local timestamp
@@ -746,9 +765,10 @@ function test_deposit() {
         tx_hash="$(compute_execute "$contract_addr" "$redeem_message" ${FROM[$key]} --gas 150000)"
         # Notice the `!` before the command - it is EXPECTED to fail.
         ! redeem_response="$(wait_for_compute_tx "$tx_hash" "waiting for overdraft from \"$key\" to process")"
+        redeem_response="$(extract_redeem_error "$redeem_response" "error: ")"
         log "trying to overdraft from \"$key\" was rejected"
         assert_eq \
-            "$(get_generic_err "$redeem_response")" \
+            "$redeem_response" \
             "insufficient funds to redeem: balance=${deposits[$key]}, required=$overdraft"
     done
 
@@ -1637,13 +1657,13 @@ function main() {
 
     log "contract address: $contract_addr"
 
-    wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[b]}" 100000000uscrt -y)" "waiting for send to b"
-    wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[c]}" 100000000uscrt -y)" "waiting for send to c"
-    wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[d]}" 100000000uscrt -y)" "waiting for send to d"
+    # wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[b]}" 100000000uscrt -y)" "waiting for send to b"
+    # wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[c]}" 100000000uscrt -y)" "waiting for send to c"
+    # wait_for_tx "$(tx_of secretcli tx bank send "${ADDRESS[a]}" "${ADDRESS[d]}" 100000000uscrt -y)" "waiting for send to d"
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
     test_viewing_key "$contract_addr"
-    test_permit "$contract_addr"
+    # test_permit "$contract_addr"
     test_deposit "$contract_addr"
     test_transfer "$contract_addr"
     test_send "$contract_addr" register
