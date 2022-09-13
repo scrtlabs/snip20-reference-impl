@@ -563,91 +563,94 @@ function test_permit() {
     local permit
     permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$wrong_contract"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit_query
-    local expected_error="ERROR: query result: encrypted: Permit doesn't apply to token \"$contract_addr\", allowed tokens: [\"$wrong_contract\"]"
+    local expected_error="Error: query result: Generic error: Permit doesn't apply to token \"$contract_addr\", allowed tokens: [\"$wrong_contract\"]"
     for key in "${KEY[@]}"; do
         log "permit querying balance for \"$key\" with wrong permit for that contract"
         permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$wrong_contract"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_error"
     done
 
     # fail due to revoked permit
     local permit
-    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"to_be_revoked","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"to_be_revoked","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit_query
     local expected_error
     for key in "${KEY[@]}"; do
         log "permit querying balance for \"$key\" with a revoked permit"
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
         tx_hash="$(compute_execute "$contract_addr" '{"revoke_permit":{"permit_name":"to_be_revoked"}}' ${FROM[$key]} --gas 250000)"
         wait_for_compute_tx "$tx_hash" "waiting for revoke_permit from \"$key\" to process"
 
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"to_be_revoked","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
-        expected_error="ERROR: query result: encrypted: Permit \"to_be_revoked\" was revoked by account \"${ADDRESS[$key]}\""
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        expected_error="Error: query result: Generic error: Permit \"to_be_revoked\" was revoked by account \"${ADDRESS[$key]}"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_error"
     done
 
     # fail due to params not matching params that were signed on
     local permit
-    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
+    permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit_query
     local expected_error
     for key in "${KEY[@]}"; do
         log "permit querying balance for \"$key\" with params not matching permit"
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"not_blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
-        expected_error="ERROR: query result: encrypted: Failed to verify signatures for the given permit: IncorrectSignature"
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        expected_error="Error: query result: Generic error: Failed to verify signatures for the given permit"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_error"
     done
 
     # fail balance query due to no balance permission
+    local permit_conf
+    permit_conf='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit
-    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit_query
     local expected_error
     for key in "${KEY[@]}"; do
         log "permit querying balance for \"$key\" without the right permission"
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$permit_conf"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
-        expected_error="ERROR: query result: encrypted: No permission to query balance, got permissions [History]"
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        expected_error="Error: query result: Generic error: No permission to query balance, got permissions [History]"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_error"
     done
 
     # fail history query due to no history permission
+    local permit_conf
+    permit_conf='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit
-    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit_query
     local expected_error
     for key in "${KEY[@]}"; do
         log "permit querying history for \"$key\" without the right permission"
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$permit_conf"') --from '$key'")
 
         permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
-        expected_error="ERROR: query result: encrypted: No permission to query history, got permissions [Balance]"
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        expected_error="Error: query result: Generic error: No permission to query history, got permissions [Balance]"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_error"
 
         permit_query='{"with_permit":{"query":{"transaction_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
-        expected_error="ERROR: query result: encrypted: No permission to query history, got permissions [Balance]"
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        expected_error="Error: query result: Generic error: No permission to query history, got permissions [Balance]"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_error"
     done
 
     # fail allowance query due to no allowance permission
+    local permit_conf
+    permit_conf='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit
-    wrong_permit='{"account_number":"0","sequence":"0","chain_id":"blabla","msgs":[{"type":"query_permit","value":{"permit_name":"test","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]}}],"fee":{"amount":[{"denom":"uscrt","amount":"0"}],"gas":"1"},"memo":""}'
     local permit_query
     local expected_error
     for key in "${KEY[@]}"; do
         log "permit querying allowance for \"$key\" without the right permission"
-        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from '$key'")
+        permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$permit_conf"') --from '$key'")
         permit_query='{"with_permit":{"query":{"allowance":{"owner":"'"${ADDRESS[$key]}"'","spender":"'"${ADDRESS[$key]}"'"}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
-        expected_error="ERROR: query result: encrypted: No permission to query allowance, got permissions [History]"
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        expected_error="Error: query result: Generic error: No permission to query allowance, got permissions [History]"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_error"
     done
 
@@ -659,8 +662,8 @@ function test_permit() {
     log "permit querying allowance without signer being the owner or spender"
     permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$wrong_permit"') --from a")
     permit_query='{"with_permit":{"query":{"allowance":{"owner":"'"$wrong_contract"'","spender":"'"$wrong_contract"'"}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["allowance"]},"signature":'"$permit"'}}}'
-    expected_error="ERROR: query result: encrypted: Cannot query allowance. Requires permit for either owner \"$wrong_contract\" or spender \"$wrong_contract\", got permit for \"${ADDRESS[a]}\""
-    result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+    expected_error="Error: query result: Generic error: Cannot query allowance. Requires permit for either owner \"$wrong_contract\" or spender \"$wrong_contract\", got permit for \"${ADDRESS[a]}"
+    result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
     assert_eq "$result" "$expected_error"
 
     # succeed balance query
@@ -674,7 +677,7 @@ function test_permit() {
         permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$good_permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_output="{\"balance\":{\"amount\":\"0\"}}"
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_output"
     done
 
@@ -690,12 +693,12 @@ function test_permit() {
 
         permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
         expected_output="{\"transfer_history\":{\"txs\":[],\"total\":0}}"
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_output"
 
         permit_query='{"with_permit":{"query":{"transaction_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
         expected_output="{\"transaction_history\":{\"txs\":[],\"total\":0}}"
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_output"
     done
 
@@ -711,7 +714,7 @@ function test_permit() {
 
         permit_query='{"with_permit":{"query":{"allowance":{"owner":"'"${ADDRESS[$key]}"'","spender":"'"${ADDRESS[$key]}"'"}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["allowance"]},"signature":'"$permit"'}}}'
         expected_output="{\"allowance\":{\"spender\":\"${ADDRESS[$key]}\",\"owner\":\"${ADDRESS[$key]}\",\"allowance\":\"0\",\"expiration\":null}}"
-        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 || true)"
+        result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_output"
     done
 }
@@ -1653,7 +1656,7 @@ function main() {
 
     # This first test also sets the `VK[*]` global variables that are used in the other tests
     test_viewing_key "$contract_addr"
-    # test_permit "$contract_addr"
+    test_permit "$contract_addr"
     test_deposit "$contract_addr"
     test_transfer "$contract_addr"
     test_send "$contract_addr" register

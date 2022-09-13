@@ -1594,6 +1594,7 @@ mod tests {
         from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
         SubMsg, Timestamp, TransactionInfo, WasmMsg,
     };
+    use secret_toolkit::permit::{PermitParams, PermitSignature, PubKey};
     use std::any::Any;
     pub const VIEWING_KEY_SIZE: usize = 32;
 
@@ -2042,9 +2043,115 @@ mod tests {
 
         let result = ViewingKey::check(&deps.storage, "bob", actual_vk.as_str());
         assert!(result.is_ok());
+    }
 
-        // let saved_vk = read_viewing_key(&deps.storage, &bob_canonical).unwrap();
-        // assert!(actual_vk.check_viewing_key(&saved_vk));
+    fn revoke_permit(
+        permit_name: &str,
+        user_address: &str,
+        deps: &mut OwnedDeps<cosmwasm_std::MemoryStorage, MockApi, MockQuerier>,
+    ) -> Result<Response, StdError> {
+        let handle_msg = ExecuteMsg::RevokePermit {
+            permit_name: permit_name.to_string(),
+            padding: None,
+        };
+        let info = mock_info(user_address, &[]);
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        handle_result
+    }
+
+    fn get_balance_with_permit_qry_msg(
+        permit_name: &str,
+        chain_id: &str,
+        pub_key_value: &str,
+        signature: &str,
+    ) -> QueryMsg {
+        let permit = gen_permit_obj(
+            permit_name,
+            chain_id,
+            pub_key_value,
+            signature,
+            TokenPermissions::Balance,
+        );
+
+        QueryMsg::WithPermit {
+            permit,
+            query: QueryWithPermit::Balance {},
+        }
+    }
+
+    fn gen_permit_obj(
+        permit_name: &str,
+        chain_id: &str,
+        pub_key_value: &str,
+        signature: &str,
+        permit_type: TokenPermissions,
+    ) -> Permit {
+        let permit: Permit = Permit {
+            params: PermitParams {
+                allowed_tokens: vec![MOCK_CONTRACT_ADDR.to_string()],
+                permit_name: permit_name.to_string(),
+                chain_id: chain_id.to_string(),
+                permissions: vec![permit_type],
+            },
+            signature: PermitSignature {
+                pub_key: PubKey {
+                    r#type: "tendermint/PubKeySecp256k1".to_string(),
+                    value: Binary::from_base64(pub_key_value).unwrap(),
+                },
+                signature: Binary::from_base64(signature).unwrap(),
+            },
+        };
+        permit
+    }
+
+    #[test]
+    fn test_permit_revoke() {
+        let user_address = "secret1kmgdagt5efcz2kku0ak9ezfgntg29g2vr88q0e";
+        let permit_name = "to_be_revoked";
+        let chain_id = "blabla";
+
+        // Note that 'signature'was generated with the specific values of the above:
+        // user_address, permit_name, chain_id, pub_key_value
+        let pub_key_value = "Ahlb7vwjo4aTY6dqfgpPmPYF7XhTAIReVwncQwlq8Sct";
+        let signature = "VS13F7iv1qxKABxrCAvZQPy2IruLQsIyfTewy/PIhNtybtq417lr3FxsWjV/i9YTqCUxg7weoZwHmYs0YgYX4w==";
+
+        // Init the contract
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: Addr::unchecked(user_address.to_string()),
+            amount: Uint128::new(50000000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        // Query the account's balance
+        let balance_with_permit_msg =
+            get_balance_with_permit_qry_msg(permit_name, chain_id, pub_key_value, signature);
+        let query_result = query(deps.as_ref(), mock_env(), balance_with_permit_msg);
+        let balance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected result from query"),
+        };
+        assert_eq!(balance.u128(), 50000000);
+
+        // Revoke the Balance permit
+        let handle_result = revoke_permit(permit_name, user_address, &mut deps);
+        let status = match from_binary(&handle_result.unwrap().data.unwrap()).unwrap() {
+            ExecuteAnswer::RevokePermit { status } => status,
+            _ => panic!("NOPE"),
+        };
+        assert_eq!(status, ResponseStatus::Success);
+
+        // Try to query the balance with permit and fail because the permit is now revoked
+        let balance_with_permit_msg =
+            get_balance_with_permit_qry_msg(permit_name, chain_id, pub_key_value, signature);
+        let query_result = query(deps.as_ref(), mock_env(), balance_with_permit_msg);
+        let error = extract_error_msg(query_result);
+        assert!(
+            error.contains(format!("Permit \"{}\" was revoked by account", permit_name).as_str())
+        );
     }
 
     #[test]
