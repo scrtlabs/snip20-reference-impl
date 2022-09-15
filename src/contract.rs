@@ -53,7 +53,11 @@ pub fn instantiate(
     }
 
     let init_config = msg.config();
-    let admin = msg.admin.unwrap_or(info.sender);
+    let admin = match msg.admin {
+        Some(admin_addr) => deps.api.addr_validate(admin_addr.as_str())?,
+        None => info.sender,
+    };
+
     let canon_admin = deps.api.addr_canonicalize(admin.as_str())?;
 
     let mut total_supply: u128 = 0;
@@ -203,7 +207,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_transfer_from(deps, &env, &info, &owner, &recipient, amount, memo),
+        } => try_transfer_from(deps, &env, &info, owner, recipient, amount, memo),
         ExecuteMsg::SendFrom {
             owner,
             recipient,
@@ -232,7 +236,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_burn_from(deps, &env, &info, &owner, amount, memo),
+        } => try_burn_from(deps, &env, &info, owner, amount, memo),
         ExecuteMsg::BatchBurnFrom { actions, .. } => {
             try_batch_burn_from(deps, &env, &info, actions)
         }
@@ -275,13 +279,13 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
     // Validate permit content
     let token_address = Constants::load(deps.storage)?.contract_address;
 
-    let account = Addr::unchecked(validate(
+    let account = validate(
         deps,
         PREFIX_REVOKED_PERMITS,
         &permit,
         token_address.into_string(),
         None,
-    )?);
+    )?;
 
     // Permit validated! We can now execute the query.
     match query {
@@ -293,7 +297,7 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
                 )));
             }
 
-            query_balance(deps, &account)
+            query_balance(deps, account)
         }
         QueryWithPermit::TransferHistory { page, page_size } => {
             if !permit.check_permission(&TokenPermissions::History) {
@@ -303,7 +307,7 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
                 )));
             }
 
-            query_transfers(deps, &account, page.unwrap_or(0), page_size)
+            query_transfers(deps, account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::TransactionHistory { page, page_size } => {
             if !permit.check_permission(&TokenPermissions::History) {
@@ -313,7 +317,7 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
                 )));
             }
 
-            query_transactions(deps, &account, page.unwrap_or(0), page_size)
+            query_transactions(deps, account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::Allowance { owner, spender } => {
             if !permit.check_permission(&TokenPermissions::Allowance) {
@@ -343,19 +347,19 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
         if result.is_ok() {
             return match msg {
                 // Base
-                QueryMsg::Balance { address, .. } => query_balance(deps, &address),
+                QueryMsg::Balance { address, .. } => query_balance(deps, address),
                 QueryMsg::TransferHistory {
                     address,
                     page,
                     page_size,
                     ..
-                } => query_transfers(deps, &address, page.unwrap_or(0), page_size),
+                } => query_transfers(deps, address, page.unwrap_or(0), page_size),
                 QueryMsg::TransactionHistory {
                     address,
                     page,
                     page_size,
                     ..
-                } => query_transactions(deps, &address, page.unwrap_or(0), page_size),
+                } => query_transactions(deps, address, page.unwrap_or(0), page_size),
                 QueryMsg::Allowance { owner, spender, .. } => query_allowance(deps, owner, spender),
                 _ => panic!("This query type does not require authentication"),
             };
@@ -427,7 +431,14 @@ fn query_contract_status(storage: &dyn Storage) -> StdResult<Binary> {
     })
 }
 
-pub fn query_transfers(deps: Deps, account: &Addr, page: u32, page_size: u32) -> StdResult<Binary> {
+pub fn query_transfers(
+    deps: Deps,
+    account: String,
+    page: u32,
+    page_size: u32,
+) -> StdResult<Binary> {
+    let account = deps.api.addr_validate(account.as_str())?;
+
     let address = deps.api.addr_canonicalize(account.as_str())?;
     let (txs, total) =
         StoredLegacyTransfer::get_transfers(deps.api, deps.storage, &address, page, page_size)?;
@@ -441,10 +452,11 @@ pub fn query_transfers(deps: Deps, account: &Addr, page: u32, page_size: u32) ->
 
 pub fn query_transactions(
     deps: Deps,
-    account: &Addr,
+    account: String,
     page: u32,
     page_size: u32,
 ) -> StdResult<Binary> {
+    let account = deps.api.addr_validate(account.as_str())?;
     let address = deps.api.addr_canonicalize(account.as_str())?;
     let (txs, total) = StoredRichTx::get_txs(deps.api, deps.storage, &address, page, page_size)?;
 
@@ -455,7 +467,9 @@ pub fn query_transactions(
     to_binary(&result)
 }
 
-pub fn query_balance(deps: Deps, account: &Addr) -> StdResult<Binary> {
+pub fn query_balance(deps: Deps, account: String) -> StdResult<Binary> {
+    let account = &deps.api.addr_validate(account.as_str())?;
+
     let amount = Uint128::new(BalancesStore::load(deps.storage, account));
     let response = QueryAnswer::Balance { amount };
     to_binary(&response)
@@ -468,7 +482,9 @@ fn query_minters(deps: Deps) -> StdResult<Binary> {
     to_binary(&response)
 }
 
-fn change_admin(deps: DepsMut, info: &MessageInfo, address: Addr) -> StdResult<Response> {
+fn change_admin(deps: DepsMut, info: &MessageInfo, address: String) -> StdResult<Response> {
+    let address = deps.api.addr_validate(address.as_str())?;
+
     let mut constants = Constants::load(deps.storage)?;
     check_if_admin(&constants.admin, &info.sender)?;
 
@@ -525,10 +541,12 @@ fn try_mint(
     mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
-    recipient: Addr,
+    recipient: String,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
+    let recipient = deps.api.addr_validate(recipient.as_str())?;
+
     let constants = Constants::load(deps.storage)?;
 
     if !constants.mint_is_enabled {
@@ -665,7 +683,10 @@ fn set_contract_status(
     )
 }
 
-pub fn query_allowance(deps: Deps, owner: Addr, spender: Addr) -> StdResult<Binary> {
+pub fn query_allowance(deps: Deps, owner: String, spender: String) -> StdResult<Binary> {
+    let owner = deps.api.addr_validate(owner.as_str())?;
+    let spender = deps.api.addr_validate(spender.as_str())?;
+
     let allowance = AllowancesStore::load(deps.storage, &owner, &spender);
 
     let response = QueryAnswer::Allowance {
@@ -766,7 +787,7 @@ fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> S
 
     let token_reserve = deps
         .querier
-        .query_balance(&env.contract.address, "uscrt")?
+        .query_balance(env.contract.address, "uscrt")?
         .amount;
     if amount > token_reserve {
         return Err(StdError::generic_err(
@@ -828,10 +849,12 @@ fn try_transfer(
     mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
-    recipient: Addr,
+    recipient: String,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
+    let recipient = deps.api.addr_validate(recipient.as_str())?;
+
     try_transfer_impl(
         &mut deps,
         &info.sender,
@@ -933,12 +956,14 @@ fn try_send(
     mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
-    recipient: Addr,
+    recipient: String,
     recipient_code_hash: Option<String>,
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<Response> {
+    let recipient = deps.api.addr_validate(recipient.as_str())?;
+
     let mut messages = vec![];
     try_send_impl(
         &mut deps,
@@ -1064,12 +1089,22 @@ fn try_transfer_from(
     mut deps: DepsMut,
     env: &Env,
     info: &MessageInfo,
-    owner: &Addr,
-    recipient: &Addr,
+    owner: String,
+    recipient: String,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    try_transfer_from_impl(&mut deps, env, &info.sender, owner, recipient, amount, memo)?;
+    let owner = deps.api.addr_validate(owner.as_str())?;
+    let recipient = deps.api.addr_validate(recipient.as_str())?;
+    try_transfer_from_impl(
+        &mut deps,
+        env,
+        &info.sender,
+        &owner,
+        &recipient,
+        amount,
+        memo,
+    )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?))
 }
@@ -1143,13 +1178,15 @@ fn try_send_from(
     mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
-    owner: Addr,
-    recipient: Addr,
+    owner: String,
+    recipient: String,
     recipient_code_hash: Option<String>,
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<Response> {
+    let owner = deps.api.addr_validate(owner.as_str())?;
+    let recipient = deps.api.addr_validate(recipient.as_str())?;
     let mut messages = vec![];
     try_send_from_impl(
         &mut deps,
@@ -1205,10 +1242,11 @@ fn try_burn_from(
     deps: DepsMut,
     env: &Env,
     info: &MessageInfo,
-    owner: &Addr,
+    owner: String,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
+    let owner = &deps.api.addr_validate(owner.as_str())?;
     let constants = Constants::load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
@@ -1330,10 +1368,11 @@ fn try_increase_allowance(
     deps: DepsMut,
     env: Env,
     info: &MessageInfo,
-    spender: Addr,
+    spender: String,
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
+    let spender = deps.api.addr_validate(spender.as_str())?;
     let mut allowance = AllowancesStore::load(deps.storage, &info.sender, &spender);
 
     // If the previous allowance has expired, reset the allowance.
@@ -1365,10 +1404,11 @@ fn try_decrease_allowance(
     deps: DepsMut,
     env: Env,
     info: &MessageInfo,
-    spender: Addr,
+    spender: String,
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
+    let spender = deps.api.addr_validate(spender.as_str())?;
     let mut allowance = AllowancesStore::load(deps.storage, &info.sender, &spender);
 
     // If the previous allowance has expired, reset the allowance.
@@ -1399,7 +1439,7 @@ fn try_decrease_allowance(
 fn add_minters(
     deps: DepsMut,
     info: &MessageInfo,
-    minters_to_add: Vec<Addr>,
+    minters_to_add: Vec<String>,
 ) -> StdResult<Response> {
     let constants = Constants::load(deps.storage)?;
     if !constants.mint_is_enabled {
@@ -1410,6 +1450,10 @@ fn add_minters(
 
     check_if_admin(&constants.admin, &info.sender)?;
 
+    let minters_to_add: Vec<Addr> = minters_to_add
+        .iter()
+        .map(|minter| deps.api.addr_validate(minter.as_str()).unwrap())
+        .collect();
     MintersStore::add_minters(deps.storage, minters_to_add)?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::AddMinters { status: Success })?))
@@ -1418,7 +1462,7 @@ fn add_minters(
 fn remove_minters(
     deps: DepsMut,
     info: &MessageInfo,
-    minters_to_remove: Vec<Addr>,
+    minters_to_remove: Vec<String>,
 ) -> StdResult<Response> {
     let constants = Constants::load(deps.storage)?;
     if !constants.mint_is_enabled {
@@ -1429,6 +1473,10 @@ fn remove_minters(
 
     check_if_admin(&constants.admin, &info.sender)?;
 
+    let minters_to_remove: Vec<Addr> = minters_to_remove
+        .iter()
+        .map(|minter| deps.api.addr_validate(minter.as_str()).unwrap())
+        .collect();
     MintersStore::remove_minters(deps.storage, minters_to_remove)?;
 
     Ok(
@@ -1441,7 +1489,7 @@ fn remove_minters(
 fn set_minters(
     deps: DepsMut,
     info: &MessageInfo,
-    minters_to_set: Vec<Addr>,
+    minters_to_set: Vec<String>,
 ) -> StdResult<Response> {
     let constants = Constants::load(deps.storage)?;
     if !constants.mint_is_enabled {
@@ -1452,6 +1500,10 @@ fn set_minters(
 
     check_if_admin(&constants.admin, &info.sender)?;
 
+    let minters_to_set: Vec<Addr> = minters_to_set
+        .iter()
+        .map(|minter| deps.api.addr_validate(minter.as_str()).unwrap())
+        .collect();
     MintersStore::save(deps.storage, minters_to_set)?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::SetMinters { status: Success })?))
@@ -1612,7 +1664,7 @@ mod tests {
 
         let init_msg = InstantiateMsg {
             name: "sec-sec".to_string(),
-            admin: Some(Addr::unchecked("admin".to_string())),
+            admin: Some("admin".to_string()),
             symbol: "SECSEC".to_string(),
             decimals: 8,
             initial_balances: Some(initial_balances),
@@ -1656,7 +1708,7 @@ mod tests {
         .unwrap();
         let init_msg = InstantiateMsg {
             name: "sec-sec".to_string(),
-            admin: Some(Addr::unchecked("admin".to_string())),
+            admin: Some("admin".to_string()),
             symbol: "SECSEC".to_string(),
             decimals: 8,
             initial_balances: Some(initial_balances),
@@ -1829,7 +1881,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr::unchecked("alice".to_string()),
+            recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: None,
             padding: None,
@@ -1847,7 +1899,7 @@ mod tests {
         assert_eq!(1000, BalancesStore::load(&deps.storage, &alice_addr));
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr::unchecked("alice".to_string()),
+            recipient: "alice".to_string(),
             amount: Uint128::new(10000),
             memo: None,
             padding: None,
@@ -1884,7 +1936,7 @@ mod tests {
         assert!(ensure_success(result));
 
         let handle_msg = ExecuteMsg::Send {
-            recipient: Addr::unchecked("contract".to_string()),
+            recipient: "contract".to_string(),
             recipient_code_hash: None,
             amount: Uint128::new(100),
             memo: Some("my memo".to_string()),
@@ -2168,8 +2220,8 @@ mod tests {
 
         // Transfer before allowance
         let handle_msg = ExecuteMsg::TransferFrom {
-            owner: Addr::unchecked("bob".to_string()),
-            recipient: Addr::unchecked("alice".to_string()),
+            owner: "bob".to_string(),
+            recipient: "alice".to_string(),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
@@ -2183,7 +2235,7 @@ mod tests {
 
         // Transfer more than allowance
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr::unchecked("alice".to_string()),
+            spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
             expiration: Some(1_571_797_420),
@@ -2198,8 +2250,8 @@ mod tests {
             handle_result.err().unwrap()
         );
         let handle_msg = ExecuteMsg::TransferFrom {
-            owner: Addr::unchecked("bob".to_string()),
-            recipient: Addr::unchecked("alice".to_string()),
+            owner: "bob".to_string(),
+            recipient: "alice".to_string(),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
@@ -2213,8 +2265,8 @@ mod tests {
 
         // Transfer after allowance expired
         let handle_msg = ExecuteMsg::TransferFrom {
-            owner: Addr::unchecked("bob".to_string()),
-            recipient: Addr::unchecked("alice".to_string()),
+            owner: "bob".to_string(),
+            recipient: "alice".to_string(),
             amount: Uint128::new(2000),
             memo: None,
             padding: None,
@@ -2247,8 +2299,8 @@ mod tests {
 
         // Sanity check
         let handle_msg = ExecuteMsg::TransferFrom {
-            owner: Addr::unchecked("bob".to_string()),
-            recipient: Addr::unchecked("alice".to_string()),
+            owner: "bob".to_string(),
+            recipient: "alice".to_string(),
             amount: Uint128::new(2000),
             memo: None,
             padding: None,
@@ -2274,8 +2326,8 @@ mod tests {
 
         // Second send more than allowance
         let handle_msg = ExecuteMsg::TransferFrom {
-            owner: Addr::unchecked("bob".to_string()),
-            recipient: Addr::unchecked("alice".to_string()),
+            owner: "bob".to_string(),
+            recipient: "alice".to_string(),
             amount: Uint128::new(1),
             memo: None,
             padding: None,
@@ -2302,8 +2354,8 @@ mod tests {
 
         // Send before allowance
         let handle_msg = ExecuteMsg::SendFrom {
-            owner: Addr::unchecked("bob".to_string()),
-            recipient: Addr::unchecked("alice".to_string()),
+            owner: "bob".to_string(),
+            recipient: "alice".to_string(),
             recipient_code_hash: None,
             amount: Uint128::new(2500),
             memo: None,
@@ -2319,7 +2371,7 @@ mod tests {
 
         // Send more than allowance
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr::unchecked("alice".to_string()),
+            spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
@@ -2334,8 +2386,8 @@ mod tests {
             handle_result.err().unwrap()
         );
         let handle_msg = ExecuteMsg::SendFrom {
-            owner: Addr::unchecked("bob".to_string()),
-            recipient: Addr::unchecked("alice".to_string()),
+            owner: "bob".to_string(),
+            recipient: "alice".to_string(),
             recipient_code_hash: None,
             amount: Uint128::new(2500),
             memo: None,
@@ -2372,8 +2424,8 @@ mod tests {
             Some(send_msg.clone()),
         );
         let handle_msg = ExecuteMsg::SendFrom {
-            owner: Addr::unchecked("bob".to_string()),
-            recipient: Addr::unchecked("contract".to_string()),
+            owner: "bob".to_string(),
+            recipient: "contract".to_string(),
             recipient_code_hash: None,
             amount: Uint128::new(2000),
             memo: Some("my memo".to_string()),
@@ -2409,8 +2461,8 @@ mod tests {
 
         // Second send more than allowance
         let handle_msg = ExecuteMsg::SendFrom {
-            owner: Addr::unchecked("bob".to_string()),
-            recipient: Addr::unchecked("alice".to_string()),
+            owner: "bob".to_string(),
+            recipient: "alice".to_string(),
             recipient_code_hash: None,
             amount: Uint128::new(1),
             memo: None,
@@ -2455,7 +2507,7 @@ mod tests {
         );
         // test when burn disabled
         let handle_msg = ExecuteMsg::BurnFrom {
-            owner: Addr::unchecked("bob".to_string()),
+            owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
@@ -2469,7 +2521,7 @@ mod tests {
 
         // Burn before allowance
         let handle_msg = ExecuteMsg::BurnFrom {
-            owner: Addr::unchecked("bob".to_string()),
+            owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
@@ -2483,7 +2535,7 @@ mod tests {
 
         // Burn more than allowance
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr::unchecked("alice".to_string()),
+            spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
@@ -2498,7 +2550,7 @@ mod tests {
             handle_result.err().unwrap()
         );
         let handle_msg = ExecuteMsg::BurnFrom {
-            owner: Addr::unchecked("bob".to_string()),
+            owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
@@ -2512,7 +2564,7 @@ mod tests {
 
         // Sanity check
         let handle_msg = ExecuteMsg::BurnFrom {
-            owner: Addr::unchecked("bob".to_string()),
+            owner: "bob".to_string(),
             amount: Uint128::new(2000),
             memo: None,
             padding: None,
@@ -2534,7 +2586,7 @@ mod tests {
 
         // Second burn more than allowance
         let handle_msg = ExecuteMsg::BurnFrom {
-            owner: Addr::unchecked("bob".to_string()),
+            owner: "bob".to_string(),
             amount: Uint128::new(1),
             memo: None,
             padding: None,
@@ -2620,7 +2672,7 @@ mod tests {
         let allowance_size = 2000;
         for name in &["bob", "jerry", "mike"] {
             let handle_msg = ExecuteMsg::IncreaseAllowance {
-                spender: Addr::unchecked("alice".to_string()),
+                spender: "alice".to_string(),
                 amount: Uint128::new(allowance_size),
                 padding: None,
                 expiration: None,
@@ -2634,7 +2686,7 @@ mod tests {
                 handle_result.err().unwrap()
             );
             let handle_msg = ExecuteMsg::BurnFrom {
-                owner: Addr::unchecked(name.to_string()),
+                owner: "name".to_string(),
                 amount: Uint128::new(2500),
                 memo: None,
                 padding: None,
@@ -2743,7 +2795,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::DecreaseAllowance {
-            spender: Addr::unchecked("alice".to_string()),
+            spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
@@ -2771,7 +2823,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr::unchecked("alice".to_string()),
+            spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
@@ -2787,7 +2839,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::DecreaseAllowance {
-            spender: Addr::unchecked("alice".to_string()),
+            spender: "alice".to_string(),
             amount: Uint128::new(50),
             padding: None,
             expiration: None,
@@ -2825,7 +2877,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr::unchecked("alice".to_string()),
+            spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
@@ -2853,7 +2905,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr::unchecked("alice".to_string()),
+            spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
@@ -2891,7 +2943,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::ChangeAdmin {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3188,7 +3240,7 @@ mod tests {
         // try to mint when mint is disabled
         let mint_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr::unchecked("lebron".to_string()),
+            recipient: "lebron".to_string(),
             amount: Uint128::new(mint_amount),
             memo: None,
             padding: None,
@@ -3203,7 +3255,7 @@ mod tests {
         let supply = TotalSupplyStore::load(&deps.storage).unwrap();
         let mint_amount: u128 = 100;
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr::unchecked("lebron".to_string()),
+            recipient: "lebron".to_string(),
             amount: Uint128::new(mint_amount),
             memo: None,
             padding: None,
@@ -3254,7 +3306,7 @@ mod tests {
         assert!(error.contains(&admin_err.clone()));
 
         let mint_msg = ExecuteMsg::AddMinters {
-            minters: vec![Addr::unchecked("not_admin".to_string())],
+            minters: vec!["not_admin".to_string()],
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
@@ -3265,7 +3317,7 @@ mod tests {
         assert!(error.contains(&admin_err.clone()));
 
         let mint_msg = ExecuteMsg::RemoveMinters {
-            minters: vec![Addr::unchecked("admin".to_string())],
+            minters: vec!["admin".to_string()],
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
@@ -3276,7 +3328,7 @@ mod tests {
         assert!(error.contains(&admin_err.clone()));
 
         let mint_msg = ExecuteMsg::SetMinters {
-            minters: vec![Addr::unchecked("not_admin".to_string())],
+            minters: vec!["not_admin".to_string()],
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
@@ -3287,7 +3339,7 @@ mod tests {
         assert!(error.contains(&admin_err.clone()));
 
         let change_admin_msg = ExecuteMsg::ChangeAdmin {
-            address: Addr::unchecked("not_admin".to_string()),
+            address: "not_admin".to_string(),
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
@@ -3333,7 +3385,7 @@ mod tests {
         );
 
         let send_msg = ExecuteMsg::Transfer {
-            recipient: Addr::unchecked("account".to_string()),
+            recipient: "account".to_string(),
             amount: Uint128::new(123),
             memo: None,
             padding: None,
@@ -3392,7 +3444,7 @@ mod tests {
         );
 
         let send_msg = ExecuteMsg::Transfer {
-            recipient: Addr::unchecked("account".to_string()),
+            recipient: "account".to_string(),
             amount: Uint128::new(123),
             memo: None,
             padding: None,
@@ -3452,7 +3504,7 @@ mod tests {
         );
         // try when mint disabled
         let handle_msg = ExecuteMsg::SetMinters {
-            minters: vec![Addr::unchecked("bob".to_string())],
+            minters: vec!["bob".to_string()],
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3463,7 +3515,7 @@ mod tests {
         assert!(error.contains("Mint functionality is not enabled for this token"));
 
         let handle_msg = ExecuteMsg::SetMinters {
-            minters: vec![Addr::unchecked("bob".to_string())],
+            minters: vec!["bob".to_string()],
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -3474,7 +3526,7 @@ mod tests {
         assert!(error.contains("Admin commands can only be run from admin address"));
 
         let handle_msg = ExecuteMsg::SetMinters {
-            minters: vec![Addr::unchecked("bob".to_string())],
+            minters: vec!["bob".to_string()],
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3484,7 +3536,7 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr::unchecked("bob".to_string()),
+            recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
@@ -3496,7 +3548,7 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr::unchecked("bob".to_string()),
+            recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
@@ -3538,7 +3590,7 @@ mod tests {
         );
         // try when mint disabled
         let handle_msg = ExecuteMsg::AddMinters {
-            minters: vec![Addr::unchecked("bob".to_string())],
+            minters: vec!["bob".to_string()],
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3549,7 +3601,7 @@ mod tests {
         assert!(error.contains("Mint functionality is not enabled for this token"));
 
         let handle_msg = ExecuteMsg::AddMinters {
-            minters: vec![Addr::unchecked("bob".to_string())],
+            minters: vec!["bob".to_string()],
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -3560,7 +3612,7 @@ mod tests {
         assert!(error.contains("Admin commands can only be run from admin address"));
 
         let handle_msg = ExecuteMsg::AddMinters {
-            minters: vec![Addr::unchecked("bob".to_string())],
+            minters: vec!["bob".to_string()],
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3570,7 +3622,7 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr::unchecked("bob".to_string()),
+            recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
@@ -3582,7 +3634,7 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr::unchecked("bob".to_string()),
+            recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
@@ -3623,7 +3675,7 @@ mod tests {
         );
         // try when mint disabled
         let handle_msg = ExecuteMsg::RemoveMinters {
-            minters: vec![Addr::unchecked("bob".to_string())],
+            minters: vec!["bob".to_string()],
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3634,7 +3686,7 @@ mod tests {
         assert!(error.contains("Mint functionality is not enabled for this token"));
 
         let handle_msg = ExecuteMsg::RemoveMinters {
-            minters: vec![Addr::unchecked("admin".to_string())],
+            minters: vec!["admin".to_string()],
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -3645,7 +3697,7 @@ mod tests {
         assert!(error.contains("Admin commands can only be run from admin address"));
 
         let handle_msg = ExecuteMsg::RemoveMinters {
-            minters: vec![Addr::unchecked("admin".to_string())],
+            minters: vec!["admin".to_string()],
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3655,7 +3707,7 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr::unchecked("bob".to_string()),
+            recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
@@ -3668,7 +3720,7 @@ mod tests {
         assert!(error.contains("allowed to minter accounts only"));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr::unchecked("bob".to_string()),
+            recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
@@ -3682,7 +3734,7 @@ mod tests {
 
         // Removing another extra time to ensure nothing funky happens
         let handle_msg = ExecuteMsg::RemoveMinters {
-            minters: vec![Addr::unchecked("admin".to_string())],
+            minters: vec!["admin".to_string()],
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3692,7 +3744,7 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr::unchecked("bob".to_string()),
+            recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
@@ -3705,7 +3757,7 @@ mod tests {
         assert!(error.contains("allowed to minter accounts only"));
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr::unchecked("bob".to_string()),
+            recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
             padding: None,
@@ -3733,7 +3785,7 @@ mod tests {
         );
 
         let no_vk_yet_query_msg = QueryMsg::Balance {
-            address: Addr::unchecked("giannis".to_string()),
+            address: "giannis".to_string(),
             key: "no_vk_yet".to_string(),
         };
         let query_result = query(deps.as_ref(), mock_env(), no_vk_yet_query_msg);
@@ -3755,7 +3807,7 @@ mod tests {
         };
 
         let query_balance_msg = QueryMsg::Balance {
-            address: Addr::unchecked("giannis".to_string()),
+            address: "giannis".to_string(),
             key: vk.0,
         };
 
@@ -3767,7 +3819,7 @@ mod tests {
         assert_eq!(balance, Uint128::new(5000));
 
         let wrong_vk_query_msg = QueryMsg::Balance {
-            address: Addr::unchecked("giannis".to_string()),
+            address: "giannis".to_string(),
             key: "wrong_vk".to_string(),
         };
         let query_result = query(deps.as_ref(), mock_env(), wrong_vk_query_msg);
@@ -3795,7 +3847,7 @@ mod tests {
         let env = mock_env();
         let init_msg = InstantiateMsg {
             name: init_name.clone(),
-            admin: Some(init_admin.clone()),
+            admin: Some(init_admin.into_string()),
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
@@ -3862,7 +3914,7 @@ mod tests {
         let env = mock_env();
         let init_msg = InstantiateMsg {
             name: init_name.clone(),
-            admin: Some(init_admin.clone()),
+            admin: Some(init_admin.into_string()),
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
@@ -3932,7 +3984,7 @@ mod tests {
         .unwrap();
         let init_msg = InstantiateMsg {
             name: init_name.clone(),
-            admin: Some(init_admin.clone()),
+            admin: Some(init_admin.into_string()),
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
@@ -3990,7 +4042,7 @@ mod tests {
         .unwrap();
         let init_msg = InstantiateMsg {
             name: init_name.clone(),
-            admin: Some(init_admin.clone()),
+            admin: Some(init_admin.into_string()),
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
@@ -4048,7 +4100,7 @@ mod tests {
         .unwrap();
         let init_msg = InstantiateMsg {
             name: init_name.clone(),
-            admin: Some(init_admin.clone()),
+            admin: Some(init_admin.into_string()),
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
@@ -4094,7 +4146,7 @@ mod tests {
         let env = mock_env();
         let init_msg = InstantiateMsg {
             name: init_name.clone(),
-            admin: Some(init_admin.clone()),
+            admin: Some(init_admin.into_string()),
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
@@ -4141,7 +4193,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::IncreaseAllowance {
-            spender: Addr::unchecked("lebron".to_string()),
+            spender: "lebron".to_string(),
             amount: Uint128::new(2000),
             padding: None,
             expiration: None,
@@ -4160,8 +4212,8 @@ mod tests {
         let vk2 = ViewingKeyObj("key2".to_string());
 
         let query_msg = QueryMsg::Allowance {
-            owner: Addr::unchecked("giannis".to_string()),
-            spender: Addr::unchecked("lebron".to_string()),
+            owner: "giannis".to_string(),
+            spender: "lebron".to_string(),
             key: vk1.0.clone(),
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
@@ -4210,8 +4262,8 @@ mod tests {
         );
 
         let query_msg = QueryMsg::Allowance {
-            owner: Addr::unchecked("giannis".to_string()),
-            spender: Addr::unchecked("lebron".to_string()),
+            owner: "giannis".to_string(),
+            spender: "lebron".to_string(),
             key: vk1.0.clone(),
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
@@ -4222,8 +4274,8 @@ mod tests {
         assert_eq!(allowance, Uint128::new(2000));
 
         let query_msg = QueryMsg::Allowance {
-            owner: Addr::unchecked("giannis".to_string()),
-            spender: Addr::unchecked("lebron".to_string()),
+            owner: "giannis".to_string(),
+            spender: "lebron".to_string(),
             key: vk2.0.clone(),
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
@@ -4234,8 +4286,8 @@ mod tests {
         assert_eq!(allowance, Uint128::new(2000));
 
         let query_msg = QueryMsg::Allowance {
-            owner: Addr::unchecked("lebron".to_string()),
-            spender: Addr::unchecked("giannis".to_string()),
+            owner: "lebron".to_string(),
+            spender: "giannis".to_string(),
             key: vk2.0.clone(),
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
@@ -4277,7 +4329,7 @@ mod tests {
         );
 
         let query_msg = QueryMsg::Balance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             key: "wrong_key".to_string(),
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
@@ -4285,7 +4337,7 @@ mod tests {
         assert!(error.contains("Wrong viewing key"));
 
         let query_msg = QueryMsg::Balance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             key: "key".to_string(),
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
@@ -4319,7 +4371,7 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr::unchecked("alice".to_string()),
+            recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: None,
             padding: None,
@@ -4331,7 +4383,7 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr::unchecked("banana".to_string()),
+            recipient: "banana".to_string(),
             amount: Uint128::new(500),
             memo: None,
             padding: None,
@@ -4343,7 +4395,7 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr::unchecked("mango".to_string()),
+            recipient: "mango".to_string(),
             amount: Uint128::new(2500),
             memo: None,
             padding: None,
@@ -4356,7 +4408,7 @@ mod tests {
         assert!(ensure_success(result));
 
         let query_msg = QueryMsg::TransferHistory {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             key: "key".to_string(),
             page: None,
             page_size: 0,
@@ -4371,7 +4423,7 @@ mod tests {
         assert!(transfers.is_empty());
 
         let query_msg = QueryMsg::TransferHistory {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             key: "key".to_string(),
             page: None,
             page_size: 10,
@@ -4384,7 +4436,7 @@ mod tests {
         assert_eq!(transfers.len(), 3);
 
         let query_msg = QueryMsg::TransferHistory {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             key: "key".to_string(),
             page: None,
             page_size: 2,
@@ -4397,7 +4449,7 @@ mod tests {
         assert_eq!(transfers.len(), 2);
 
         let query_msg = QueryMsg::TransferHistory {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             key: "key".to_string(),
             page: Some(1),
             page_size: 2,
@@ -4470,7 +4522,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::Mint {
-            recipient: Addr::unchecked("bob".to_string()),
+            recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: Some("my mint message".to_string()),
             padding: None,
@@ -4498,7 +4550,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr::unchecked("alice".to_string()),
+            recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: Some("my transfer message #1".to_string()),
             padding: None,
@@ -4511,7 +4563,7 @@ mod tests {
         assert!(ensure_success(result));
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr::unchecked("banana".to_string()),
+            recipient: "banana".to_string(),
             amount: Uint128::new(500),
             memo: Some("my transfer message #2".to_string()),
             padding: None,
@@ -4524,7 +4576,7 @@ mod tests {
         assert!(ensure_success(result));
 
         let handle_msg = ExecuteMsg::Transfer {
-            recipient: Addr::unchecked("mango".to_string()),
+            recipient: "mango".to_string(),
             amount: Uint128::new(2500),
             memo: Some("my transfer message #3".to_string()),
             padding: None,
@@ -4537,7 +4589,7 @@ mod tests {
         assert!(ensure_success(result));
 
         let query_msg = QueryMsg::TransferHistory {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             key: "key".to_string(),
             page: None,
             page_size: 10,
@@ -4550,7 +4602,7 @@ mod tests {
         assert_eq!(transfers.len(), 3);
 
         let query_msg = QueryMsg::TransactionHistory {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             key: "key".to_string(),
             page: None,
             page_size: 10,

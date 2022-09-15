@@ -18,7 +18,7 @@ pub struct InitialBalance {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InstantiateMsg {
     pub name: String,
-    pub admin: Option<Addr>,
+    pub admin: Option<String>,
     pub symbol: String,
     pub decimals: u8,
     pub initial_balances: Option<Vec<InitialBalance>>,
@@ -92,13 +92,13 @@ pub enum ExecuteMsg {
 
     // Base ERC-20 stuff
     Transfer {
-        recipient: Addr,
+        recipient: String,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
     },
     Send {
-        recipient: Addr,
+        recipient: String,
         recipient_code_hash: Option<String>,
         amount: Uint128,
         msg: Option<Binary>,
@@ -133,27 +133,27 @@ pub enum ExecuteMsg {
 
     // Allowance
     IncreaseAllowance {
-        spender: Addr,
+        spender: String,
         amount: Uint128,
         expiration: Option<u64>,
         padding: Option<String>,
     },
     DecreaseAllowance {
-        spender: Addr,
+        spender: String,
         amount: Uint128,
         expiration: Option<u64>,
         padding: Option<String>,
     },
     TransferFrom {
-        owner: Addr,
-        recipient: Addr,
+        owner: String,
+        recipient: String,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
     },
     SendFrom {
-        owner: Addr,
-        recipient: Addr,
+        owner: String,
+        recipient: String,
         recipient_code_hash: Option<String>,
         amount: Uint128,
         msg: Option<Binary>,
@@ -169,7 +169,7 @@ pub enum ExecuteMsg {
         padding: Option<String>,
     },
     BurnFrom {
-        owner: Addr,
+        owner: String,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
@@ -181,7 +181,7 @@ pub enum ExecuteMsg {
 
     // Mint
     Mint {
-        recipient: Addr,
+        recipient: String,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
@@ -191,21 +191,21 @@ pub enum ExecuteMsg {
         padding: Option<String>,
     },
     AddMinters {
-        minters: Vec<Addr>,
+        minters: Vec<String>,
         padding: Option<String>,
     },
     RemoveMinters {
-        minters: Vec<Addr>,
+        minters: Vec<String>,
         padding: Option<String>,
     },
     SetMinters {
-        minters: Vec<Addr>,
+        minters: Vec<String>,
         padding: Option<String>,
     },
 
     // Admin
     ChangeAdmin {
-        address: Addr,
+        address: String,
         padding: Option<String>,
     },
     SetContractStatus {
@@ -326,22 +326,22 @@ pub enum QueryMsg {
     ContractStatus {},
     ExchangeRate {},
     Allowance {
-        owner: Addr,
-        spender: Addr,
+        owner: String,
+        spender: String,
         key: String,
     },
     Balance {
-        address: Addr,
+        address: String,
         key: String,
     },
     TransferHistory {
-        address: Addr,
+        address: String,
         key: String,
         page: Option<u32>,
         page_size: u32,
     },
     TransactionHistory {
-        address: Addr,
+        address: String,
         key: String,
         page: Option<u32>,
         page_size: u32,
@@ -354,7 +354,7 @@ pub enum QueryMsg {
 }
 
 impl QueryMsg {
-    pub fn get_validation_params(&self) -> (Vec<&Addr>, ViewingKeyObj) {
+    pub fn get_validation_params(&self) -> (Vec<&String>, ViewingKeyObj) {
         match self {
             Self::Balance { address, key } => (vec![address], ViewingKeyObj(key.clone())),
             Self::TransferHistory { address, key, .. } => {
@@ -377,7 +377,7 @@ impl QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryWithPermit {
-    Allowance { owner: Addr, spender: Addr },
+    Allowance { owner: String, spender: String },
     Balance {},
     TransferHistory { page: Option<u32>, page_size: u32 },
     TransactionHistory { page: Option<u32>, page_size: u32 },
