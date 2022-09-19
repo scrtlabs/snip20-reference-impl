@@ -51,8 +51,8 @@ impl Constants {
             .map_err(|_err| StdError::generic_err("no constants stored"))
     }
 
-    pub fn save(store: &mut dyn Storage, constants: &Constants) -> StdResult<()> {
-        CONSTANTS.save(store, constants)
+    pub fn save(store: &mut dyn Storage, constants: Constants) -> StdResult<()> {
+        CONSTANTS.save(store, &constants)
     }
 }
 

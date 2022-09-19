@@ -58,8 +58,6 @@ pub fn instantiate(
         None => info.sender,
     };
 
-    let canon_admin = deps.api.addr_canonicalize(admin.as_str())?;
-
     let mut total_supply: u128 = 0;
     {
         let initial_balances = msg.initial_balances.unwrap_or_default();
@@ -74,10 +72,12 @@ pub fn instantiate(
                     "The sum of all initial balances exceeds the maximum possible total supply",
                 ));
             }
+
+            let canon_admin = deps.api.addr_canonicalize(admin.as_str())?;
             store_mint(
                 deps.storage,
-                &canon_admin,
-                &balance_address,
+                canon_admin,
+                balance_address,
                 balance.amount,
                 msg.symbol.clone(),
                 Some("Initial Balance".to_string()),
@@ -90,7 +90,7 @@ pub fn instantiate(
 
     Constants::save(
         deps.storage,
-        &Constants {
+        Constants {
             name: msg.name,
             symbol: msg.symbol,
             decimals: msg.decimals,
@@ -134,12 +134,12 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
             let response = match msg {
                 ExecuteMsg::SetContractStatus { level, .. } => {
-                    set_contract_status(deps, &info, level)
+                    set_contract_status(deps, info, level)
                 }
                 ExecuteMsg::Redeem { amount, .. }
                     if contract_status == ContractStatusLevel::StopAllButRedeems =>
                 {
-                    try_redeem(deps, env, &info, amount)
+                    try_redeem(deps, env, info, amount)
                 }
                 _ => Err(StdError::generic_err(
                     "This contract is stopped and this action is not allowed",
@@ -152,8 +152,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
 
     let response = match msg {
         // Native
-        ExecuteMsg::Deposit { .. } => try_deposit(deps, env, &info),
-        ExecuteMsg::Redeem { amount, .. } => try_redeem(deps, env, &info, amount),
+        ExecuteMsg::Deposit { .. } => try_deposit(deps, env, info),
+        ExecuteMsg::Redeem { amount, .. } => try_redeem(deps, env, info, amount),
 
         // Base
         ExecuteMsg::Transfer {
@@ -161,7 +161,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_transfer(deps, env, &info, recipient, amount, memo),
+        } => try_transfer(deps, env, info, recipient, amount, memo),
         ExecuteMsg::Send {
             recipient,
             recipient_code_hash,
@@ -172,21 +172,21 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         } => try_send(
             deps,
             env,
-            &info,
+            info,
             recipient,
             recipient_code_hash,
             amount,
             memo,
             msg,
         ),
-        ExecuteMsg::BatchTransfer { actions, .. } => try_batch_transfer(deps, env, &info, actions),
-        ExecuteMsg::BatchSend { actions, .. } => try_batch_send(deps, env, &info, actions),
-        ExecuteMsg::Burn { amount, memo, .. } => try_burn(deps, env, &info, amount, memo),
+        ExecuteMsg::BatchTransfer { actions, .. } => try_batch_transfer(deps, env, info, actions),
+        ExecuteMsg::BatchSend { actions, .. } => try_batch_send(deps, env, info, actions),
+        ExecuteMsg::Burn { amount, memo, .. } => try_burn(deps, env, info, amount, memo),
         ExecuteMsg::RegisterReceive { code_hash, .. } => {
-            try_register_receive(deps, &info, code_hash)
+            try_register_receive(deps, info, code_hash)
         }
-        ExecuteMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, &info, entropy),
-        ExecuteMsg::SetViewingKey { key, .. } => try_set_key(deps, &info, key),
+        ExecuteMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, info, entropy),
+        ExecuteMsg::SetViewingKey { key, .. } => try_set_key(deps, info, key),
 
         // Allowance
         ExecuteMsg::IncreaseAllowance {
@@ -194,20 +194,20 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             expiration,
             ..
-        } => try_increase_allowance(deps, env, &info, spender, amount, expiration),
+        } => try_increase_allowance(deps, env, info, spender, amount, expiration),
         ExecuteMsg::DecreaseAllowance {
             spender,
             amount,
             expiration,
             ..
-        } => try_decrease_allowance(deps, env, &info, spender, amount, expiration),
+        } => try_decrease_allowance(deps, env, info, spender, amount, expiration),
         ExecuteMsg::TransferFrom {
             owner,
             recipient,
             amount,
             memo,
             ..
-        } => try_transfer_from(deps, &env, &info, owner, recipient, amount, memo),
+        } => try_transfer_from(deps, &env, info, owner, recipient, amount, memo),
         ExecuteMsg::SendFrom {
             owner,
             recipient,
@@ -228,7 +228,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             msg,
         ),
         ExecuteMsg::BatchTransferFrom { actions, .. } => {
-            try_batch_transfer_from(deps, &env, &info, actions)
+            try_batch_transfer_from(deps, &env, info, actions)
         }
         ExecuteMsg::BatchSendFrom { actions, .. } => try_batch_send_from(deps, env, &info, actions),
         ExecuteMsg::BurnFrom {
@@ -236,10 +236,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_burn_from(deps, &env, &info, owner, amount, memo),
-        ExecuteMsg::BatchBurnFrom { actions, .. } => {
-            try_batch_burn_from(deps, &env, &info, actions)
-        }
+        } => try_burn_from(deps, &env, info, owner, amount, memo),
+        ExecuteMsg::BatchBurnFrom { actions, .. } => try_batch_burn_from(deps, &env, info, actions),
 
         // Mint
         ExecuteMsg::Mint {
@@ -247,16 +245,16 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_mint(deps, env, &info, recipient, amount, memo),
-        ExecuteMsg::BatchMint { actions, .. } => try_batch_mint(deps, env, &info, actions),
+        } => try_mint(deps, env, info, recipient, amount, memo),
+        ExecuteMsg::BatchMint { actions, .. } => try_batch_mint(deps, env, info, actions),
 
         // Other
-        ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, &info, address),
-        ExecuteMsg::SetContractStatus { level, .. } => set_contract_status(deps, &info, level),
-        ExecuteMsg::AddMinters { minters, .. } => add_minters(deps, &info, minters),
-        ExecuteMsg::RemoveMinters { minters, .. } => remove_minters(deps, &info, minters),
-        ExecuteMsg::SetMinters { minters, .. } => set_minters(deps, &info, minters),
-        ExecuteMsg::RevokePermit { permit_name, .. } => revoke_permit(deps, &info, permit_name),
+        ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, info, address),
+        ExecuteMsg::SetContractStatus { level, .. } => set_contract_status(deps, info, level),
+        ExecuteMsg::AddMinters { minters, .. } => add_minters(deps, info, minters),
+        ExecuteMsg::RemoveMinters { minters, .. } => remove_minters(deps, info, minters),
+        ExecuteMsg::SetMinters { minters, .. } => set_minters(deps, info, minters),
+        ExecuteMsg::RevokePermit { permit_name, .. } => revoke_permit(deps, info, permit_name),
     };
 
     pad_response(response)
@@ -482,14 +480,14 @@ fn query_minters(deps: Deps) -> StdResult<Binary> {
     to_binary(&response)
 }
 
-fn change_admin(deps: DepsMut, info: &MessageInfo, address: String) -> StdResult<Response> {
+fn change_admin(deps: DepsMut, info: MessageInfo, address: String) -> StdResult<Response> {
     let address = deps.api.addr_validate(address.as_str())?;
 
     let mut constants = Constants::load(deps.storage)?;
     check_if_admin(&constants.admin, &info.sender)?;
 
     constants.admin = address;
-    Constants::save(deps.storage, &constants)?;
+    Constants::save(deps.storage, constants)?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::ChangeAdmin { status: Success })?))
 }
@@ -524,15 +522,7 @@ fn try_mint_impl(
     let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
     let minter = deps.api.addr_canonicalize(minter.as_str())?;
 
-    store_mint(
-        deps.storage,
-        &minter,
-        &recipient,
-        amount,
-        denom,
-        memo,
-        block,
-    )?;
+    store_mint(deps.storage, minter, recipient, amount, denom, memo, block)?;
 
     Ok(())
 }
@@ -540,7 +530,7 @@ fn try_mint_impl(
 fn try_mint(
     mut deps: DepsMut,
     env: Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     recipient: String,
     amount: Uint128,
     memo: Option<String>,
@@ -588,7 +578,7 @@ fn try_mint(
 fn try_batch_mint(
     mut deps: DepsMut,
     env: Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     actions: Vec<batch::MintAction>,
 ) -> StdResult<Response> {
     let constants = Constants::load(deps.storage)?;
@@ -636,7 +626,7 @@ fn try_batch_mint(
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BatchMint { status: Success })?))
 }
 
-pub fn try_set_key(deps: DepsMut, info: &MessageInfo, key: String) -> StdResult<Response> {
+pub fn try_set_key(deps: DepsMut, info: MessageInfo, key: String) -> StdResult<Response> {
     ViewingKey::set(deps.storage, info.sender.as_str(), key.as_str());
     Ok(
         Response::new().set_data(to_binary(&ExecuteAnswer::SetViewingKey {
@@ -648,12 +638,12 @@ pub fn try_set_key(deps: DepsMut, info: &MessageInfo, key: String) -> StdResult<
 pub fn try_create_key(
     deps: DepsMut,
     env: Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     entropy: String,
 ) -> StdResult<Response> {
     let key = ViewingKey::create(
         deps.storage,
-        info,
+        &info,
         &env,
         info.sender.as_str(),
         (&entropy).as_ref(),
@@ -668,7 +658,7 @@ pub fn try_create_key(
 
 fn set_contract_status(
     deps: DepsMut,
-    info: &MessageInfo,
+    info: MessageInfo,
     status_level: ContractStatusLevel,
 ) -> StdResult<Response> {
     let constants = Constants::load(deps.storage)?;
@@ -698,7 +688,7 @@ pub fn query_allowance(deps: Deps, owner: String, spender: String) -> StdResult<
     to_binary(&response)
 }
 
-fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Response> {
+fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response> {
     let mut amount = Uint128::zero();
 
     for coin in &info.funds {
@@ -755,7 +745,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: &MessageInfo) -> StdResult<Respons
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?))
 }
 
-fn try_redeem(deps: DepsMut, env: Env, info: &MessageInfo, amount: Uint128) -> StdResult<Response> {
+fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128) -> StdResult<Response> {
     let constants = Constants::load(deps.storage)?;
     if !constants.redeem_is_enabled {
         return Err(StdError::generic_err(
@@ -848,7 +838,7 @@ fn try_transfer_impl(
 fn try_transfer(
     mut deps: DepsMut,
     env: Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     recipient: String,
     amount: Uint128,
     memo: Option<String>,
@@ -870,7 +860,7 @@ fn try_transfer(
 fn try_batch_transfer(
     mut deps: DepsMut,
     env: Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     actions: Vec<batch::TransferAction>,
 ) -> StdResult<Response> {
     for action in actions {
@@ -955,7 +945,7 @@ fn try_send_impl(
 fn try_send(
     mut deps: DepsMut,
     env: Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     recipient: String,
     recipient_code_hash: Option<String>,
     amount: Uint128,
@@ -968,7 +958,7 @@ fn try_send(
     try_send_impl(
         &mut deps,
         &mut messages,
-        info.sender.clone(),
+        info.sender,
         recipient,
         recipient_code_hash,
         amount,
@@ -985,7 +975,7 @@ fn try_send(
 fn try_batch_send(
     mut deps: DepsMut,
     env: Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     actions: Vec<batch::SendAction>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
@@ -1010,7 +1000,7 @@ fn try_batch_send(
 
 fn try_register_receive(
     deps: DepsMut,
-    info: &MessageInfo,
+    info: MessageInfo,
     code_hash: String,
 ) -> StdResult<Response> {
     set_receiver_hash(deps.storage, &info.sender, code_hash);
@@ -1088,7 +1078,7 @@ fn try_transfer_from_impl(
 fn try_transfer_from(
     mut deps: DepsMut,
     env: &Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     owner: String,
     recipient: String,
     amount: Uint128,
@@ -1112,7 +1102,7 @@ fn try_transfer_from(
 fn try_batch_transfer_from(
     mut deps: DepsMut,
     env: &Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     actions: Vec<batch::TransferFromAction>,
 ) -> StdResult<Response> {
     for action in actions {
@@ -1241,7 +1231,7 @@ fn try_batch_send_from(
 fn try_burn_from(
     deps: DepsMut,
     env: &Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     owner: String,
     amount: Uint128,
     memo: Option<String>,
@@ -1300,7 +1290,7 @@ fn try_burn_from(
 fn try_batch_burn_from(
     deps: DepsMut,
     env: &Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     actions: Vec<batch::BurnFromAction>,
 ) -> StdResult<Response> {
     let constants = Constants::load(deps.storage)?;
@@ -1310,17 +1300,15 @@ fn try_batch_burn_from(
         ));
     }
 
-    let spender = info.sender.clone();
-
+    let spender = info.sender;
     let mut total_supply = TotalSupplyStore::load(deps.storage)?;
 
     for action in actions {
-        let owner = action.owner.clone();
         let amount = action.amount.u128();
-        use_allowance(deps.storage, env, &owner, &spender, amount)?;
+        use_allowance(deps.storage, env, &action.owner, &spender, amount)?;
 
         // subtract from owner account
-        let mut account_balance = BalancesStore::load(deps.storage, &owner);
+        let mut account_balance = BalancesStore::load(deps.storage, &action.owner);
 
         if let Some(new_balance) = account_balance.checked_sub(amount) {
             account_balance = new_balance;
@@ -1330,7 +1318,7 @@ fn try_batch_burn_from(
                 account_balance, amount
             )));
         }
-        BalancesStore::save(deps.storage, &owner, account_balance)?;
+        BalancesStore::save(deps.storage, &action.owner, account_balance)?;
 
         // remove from supply
         if let Some(new_total_supply) = total_supply.checked_sub(amount) {
@@ -1342,7 +1330,7 @@ fn try_batch_burn_from(
             )));
         }
 
-        let owner = deps.api.addr_canonicalize(owner.as_str())?;
+        let owner = deps.api.addr_canonicalize(action.owner.as_str())?;
         let spender = deps.api.addr_canonicalize(spender.as_str())?;
         store_burn(
             deps.storage,
@@ -1367,7 +1355,7 @@ fn try_batch_burn_from(
 fn try_increase_allowance(
     deps: DepsMut,
     env: Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     spender: String,
     amount: Uint128,
     expiration: Option<u64>,
@@ -1403,7 +1391,7 @@ fn try_increase_allowance(
 fn try_decrease_allowance(
     deps: DepsMut,
     env: Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     spender: String,
     amount: Uint128,
     expiration: Option<u64>,
@@ -1438,7 +1426,7 @@ fn try_decrease_allowance(
 
 fn add_minters(
     deps: DepsMut,
-    info: &MessageInfo,
+    info: MessageInfo,
     minters_to_add: Vec<String>,
 ) -> StdResult<Response> {
     let constants = Constants::load(deps.storage)?;
@@ -1461,7 +1449,7 @@ fn add_minters(
 
 fn remove_minters(
     deps: DepsMut,
-    info: &MessageInfo,
+    info: MessageInfo,
     minters_to_remove: Vec<String>,
 ) -> StdResult<Response> {
     let constants = Constants::load(deps.storage)?;
@@ -1488,7 +1476,7 @@ fn remove_minters(
 
 fn set_minters(
     deps: DepsMut,
-    info: &MessageInfo,
+    info: MessageInfo,
     minters_to_set: Vec<String>,
 ) -> StdResult<Response> {
     let constants = Constants::load(deps.storage)?;
@@ -1517,7 +1505,7 @@ fn set_minters(
 fn try_burn(
     deps: DepsMut,
     env: Env,
-    info: &MessageInfo,
+    info: MessageInfo,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
@@ -1594,7 +1582,7 @@ fn perform_transfer(
     Ok(())
 }
 
-fn revoke_permit(deps: DepsMut, info: &MessageInfo, permit_name: String) -> StdResult<Response> {
+fn revoke_permit(deps: DepsMut, info: MessageInfo, permit_name: String) -> StdResult<Response> {
     RevokedPermits::revoke_permit(
         deps.storage,
         PREFIX_REVOKED_PERMITS,

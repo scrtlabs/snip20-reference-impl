@@ -408,8 +408,8 @@ pub fn store_transfer(
 
 pub fn store_mint(
     store: &mut dyn Storage,
-    minter: &CanonicalAddr,
-    recipient: &CanonicalAddr,
+    minter: CanonicalAddr,
+    recipient: CanonicalAddr,
     amount: Uint128,
     denom: String,
     memo: Option<String>,
@@ -421,9 +421,9 @@ pub fn store_mint(
     let tx = StoredRichTx::new(id, action, coins, memo, block);
 
     if minter != recipient {
-        StoredRichTx::append_tx(store, &tx, recipient)?;
+        StoredRichTx::append_tx(store, &tx, &recipient)?;
     }
-    StoredRichTx::append_tx(store, &tx, minter)?;
+    StoredRichTx::append_tx(store, &tx, &minter)?;
 
     Ok(())
 }
