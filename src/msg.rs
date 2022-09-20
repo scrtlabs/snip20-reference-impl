@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::batch;
-use crate::transaction_history::{RichTx, Tx};
+use crate::transaction_history::{ExtendedTx, Tx};
 use crate::viewing_key_obj::ViewingKeyObj;
 use cosmwasm_std::{Addr, Binary, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
@@ -420,7 +420,7 @@ pub enum QueryAnswer {
         total: Option<u64>,
     },
     TransactionHistory {
-        txs: Vec<RichTx>,
+        txs: Vec<ExtendedTx>,
         total: Option<u64>,
     },
     ViewingKeyError {

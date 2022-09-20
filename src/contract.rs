@@ -17,8 +17,8 @@ use crate::state::{
     ContractStatusStore, MintersStore, TotalSupplyStore,
 };
 use crate::transaction_history::{
-    store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredLegacyTransfer,
-    StoredRichTx,
+    store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredExtendedTx,
+    StoredLegacyTransfer,
 };
 use secret_toolkit::crypto::sha_256;
 
@@ -62,7 +62,7 @@ pub fn instantiate(
     {
         let initial_balances = msg.initial_balances.unwrap_or_default();
         for balance in initial_balances {
-            let balance_address = deps.api.addr_canonicalize(balance.address.as_str())?;
+            // let balance_address = deps.api.addr_canonicalize(balance.address.as_str())?;
             let amount = balance.amount.u128();
             BalancesStore::save(deps.storage, &balance.address, amount)?;
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
@@ -73,11 +73,11 @@ pub fn instantiate(
                 ));
             }
 
-            let canon_admin = deps.api.addr_canonicalize(admin.as_str())?;
             store_mint(
                 deps.storage,
-                canon_admin,
-                balance_address,
+                deps.api,
+                admin.clone(),
+                balance.address,
                 balance.amount,
                 msg.symbol.clone(),
                 Some("Initial Balance".to_string()),
@@ -439,7 +439,7 @@ pub fn query_transfers(
 
     let address = deps.api.addr_canonicalize(account.as_str())?;
     let (txs, total) =
-        StoredLegacyTransfer::get_transfers(deps.api, deps.storage, &address, page, page_size)?;
+        StoredLegacyTransfer::get_transfers(deps.storage, &address, page, page_size)?;
 
     let result = QueryAnswer::TransferHistory {
         txs,
@@ -456,7 +456,7 @@ pub fn query_transactions(
 ) -> StdResult<Binary> {
     let account = deps.api.addr_validate(account.as_str())?;
     let address = deps.api.addr_canonicalize(account.as_str())?;
-    let (txs, total) = StoredRichTx::get_txs(deps.api, deps.storage, &address, page, page_size)?;
+    let (txs, total) = StoredExtendedTx::get_txs(deps.storage, &address, page, page_size)?;
 
     let result = QueryAnswer::TransactionHistory {
         txs,
@@ -494,8 +494,8 @@ fn change_admin(deps: DepsMut, info: MessageInfo, address: String) -> StdResult<
 
 fn try_mint_impl(
     deps: &mut DepsMut,
-    minter: &Addr,
-    recipient: &Addr,
+    minter: Addr,
+    recipient: Addr,
     amount: Uint128,
     denom: String,
     memo: Option<String>,
@@ -503,7 +503,7 @@ fn try_mint_impl(
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
 
-    let mut account_balance = BalancesStore::load(deps.storage, recipient);
+    let mut account_balance = BalancesStore::load(deps.storage, &recipient);
 
     if let Some(new_balance) = account_balance.checked_add(raw_amount) {
         account_balance = new_balance;
@@ -517,12 +517,18 @@ fn try_mint_impl(
         ));
     }
 
-    BalancesStore::save(deps.storage, recipient, account_balance)?;
+    BalancesStore::save(deps.storage, &recipient, account_balance)?;
 
-    let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
-    let minter = deps.api.addr_canonicalize(minter.as_str())?;
-
-    store_mint(deps.storage, minter, recipient, amount, denom, memo, block)?;
+    store_mint(
+        deps.storage,
+        deps.api,
+        minter,
+        recipient,
+        amount,
+        denom,
+        memo,
+        block,
+    )?;
 
     Ok(())
 }
@@ -564,8 +570,8 @@ fn try_mint(
 
     try_mint_impl(
         &mut deps,
-        &info.sender,
-        &recipient,
+        info.sender,
+        recipient,
         amount,
         constants.symbol,
         memo,
@@ -614,8 +620,8 @@ fn try_batch_mint(
     for action in actions {
         try_mint_impl(
             &mut deps,
-            &info.sender,
-            &action.recipient,
+            info.sender.clone(),
+            action.recipient,
             action.amount,
             constants.symbol.clone(),
             action.memo,
@@ -823,6 +829,7 @@ fn try_transfer_impl(
     let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
     store_transfer(
         deps.storage,
+        deps.api,
         &sender,
         &sender,
         &recipient,
@@ -1063,6 +1070,7 @@ fn try_transfer_from_impl(
     let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
     store_transfer(
         deps.storage,
+        deps.api,
         &owner,
         &spender,
         &recipient,
@@ -1236,7 +1244,7 @@ fn try_burn_from(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let owner = &deps.api.addr_validate(owner.as_str())?;
+    let owner = deps.api.addr_validate(owner.as_str())?;
     let constants = Constants::load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
@@ -1245,10 +1253,10 @@ fn try_burn_from(
     }
 
     let raw_amount = amount.u128();
-    use_allowance(deps.storage, env, owner, &info.sender, raw_amount)?;
+    use_allowance(deps.storage, env, &owner, &info.sender, raw_amount)?;
 
     // subtract from owner account
-    let mut account_balance = BalancesStore::load(deps.storage, owner);
+    let mut account_balance = BalancesStore::load(deps.storage, &owner);
     if let Some(new_balance) = account_balance.checked_sub(raw_amount) {
         account_balance = new_balance;
     } else {
@@ -1257,10 +1265,7 @@ fn try_burn_from(
             account_balance, raw_amount
         )));
     }
-    BalancesStore::save(deps.storage, owner, account_balance)?;
-
-    let spender = deps.api.addr_canonicalize(info.sender.as_str())?;
-    let owner = deps.api.addr_canonicalize(owner.as_str())?;
+    BalancesStore::save(deps.storage, &owner, account_balance)?;
 
     // remove from supply
     let mut total_supply = TotalSupplyStore::load(deps.storage)?;
@@ -1276,8 +1281,9 @@ fn try_burn_from(
 
     store_burn(
         deps.storage,
-        &owner,
-        &spender,
+        deps.api,
+        owner,
+        info.sender,
         amount,
         constants.symbol,
         memo,
@@ -1330,12 +1336,11 @@ fn try_batch_burn_from(
             )));
         }
 
-        let owner = deps.api.addr_canonicalize(action.owner.as_str())?;
-        let spender = deps.api.addr_canonicalize(spender.as_str())?;
         store_burn(
             deps.storage,
-            &owner,
-            &spender,
+            deps.api,
+            action.owner,
+            spender.clone(),
             action.amount,
             constants.symbol.clone(),
             action.memo,
@@ -1516,7 +1521,6 @@ fn try_burn(
         ));
     }
 
-    let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
     let raw_amount = amount.u128();
 
     let mut account_balance = BalancesStore::load(deps.storage, &info.sender);
@@ -1544,8 +1548,9 @@ fn try_burn(
 
     store_burn(
         deps.storage,
-        &sender_address,
-        &sender_address,
+        deps.api,
+        info.sender.clone(),
+        info.sender.clone(),
         amount,
         constants.symbol,
         memo,
@@ -4601,9 +4606,9 @@ mod tests {
             other => panic!("Unexpected: {:?}", other),
         };
 
-        use crate::transaction_history::{RichTx, TxAction};
+        use crate::transaction_history::{ExtendedTx, TxAction};
         let expected_transfers = [
-            RichTx {
+            ExtendedTx {
                 id: 8,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -4618,7 +4623,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            RichTx {
+            ExtendedTx {
                 id: 7,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -4633,7 +4638,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            RichTx {
+            ExtendedTx {
                 id: 6,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -4648,7 +4653,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            RichTx {
+            ExtendedTx {
                 id: 5,
                 action: TxAction::Deposit {},
                 coins: Coin {
@@ -4659,7 +4664,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            RichTx {
+            ExtendedTx {
                 id: 4,
                 action: TxAction::Mint {
                     minter: Addr::unchecked("admin".to_string()),
@@ -4673,7 +4678,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            RichTx {
+            ExtendedTx {
                 id: 3,
                 action: TxAction::Redeem {},
                 coins: Coin {
@@ -4684,7 +4689,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            RichTx {
+            ExtendedTx {
                 id: 2,
                 action: TxAction::Burn {
                     burner: Addr::unchecked("bob".to_string()),
@@ -4698,7 +4703,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            RichTx {
+            ExtendedTx {
                 id: 1,
                 action: TxAction::Mint {
                     minter: Addr::unchecked("admin".to_string()),
