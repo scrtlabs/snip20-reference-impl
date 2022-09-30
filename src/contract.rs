@@ -5,11 +5,12 @@ use cosmwasm_std::{
     HandleResponse, HumanAddr, InitResponse, Querier, QueryResult, ReadonlyStorage, StdError,
     StdResult, Storage, Uint128,
 };
+use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 
 use crate::batch;
 use crate::msg::QueryWithPermit;
 use crate::msg::{
-    space_pad, ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
+    ContractStatusLevel, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg,
     ResponseStatus::Success,
 };
 use crate::rand::sha_256;
@@ -107,16 +108,6 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     Ok(InitResponse::default())
 }
 
-fn pad_response(response: StdResult<HandleResponse>) -> StdResult<HandleResponse> {
-    response.map(|mut response| {
-        response.data = response.data.map(|mut data| {
-            space_pad(RESPONSE_BLOCK_SIZE, &mut data.0);
-            data
-        });
-        response
-    })
-}
-
 pub fn handle<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -137,7 +128,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
                     "This contract is stopped and this action is not allowed",
                 )),
             };
-            return pad_response(response);
+            return pad_handle_result(response, RESPONSE_BLOCK_SIZE);
         }
         ContractStatusLevel::NormalRun => {} // If it's a normal run just continue
     }
@@ -237,19 +228,22 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::RevokePermit { permit_name, .. } => revoke_permit(deps, env, permit_name),
     };
 
-    pad_response(response)
+    pad_handle_result(response, RESPONSE_BLOCK_SIZE)
 }
 
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
-    match msg {
-        QueryMsg::TokenInfo {} => query_token_info(&deps.storage),
-        QueryMsg::TokenConfig {} => query_token_config(&deps.storage),
-        QueryMsg::ContractStatus {} => query_contract_status(&deps.storage),
-        QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage),
-        QueryMsg::Minters { .. } => query_minters(deps),
-        QueryMsg::WithPermit { permit, query } => permit_queries(deps, permit, query),
-        _ => viewing_keys_queries(deps, msg),
-    }
+    pad_query_result(
+        match msg {
+            QueryMsg::TokenInfo {} => query_token_info(&deps.storage),
+            QueryMsg::TokenConfig {} => query_token_config(&deps.storage),
+            QueryMsg::ContractStatus {} => query_contract_status(&deps.storage),
+            QueryMsg::ExchangeRate {} => query_exchange_rate(&deps.storage),
+            QueryMsg::Minters { .. } => query_minters(deps),
+            QueryMsg::WithPermit { permit, query } => permit_queries(deps, permit, query),
+            _ => viewing_keys_queries(deps, msg),
+        },
+        RESPONSE_BLOCK_SIZE,
+    )
 }
 
 fn permit_queries<S: Storage, A: Api, Q: Querier>(
