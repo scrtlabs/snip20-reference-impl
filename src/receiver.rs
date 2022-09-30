@@ -4,8 +4,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{to_binary, Binary, CosmosMsg, HumanAddr, StdResult, Uint128, WasmMsg};
+use secret_toolkit::utils::space_pad;
 
-use crate::{contract::RESPONSE_BLOCK_SIZE, msg::space_pad};
+use crate::contract::RESPONSE_BLOCK_SIZE;
 
 /// Snip20ReceiveMsg should be de/serialized under `Receive()` variant in a HandleMsg
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
@@ -40,7 +41,7 @@ impl Snip20ReceiveMsg {
     pub fn into_binary(self) -> StdResult<Binary> {
         let msg = ReceiverHandleMsg::Receive(self);
         let mut data = to_binary(&msg)?;
-        space_pad(RESPONSE_BLOCK_SIZE, &mut data.0);
+        space_pad(&mut data.0, RESPONSE_BLOCK_SIZE);
         Ok(data)
     }
 
