@@ -796,6 +796,12 @@
             "permit_name"
           ],
           "properties": {
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "permit_name": {
               "type": "string"
             }

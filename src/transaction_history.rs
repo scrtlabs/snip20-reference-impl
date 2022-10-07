@@ -17,7 +17,7 @@ const PREFIX_TRANSFERS: &[u8] = b"transfers";
 // Since it's 64 bits long, even at 50 tx/s it would take
 // over 11 billion years for it to rollback. I'm pretty sure
 // we'll have bigger issues by then.
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 pub struct Tx {
     pub id: u64,
     pub from: HumanAddr,
