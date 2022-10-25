@@ -4,12 +4,14 @@ use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
     MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
+use secret_toolkit::permit::{validate, Permit, RevokedPermits, TokenPermissions};
+use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 
 use crate::batch;
 use crate::msg::QueryWithPermit;
 use crate::msg::{
-    space_pad, ContractStatusLevel, ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer,
-    QueryMsg, ResponseStatus::Success,
+    ContractStatusLevel, ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg,
+    ResponseStatus::Success,
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
@@ -23,7 +25,6 @@ use crate::transaction_history::{
 use secret_toolkit::crypto::sha_256;
 
 use crate::viewing_key_obj::ViewingKeyObj;
-use secret_toolkit::permit::{validate, Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -115,16 +116,6 @@ pub fn instantiate(
     Ok(Response::default())
 }
 
-fn pad_response(response: StdResult<Response>) -> StdResult<Response> {
-    response.map(|mut response| {
-        response.data = response.data.map(|mut data| {
-            space_pad(RESPONSE_BLOCK_SIZE, &mut data.0);
-            data
-        });
-        response
-    })
-}
-
 #[entry_point]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     let contract_status = ContractStatusStore::load(deps.storage)?;
@@ -144,7 +135,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
                     "This contract is stopped and this action is not allowed",
                 )),
             };
-            return pad_response(response);
+            return pad_handle_result(response, RESPONSE_BLOCK_SIZE);
         }
         ContractStatusLevel::NormalRun => {} // If it's a normal run just continue
     }
@@ -256,20 +247,23 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ExecuteMsg::RevokePermit { permit_name, .. } => revoke_permit(deps, info, permit_name),
     };
 
-    pad_response(response)
+    pad_handle_result(response, RESPONSE_BLOCK_SIZE)
 }
 
 #[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
-    match msg {
-        QueryMsg::TokenInfo {} => query_token_info(deps.storage),
-        QueryMsg::TokenConfig {} => query_token_config(deps.storage),
-        QueryMsg::ContractStatus {} => query_contract_status(deps.storage),
-        QueryMsg::ExchangeRate {} => query_exchange_rate(deps.storage),
-        QueryMsg::Minters { .. } => query_minters(deps),
-        QueryMsg::WithPermit { permit, query } => permit_queries(deps, permit, query),
-        _ => viewing_keys_queries(deps, msg),
-    }
+    pad_query_result(
+        match msg {
+            QueryMsg::TokenInfo {} => query_token_info(deps.storage),
+            QueryMsg::TokenConfig {} => query_token_config(deps.storage),
+            QueryMsg::ContractStatus {} => query_contract_status(deps.storage),
+            QueryMsg::ExchangeRate {} => query_exchange_rate(deps.storage),
+            QueryMsg::Minters { .. } => query_minters(deps),
+            QueryMsg::WithPermit { permit, query } => permit_queries(deps, permit, query),
+            _ => viewing_keys_queries(deps, msg),
+        },
+        RESPONSE_BLOCK_SIZE,
+    )
 }
 
 fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<Binary, StdError> {
@@ -2066,7 +2060,6 @@ mod tests {
             to_binary(&unwrapped_result).unwrap(),
             to_binary(&ExecuteAnswer::SetViewingKey { status: Success }).unwrap(),
         );
-        // let bob_canonical = deps.as_mut().api.addr_canonicalize("bob").unwrap();
 
         let result = ViewingKey::check(&deps.storage, "bob", actual_vk.as_str());
         assert!(result.is_ok());
