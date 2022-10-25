@@ -4,6 +4,8 @@ use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
     MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
+use secret_toolkit::permit::{validate, Permit, RevokedPermits, TokenPermissions};
+use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 
 use crate::batch;
 use crate::msg::QueryWithPermit;
@@ -143,7 +145,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
                     "This contract is stopped and this action is not allowed",
                 )),
             };
-            return pad_response(response);
+            return pad_handle_result(response, RESPONSE_BLOCK_SIZE);
         }
         ContractStatusLevel::NormalRun => {} // If it's a normal run just continue
     }
@@ -255,7 +257,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ExecuteMsg::RevokePermit { permit_name, .. } => revoke_permit(deps, info, permit_name),
     };
 
-    pad_response(response)
+    pad_handle_result(response, RESPONSE_BLOCK_SIZE)
 }
 
 #[entry_point]
