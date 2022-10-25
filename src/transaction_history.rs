@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Api, CanonicalAddr, Coin, StdError, StdResult, Storage, Uint128};
+use cosmwasm_std::{Addr, Coin, StdError, StdResult, Storage, Uint128};
 
 use secret_toolkit::storage::AppendStore;
 
@@ -99,19 +99,19 @@ impl StoredLegacyTransfer {
     fn append_transfer(
         store: &mut dyn Storage,
         tx: &StoredLegacyTransfer,
-        for_address: &CanonicalAddr,
+        for_address: &Addr,
     ) -> StdResult<()> {
-        let current_addr_store = TRANSFERS.add_suffix(for_address);
+        let current_addr_store = TRANSFERS.add_suffix(for_address.as_bytes());
         current_addr_store.push(store, tx)
     }
 
     pub fn get_transfers(
         storage: &dyn Storage,
-        for_address: &CanonicalAddr,
+        for_address: Addr,
         page: u32,
         page_size: u32,
     ) -> StdResult<(Vec<Tx>, u64)> {
-        let current_addr_store = TRANSFERS.add_suffix(for_address);
+        let current_addr_store = TRANSFERS.add_suffix(for_address.as_bytes());
         let len = current_addr_store.get_len(storage)? as u64;
         // Take `page_size` txs starting from the latest tx, potentially skipping `page * page_size`
         // txs from the start.
@@ -311,19 +311,19 @@ impl StoredExtendedTx {
     fn append_tx(
         store: &mut dyn Storage,
         tx: &StoredExtendedTx,
-        for_address: &CanonicalAddr,
+        for_address: &Addr,
     ) -> StdResult<()> {
-        let current_addr_store = TRANSACTIONS.add_suffix(for_address);
+        let current_addr_store = TRANSACTIONS.add_suffix(for_address.as_bytes());
         current_addr_store.push(store, tx)
     }
 
     pub fn get_txs(
         storage: &dyn Storage,
-        for_address: &CanonicalAddr,
+        for_address: Addr,
         page: u32,
         page_size: u32,
     ) -> StdResult<(Vec<ExtendedTx>, u64)> {
-        let current_addr_store = TRANSACTIONS.add_suffix(for_address);
+        let current_addr_store = TRANSACTIONS.add_suffix(for_address.as_bytes());
         let len = current_addr_store.get_len(storage)? as u64;
 
         // Take `page_size` txs starting from the latest tx, potentially skipping `page * page_size`
@@ -355,10 +355,9 @@ fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
 #[allow(clippy::too_many_arguments)] // We just need them
 pub fn store_transfer(
     store: &mut dyn Storage,
-    api: &dyn Api,
-    owner: &CanonicalAddr,
-    sender: &CanonicalAddr,
-    receiver: &CanonicalAddr,
+    owner: &Addr,
+    sender: &Addr,
+    receiver: &Addr,
     amount: Uint128,
     denom: String,
     memo: Option<String>,
@@ -368,9 +367,9 @@ pub fn store_transfer(
     let coins = Coin { denom, amount };
     let transfer = StoredLegacyTransfer {
         id,
-        from: api.addr_humanize(owner)?,
-        sender: api.addr_humanize(sender)?,
-        receiver: api.addr_humanize(receiver)?,
+        from: owner.clone(),
+        sender: sender.clone(),
+        receiver: receiver.clone(),
         coins,
         memo,
         block_time: block.time.seconds(),
@@ -398,10 +397,8 @@ pub fn store_transfer(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn store_mint(
     store: &mut dyn Storage,
-    api: &dyn Api,
     minter: Addr,
     recipient: Addr,
     amount: Uint128,
@@ -415,11 +412,9 @@ pub fn store_mint(
     let tx = StoredExtendedTx::new(id, action, coins, memo, block);
 
     if minter != recipient {
-        let recipient = api.addr_canonicalize(recipient.as_str())?;
         StoredExtendedTx::append_tx(store, &tx, &recipient)?;
     }
 
-    let minter = api.addr_canonicalize(minter.as_str())?;
     StoredExtendedTx::append_tx(store, &tx, &minter)?;
 
     Ok(())
@@ -428,7 +423,6 @@ pub fn store_mint(
 #[allow(clippy::too_many_arguments)]
 pub fn store_burn(
     store: &mut dyn Storage,
-    api: &dyn Api,
     owner: Addr,
     burner: Addr,
     amount: Uint128,
@@ -442,11 +436,9 @@ pub fn store_burn(
     let tx = StoredExtendedTx::new(id, action, coins, memo, block);
 
     if burner != owner {
-        let owner = api.addr_canonicalize(owner.as_str())?;
         StoredExtendedTx::append_tx(store, &tx, &owner)?;
     }
 
-    let burner = api.addr_canonicalize(burner.as_str())?;
     StoredExtendedTx::append_tx(store, &tx, &burner)?;
 
     Ok(())
@@ -454,7 +446,7 @@ pub fn store_burn(
 
 pub fn store_deposit(
     store: &mut dyn Storage,
-    recipient: &CanonicalAddr,
+    recipient: &Addr,
     amount: Uint128,
     denom: String,
     block: &cosmwasm_std::BlockInfo,
@@ -471,7 +463,7 @@ pub fn store_deposit(
 
 pub fn store_redeem(
     store: &mut dyn Storage,
-    redeemer: &CanonicalAddr,
+    redeemer: &Addr,
     amount: Uint128,
     denom: String,
     block: &cosmwasm_std::BlockInfo,

@@ -62,7 +62,6 @@ pub fn instantiate(
     {
         let initial_balances = msg.initial_balances.unwrap_or_default();
         for balance in initial_balances {
-            // let balance_address = deps.api.addr_canonicalize(balance.address.as_str())?;
             let amount = balance.amount.u128();
             BalancesStore::save(deps.storage, &balance.address, amount)?;
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
@@ -75,7 +74,6 @@ pub fn instantiate(
 
             store_mint(
                 deps.storage,
-                deps.api,
                 admin.clone(),
                 balance.address,
                 balance.amount,
@@ -436,10 +434,7 @@ pub fn query_transfers(
     page_size: u32,
 ) -> StdResult<Binary> {
     let account = deps.api.addr_validate(account.as_str())?;
-
-    let address = deps.api.addr_canonicalize(account.as_str())?;
-    let (txs, total) =
-        StoredLegacyTransfer::get_transfers(deps.storage, &address, page, page_size)?;
+    let (txs, total) = StoredLegacyTransfer::get_transfers(deps.storage, account, page, page_size)?;
 
     let result = QueryAnswer::TransferHistory {
         txs,
@@ -455,8 +450,7 @@ pub fn query_transactions(
     page_size: u32,
 ) -> StdResult<Binary> {
     let account = deps.api.addr_validate(account.as_str())?;
-    let address = deps.api.addr_canonicalize(account.as_str())?;
-    let (txs, total) = StoredExtendedTx::get_txs(deps.storage, &address, page, page_size)?;
+    let (txs, total) = StoredExtendedTx::get_txs(deps.storage, account, page, page_size)?;
 
     let result = QueryAnswer::TransactionHistory {
         txs,
@@ -519,16 +513,7 @@ fn try_mint_impl(
 
     BalancesStore::save(deps.storage, &recipient, account_balance)?;
 
-    store_mint(
-        deps.storage,
-        deps.api,
-        minter,
-        recipient,
-        amount,
-        denom,
-        memo,
-        block,
-    )?;
+    store_mint(deps.storage, minter, recipient, amount, denom, memo, block)?;
 
     Ok(())
 }
@@ -729,11 +714,11 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
         ));
     }
 
-    let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
+    let sender_address = &info.sender;
 
-    let account_balance = BalancesStore::load(deps.storage, &info.sender);
+    let account_balance = BalancesStore::load(deps.storage, sender_address);
     if let Some(account_balance) = account_balance.checked_add(raw_amount) {
-        BalancesStore::save(deps.storage, &info.sender, account_balance)?;
+        BalancesStore::save(deps.storage, sender_address, account_balance)?;
     } else {
         return Err(StdError::generic_err(
             "This deposit would overflow your balance",
@@ -742,7 +727,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
 
     store_deposit(
         deps.storage,
-        &sender_address,
+        sender_address,
         amount,
         "uscrt".to_string(),
         &env.block,
@@ -759,12 +744,12 @@ fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128) -> St
         ));
     }
 
-    let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
+    let sender_address = &info.sender;
     let amount_raw = amount.u128();
 
-    let account_balance = BalancesStore::load(deps.storage, &info.sender);
+    let account_balance = BalancesStore::load(deps.storage, sender_address);
     if let Some(account_balance) = account_balance.checked_sub(amount_raw) {
-        BalancesStore::save(deps.storage, &info.sender, account_balance)?;
+        BalancesStore::save(deps.storage, sender_address, account_balance)?;
     } else {
         return Err(StdError::generic_err(format!(
             "insufficient funds to redeem: balance={}, required={}",
@@ -798,7 +783,7 @@ fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128) -> St
 
     store_redeem(
         deps.storage,
-        &sender_address,
+        sender_address,
         amount,
         constants.symbol,
         &env.block,
@@ -824,15 +809,11 @@ fn try_transfer_impl(
     perform_transfer(deps.storage, sender, recipient, amount.u128())?;
 
     let symbol = Constants::load(deps.storage)?.symbol;
-
-    let sender = deps.api.addr_canonicalize(sender.as_str())?;
-    let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
     store_transfer(
         deps.storage,
-        deps.api,
-        &sender,
-        &sender,
-        &recipient,
+        sender,
+        sender,
+        recipient,
         amount,
         symbol,
         memo,
@@ -1064,16 +1045,11 @@ fn try_transfer_from_impl(
     perform_transfer(deps.storage, owner, recipient, raw_amount)?;
 
     let symbol = Constants::load(deps.storage)?.symbol;
-
-    let owner = deps.api.addr_canonicalize(owner.as_str())?;
-    let spender = deps.api.addr_canonicalize(spender.as_str())?;
-    let recipient = deps.api.addr_canonicalize(recipient.as_str())?;
     store_transfer(
         deps.storage,
-        deps.api,
-        &owner,
-        &spender,
-        &recipient,
+        owner,
+        spender,
+        recipient,
         amount,
         symbol,
         memo,
@@ -1281,7 +1257,6 @@ fn try_burn_from(
 
     store_burn(
         deps.storage,
-        deps.api,
         owner,
         info.sender,
         amount,
@@ -1338,7 +1313,6 @@ fn try_batch_burn_from(
 
         store_burn(
             deps.storage,
-            deps.api,
             action.owner,
             spender.clone(),
             action.amount,
@@ -1548,7 +1522,6 @@ fn try_burn(
 
     store_burn(
         deps.storage,
-        deps.api,
         info.sender.clone(),
         info.sender.clone(),
         amount,
