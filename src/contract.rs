@@ -63,7 +63,8 @@ pub fn instantiate(
         let initial_balances = msg.initial_balances.unwrap_or_default();
         for balance in initial_balances {
             let amount = balance.amount.u128();
-            BalancesStore::save(deps.storage, &balance.address, amount)?;
+            let balance_address = deps.api.addr_validate(balance.address.as_str())?;
+            BalancesStore::save(deps.storage, &balance_address, amount)?;
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
                 total_supply = new_total_supply;
             } else {
@@ -75,7 +76,7 @@ pub fn instantiate(
             store_mint(
                 deps.storage,
                 admin.clone(),
-                balance.address,
+                balance_address,
                 balance.amount,
                 msg.symbol.clone(),
                 Some("Initial Balance".to_string()),
@@ -603,10 +604,11 @@ fn try_batch_mint(
     TotalSupplyStore::save(deps.storage, total_supply)?;
 
     for action in actions {
+        let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_mint_impl(
             &mut deps,
             info.sender.clone(),
-            action.recipient,
+            recipient,
             action.amount,
             constants.symbol.clone(),
             action.memo,
@@ -852,10 +854,11 @@ fn try_batch_transfer(
     actions: Vec<batch::TransferAction>,
 ) -> StdResult<Response> {
     for action in actions {
+        let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_transfer_impl(
             &mut deps,
             &info.sender,
-            &action.recipient,
+            &recipient,
             action.amount,
             action.memo,
             &env.block,
@@ -968,11 +971,12 @@ fn try_batch_send(
 ) -> StdResult<Response> {
     let mut messages = vec![];
     for action in actions {
+        let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_send_impl(
             &mut deps,
             &mut messages,
             info.sender.clone(),
-            action.recipient,
+            recipient,
             action.recipient_code_hash,
             action.amount,
             action.memo,
@@ -1090,12 +1094,14 @@ fn try_batch_transfer_from(
     actions: Vec<batch::TransferFromAction>,
 ) -> StdResult<Response> {
     for action in actions {
+        let owner = deps.api.addr_validate(action.owner.as_str())?;
+        let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_transfer_from_impl(
             &mut deps,
             env,
             &info.sender,
-            &action.owner,
-            &action.recipient,
+            &owner,
+            &recipient,
             action.amount,
             action.memo,
         )?;
@@ -1190,14 +1196,16 @@ fn try_batch_send_from(
     let mut messages = vec![];
 
     for action in actions {
+        let owner = deps.api.addr_validate(action.owner.as_str())?;
+        let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_send_from_impl(
             &mut deps,
             env.clone(),
             info,
             &mut messages,
             info.sender.clone(),
-            action.owner,
-            action.recipient,
+            owner,
+            recipient,
             action.recipient_code_hash,
             action.amount,
             action.memo,
@@ -1285,11 +1293,12 @@ fn try_batch_burn_from(
     let mut total_supply = TotalSupplyStore::load(deps.storage)?;
 
     for action in actions {
+        let owner = deps.api.addr_validate(action.owner.as_str())?;
         let amount = action.amount.u128();
-        use_allowance(deps.storage, env, &action.owner, &spender, amount)?;
+        use_allowance(deps.storage, env, &owner, &spender, amount)?;
 
         // subtract from owner account
-        let mut account_balance = BalancesStore::load(deps.storage, &action.owner);
+        let mut account_balance = BalancesStore::load(deps.storage, &owner);
 
         if let Some(new_balance) = account_balance.checked_sub(amount) {
             account_balance = new_balance;
@@ -1299,7 +1308,7 @@ fn try_batch_burn_from(
                 account_balance, amount
             )));
         }
-        BalancesStore::save(deps.storage, &action.owner, account_balance)?;
+        BalancesStore::save(deps.storage, &owner, account_balance)?;
 
         // remove from supply
         if let Some(new_total_supply) = total_supply.checked_sub(amount) {
@@ -1313,7 +1322,7 @@ fn try_batch_burn_from(
 
         store_burn(
             deps.storage,
-            action.owner,
+            owner,
             spender.clone(),
             action.amount,
             constants.symbol.clone(),
@@ -1737,7 +1746,7 @@ mod tests {
     #[test]
     fn test_init_sanity() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("lebron".to_string()),
+            address: "lebron".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert_eq!(init_result.unwrap(), Response::default());
@@ -1767,7 +1776,7 @@ mod tests {
     fn test_init_with_config_sanity() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("lebron".to_string()),
+                address: "lebron".to_string(),
                 amount: Uint128::new(5000),
             }],
             true,
@@ -1806,7 +1815,7 @@ mod tests {
     #[test]
     fn test_total_supply_overflow() {
         let (init_result, _deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("lebron".to_string()),
+            address: "lebron".to_string(),
             amount: Uint128::new(u128::max_value()),
         }]);
         assert!(
@@ -1817,11 +1826,11 @@ mod tests {
 
         let (init_result, _deps) = init_helper(vec![
             InitialBalance {
-                address: Addr::unchecked("lebron".to_string()),
+                address: "lebron".to_string(),
                 amount: Uint128::new(u128::max_value()),
             },
             InitialBalance {
-                address: Addr::unchecked("giannis".to_string()),
+                address: "giannis".to_string(),
                 amount: Uint128::new(1),
             },
         ]);
@@ -1837,7 +1846,7 @@ mod tests {
     #[test]
     fn test_handle_transfer() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -1881,7 +1890,7 @@ mod tests {
     #[test]
     fn test_handle_send() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -1944,7 +1953,7 @@ mod tests {
     #[test]
     fn test_handle_register_receive() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -1973,7 +1982,7 @@ mod tests {
     #[test]
     fn test_handle_create_viewing_key() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2013,7 +2022,7 @@ mod tests {
     #[test]
     fn test_handle_set_viewing_key() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2135,7 +2144,7 @@ mod tests {
 
         // Init the contract
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked(user_address.to_string()),
+            address: user_address.to_string(),
             amount: Uint128::new(50000000),
         }]);
         assert!(
@@ -2175,7 +2184,7 @@ mod tests {
     #[test]
     fn test_handle_transfer_from() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2309,7 +2318,7 @@ mod tests {
     #[test]
     fn test_handle_send_from() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2447,7 +2456,7 @@ mod tests {
     fn test_handle_burn_from() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("bob".to_string()),
+                address: "bob".to_string(),
                 amount: Uint128::new(10000),
             }],
             false,
@@ -2463,7 +2472,7 @@ mod tests {
         );
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(10000),
         }]);
         assert!(
@@ -2570,15 +2579,15 @@ mod tests {
         let (init_result, mut deps) = init_helper_with_config(
             vec![
                 InitialBalance {
-                    address: Addr::unchecked("bob".to_string()),
+                    address: "bob".to_string(),
                     amount: Uint128::new(10000),
                 },
                 InitialBalance {
-                    address: Addr::unchecked("jerry".to_string()),
+                    address: "jerry".to_string(),
                     amount: Uint128::new(10000),
                 },
                 InitialBalance {
-                    address: Addr::unchecked("mike".to_string()),
+                    address: "mike".to_string(),
                     amount: Uint128::new(10000),
                 },
             ],
@@ -2595,7 +2604,7 @@ mod tests {
         );
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(10000),
         }]);
         assert!(
@@ -2607,7 +2616,7 @@ mod tests {
         let actions: Vec<_> = ["bob", "jerry", "mike"]
             .iter()
             .map(|name| batch::BurnFromAction {
-                owner: Addr::unchecked(name.to_string()),
+                owner: name.to_string(),
                 amount: Uint128::new(2500),
                 memo: None,
             })
@@ -2669,7 +2678,7 @@ mod tests {
         let actions: Vec<_> = [("bob", 200_u128), ("jerry", 300), ("mike", 400)]
             .iter()
             .map(|(name, amount)| batch::BurnFromAction {
-                owner: Addr::unchecked(name.to_string()),
+                owner: name.to_string(),
                 amount: Uint128::new(*amount),
                 memo: None,
             })
@@ -2700,7 +2709,7 @@ mod tests {
         let actions: Vec<_> = [("bob", 200_u128), ("jerry", 300), ("mike", 400)]
             .iter()
             .map(|(name, amount)| batch::BurnFromAction {
-                owner: Addr::unchecked(name.to_string()),
+                owner: name.to_string(),
                 amount: Uint128::new(allowance_size - *amount),
                 memo: None,
             })
@@ -2731,7 +2740,7 @@ mod tests {
         let actions: Vec<_> = ["bob", "jerry", "mike"]
             .iter()
             .map(|name| batch::BurnFromAction {
-                owner: Addr::unchecked(name.to_string()),
+                owner: name.to_string(),
                 amount: Uint128::new(1),
                 memo: None,
             })
@@ -2751,7 +2760,7 @@ mod tests {
     #[test]
     fn test_handle_decrease_allowance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2833,7 +2842,7 @@ mod tests {
     #[test]
     fn test_handle_increase_allowance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2899,7 +2908,7 @@ mod tests {
     #[test]
     fn test_handle_change_admin() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2929,7 +2938,7 @@ mod tests {
     #[test]
     fn test_handle_set_contract_status() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("admin".to_string()),
+            address: "admin".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -2963,7 +2972,7 @@ mod tests {
     fn test_handle_redeem() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("butler".to_string()),
+                address: "butler".to_string(),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -2980,7 +2989,7 @@ mod tests {
 
         let (init_result_no_reserve, mut deps_no_reserve) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("butler".to_string()),
+                address: "butler".to_string(),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -2996,7 +3005,7 @@ mod tests {
         );
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("butler".to_string()),
+            address: "butler".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3055,7 +3064,7 @@ mod tests {
     fn test_handle_deposit() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("lebron".to_string()),
+                address: "lebron".to_string(),
                 amount: Uint128::new(5000),
             }],
             true,
@@ -3071,7 +3080,7 @@ mod tests {
         );
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("lebron".to_string()),
+            address: "lebron".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3118,7 +3127,7 @@ mod tests {
     fn test_handle_burn() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("lebron".to_string()),
+                address: "lebron".to_string(),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3134,7 +3143,7 @@ mod tests {
         );
 
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("lebron".to_string()),
+            address: "lebron".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3180,7 +3189,7 @@ mod tests {
     fn test_handle_mint() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("lebron".to_string()),
+                address: "lebron".to_string(),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3195,7 +3204,7 @@ mod tests {
             init_result.err().unwrap()
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("lebron".to_string()),
+            address: "lebron".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3245,7 +3254,7 @@ mod tests {
         let admin_err = "Admin commands can only be run from admin address".to_string();
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("lebron".to_string()),
+                address: "lebron".to_string(),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3320,7 +3329,7 @@ mod tests {
     fn test_handle_pause_with_withdrawals() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("lebron".to_string()),
+                address: "lebron".to_string(),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3385,7 +3394,7 @@ mod tests {
     #[test]
     fn test_handle_pause_all() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("lebron".to_string()),
+            address: "lebron".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3445,7 +3454,7 @@ mod tests {
     fn test_handle_set_minters() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("bob".to_string()),
+                address: "bob".to_string(),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3460,7 +3469,7 @@ mod tests {
             init_result.err().unwrap()
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3531,7 +3540,7 @@ mod tests {
     fn test_handle_add_minters() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("bob".to_string()),
+                address: "bob".to_string(),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3546,7 +3555,7 @@ mod tests {
             init_result.err().unwrap()
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3616,7 +3625,7 @@ mod tests {
     fn test_handle_remove_minters() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("bob".to_string()),
+                address: "bob".to_string(),
                 amount: Uint128::new(5000),
             }],
             false,
@@ -3631,7 +3640,7 @@ mod tests {
             init_result.err().unwrap()
         );
         let (init_result_for_failure, mut deps_for_failure) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3741,7 +3750,7 @@ mod tests {
     #[test]
     fn test_authenticated_queries() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("giannis".to_string()),
+            address: "giannis".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -3817,7 +3826,7 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr::unchecked("giannis".to_string()),
+                address: "giannis".to_string(),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
@@ -3884,7 +3893,7 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr::unchecked("giannis".to_string()),
+                address: "giannis".to_string(),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
@@ -3954,7 +3963,7 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr::unchecked("giannis".to_string()),
+                address: "giannis".to_string(),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
@@ -4012,7 +4021,7 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr::unchecked("giannis".to_string()),
+                address: "giannis".to_string(),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
@@ -4070,7 +4079,7 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr::unchecked("giannis".to_string()),
+                address: "giannis".to_string(),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
@@ -4116,7 +4125,7 @@ mod tests {
             symbol: init_symbol.clone(),
             decimals: init_decimals.clone(),
             initial_balances: Some(vec![InitialBalance {
-                address: Addr::unchecked("giannis".to_string()),
+                address: "giannis".to_string(),
                 amount: init_supply,
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
@@ -4149,7 +4158,7 @@ mod tests {
     #[test]
     fn test_query_allowance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("giannis".to_string()),
+            address: "giannis".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -4267,7 +4276,7 @@ mod tests {
     #[test]
     fn test_query_balance() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -4317,7 +4326,7 @@ mod tests {
     #[test]
     fn test_query_transfer_history() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: Addr::unchecked("bob".to_string()),
+            address: "bob".to_string(),
             amount: Uint128::new(5000),
         }]);
         assert!(
@@ -4432,7 +4441,7 @@ mod tests {
     fn test_query_transaction_history() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
-                address: Addr::unchecked("bob".to_string()),
+                address: "bob".to_string(),
                 amount: Uint128::new(10000),
             }],
             true,

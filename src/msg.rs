@@ -11,7 +11,7 @@ use secret_toolkit::permit::Permit;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
 pub struct InitialBalance {
-    pub address: Addr,
+    pub address: String,
     pub amount: Uint128,
 }
 

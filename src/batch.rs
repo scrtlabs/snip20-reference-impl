@@ -26,8 +26,8 @@ pub struct SendAction {
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct TransferFromAction {
-    pub owner: Addr,
-    pub recipient: Addr,
+    pub owner: String,
+    pub recipient: String,
     pub amount: Uint128,
     pub memo: Option<String>,
 }
@@ -35,8 +35,8 @@ pub struct TransferFromAction {
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct SendFromAction {
-    pub owner: Addr,
-    pub recipient: Addr,
+    pub owner: String,
+    pub recipient: String,
     pub recipient_code_hash: Option<String>,
     pub amount: Uint128,
     pub msg: Option<Binary>,
@@ -46,7 +46,7 @@ pub struct SendFromAction {
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct MintAction {
-    pub recipient: Addr,
+    pub recipient: String,
     pub amount: Uint128,
     pub memo: Option<String>,
 }
@@ -54,7 +54,7 @@ pub struct MintAction {
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct BurnFromAction {
-    pub owner: Addr,
+    pub owner: String,
     pub amount: Uint128,
     pub memo: Option<String>,
 }
