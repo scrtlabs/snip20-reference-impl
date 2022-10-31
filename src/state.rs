@@ -181,16 +181,20 @@ impl AllowancesStore {
 }
 
 // Receiver Interface
+pub static RECEIVER_HASH: Item<String> = Item::new(PREFIX_RECEIVERS);
 
-pub fn get_receiver_hash(store: &dyn Storage, account: &Addr) -> Option<StdResult<String>> {
-    let store = ReadonlyPrefixedStorage::new(store, PREFIX_RECEIVERS);
-    store.get(account.as_str().as_bytes()).map(|data| {
-        String::from_utf8(data)
-            .map_err(|_err| StdError::invalid_utf8("stored code hash was not a valid String"))
-    })
+pub fn get_receiver_hash(store: &dyn Storage, account: &Addr) -> StdResult<String> {
+    let receiver_hash = RECEIVER_HASH.add_suffix(account.as_str().as_bytes());
+    receiver_hash
+        .load(store)
+        .map_err(|_err| StdError::generic_err("stored code hash was not a valid String"))
 }
 
-pub fn set_receiver_hash(store: &mut dyn Storage, account: &Addr, code_hash: String) {
-    let mut store = PrefixedStorage::new(store, PREFIX_RECEIVERS);
-    store.set(account.as_str().as_bytes(), code_hash.as_bytes());
+pub fn set_receiver_hash(
+    store: &mut dyn Storage,
+    account: &Addr,
+    code_hash: String,
+) -> StdResult<()> {
+    let receiver_hash = RECEIVER_HASH.add_suffix(account.as_str().as_bytes());
+    receiver_hash.save(store, &code_hash)
 }

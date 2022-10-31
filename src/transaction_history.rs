@@ -213,7 +213,7 @@ impl StoredTxAction {
         }
     }
 
-    fn into_humanized(self) -> StdResult<TxAction> {
+    fn into_tx_action(self) -> StdResult<TxAction> {
         let transfer_addr_err = || {
             StdError::generic_err(
                 "Missing address in stored Transfer transaction. Storage is corrupt",
@@ -256,6 +256,8 @@ impl StoredTxAction {
     }
 }
 
+static TRANSACTIONS: AppendStore<StoredExtendedTx> = AppendStore::new(PREFIX_TXS);
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct StoredExtendedTx {
@@ -288,7 +290,7 @@ impl StoredExtendedTx {
     fn into_humanized(self) -> StdResult<ExtendedTx> {
         Ok(ExtendedTx {
             id: self.id,
-            action: self.action.into_humanized()?,
+            action: self.action.into_tx_action()?,
             coins: self.coins,
             memo: self.memo,
             block_time: self.block_time,
@@ -341,8 +343,6 @@ impl StoredExtendedTx {
         txs.map(|txs| (txs, len))
     }
 }
-
-static TRANSACTIONS: AppendStore<StoredExtendedTx> = AppendStore::new(PREFIX_TXS);
 
 // Storage functions:
 
