@@ -986,7 +986,7 @@ fn try_register_receive(
     info: MessageInfo,
     code_hash: String,
 ) -> StdResult<Response> {
-    set_receiver_hash(deps.storage, &info.sender, code_hash);
+    set_receiver_hash(deps.storage, &info.sender, code_hash)?;
 
     let data = to_binary(&ExecuteAnswer::RegisterReceive { status: Success })?;
     Ok(Response::new()

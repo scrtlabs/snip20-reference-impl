@@ -2,7 +2,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, StdError, StdResult, Storage};
-use cosmwasm_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use secret_toolkit::serialization::Json;
 use secret_toolkit::storage::{Item, Keymap};
 
