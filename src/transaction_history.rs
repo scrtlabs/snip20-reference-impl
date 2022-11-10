@@ -5,7 +5,7 @@ use cosmwasm_std::{Addr, Coin, StdError, StdResult, Storage, Uint128};
 
 use secret_toolkit::storage::AppendStore;
 
-use crate::state::TxCountStore;
+use crate::state::TX_COUNT;
 
 const PREFIX_TXS: &[u8] = b"transactions";
 const PREFIX_TRANSFERS: &[u8] = b"transfers";
@@ -80,6 +80,7 @@ pub struct StoredLegacyTransfer {
     block_time: u64,
     block_height: u64,
 }
+static TRANSFERS: AppendStore<StoredLegacyTransfer> = AppendStore::new(PREFIX_TRANSFERS);
 
 impl StoredLegacyTransfer {
     pub fn into_humanized(self) -> StdResult<Tx> {
@@ -128,8 +129,6 @@ impl StoredLegacyTransfer {
         transfers.map(|txs| (txs, len))
     }
 }
-
-static TRANSFERS: AppendStore<StoredLegacyTransfer> = AppendStore::new(PREFIX_TRANSFERS);
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
@@ -347,8 +346,8 @@ impl StoredExtendedTx {
 // Storage functions:
 
 fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
-    let id = TxCountStore::load(store) + 1;
-    TxCountStore::save(store, id)?;
+    let id = TX_COUNT.load(store).unwrap_or_default() + 1;
+    TX_COUNT.save(store, &id)?;
     Ok(id)
 }
 

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::batch;
 use crate::transaction_history::{ExtendedTx, Tx};
 use crate::viewing_key_obj::ViewingKeyObj;
-use cosmwasm_std::{Addr, Binary, StdError, StdResult, Uint128};
+use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
@@ -354,21 +354,31 @@ pub enum QueryMsg {
 }
 
 impl QueryMsg {
-    pub fn get_validation_params(&self) -> (Vec<&String>, ViewingKeyObj) {
+    pub fn get_validation_params(&self, api: &dyn Api) -> StdResult<(Vec<Addr>, ViewingKeyObj)> {
         match self {
-            Self::Balance { address, key } => (vec![address], ViewingKeyObj(key.clone())),
+            Self::Balance { address, key } => {
+                let address = api.addr_validate(address.as_str())?;
+                Ok((vec![address], ViewingKeyObj(key.clone())))
+            }
             Self::TransferHistory { address, key, .. } => {
-                (vec![address], ViewingKeyObj(key.clone()))
+                let address = api.addr_validate(address.as_str())?;
+                Ok((vec![address], ViewingKeyObj(key.clone())))
             }
             Self::TransactionHistory { address, key, .. } => {
-                (vec![address], ViewingKeyObj(key.clone()))
+                let address = api.addr_validate(address.as_str())?;
+                Ok((vec![address], ViewingKeyObj(key.clone())))
             }
             Self::Allowance {
                 owner,
                 spender,
                 key,
                 ..
-            } => (vec![owner, spender], ViewingKeyObj(key.clone())),
+            } => {
+                let owner = api.addr_validate(owner.as_str())?;
+                let spender = api.addr_validate(spender.as_str())?;
+
+                Ok((vec![owner, spender], ViewingKeyObj(key.clone())))
+            }
             _ => panic!("This query type does not require authentication"),
         }
     }

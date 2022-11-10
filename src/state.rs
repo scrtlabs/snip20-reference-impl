@@ -42,48 +42,17 @@ pub struct Constants {
     // the address of this contract, used to validate query permits
     pub contract_address: Addr,
 }
-pub static CONSTANTS: Item<Constants> = Item::new(KEY_CONSTANTS);
-impl Constants {
-    pub fn load(store: &dyn Storage) -> StdResult<Constants> {
-        CONSTANTS
-            .load(store)
-            .map_err(|_err| StdError::generic_err("no constants stored"))
-    }
 
-    pub fn save(store: &mut dyn Storage, constants: Constants) -> StdResult<()> {
-        CONSTANTS.save(store, &constants)
-    }
-}
+pub static CONSTANTS: Item<Constants> = Item::new(KEY_CONSTANTS);
 
 pub static TOTAL_SUPPLY: Item<u128> = Item::new(KEY_TOTAL_SUPPLY);
-pub struct TotalSupplyStore {}
-impl TotalSupplyStore {
-    pub fn load(store: &dyn Storage) -> StdResult<u128> {
-        TOTAL_SUPPLY
-            .load(store)
-            .map_err(|_err| StdError::generic_err("no total supply stored"))
-    }
-
-    pub fn save(store: &mut dyn Storage, supply: u128) -> StdResult<()> {
-        TOTAL_SUPPLY.save(store, &supply)
-    }
-}
 
 pub static CONTRACT_STATUS: Item<ContractStatusLevel, Json> = Item::new(KEY_CONTRACT_STATUS);
-pub struct ContractStatusStore {}
-impl ContractStatusStore {
-    pub fn load(store: &dyn Storage) -> StdResult<ContractStatusLevel> {
-        CONTRACT_STATUS
-            .load(store)
-            .map_err(|_err| StdError::generic_err("no contract status stored"))
-    }
-
-    pub fn save(store: &mut dyn Storage, status: ContractStatusLevel) -> StdResult<()> {
-        CONTRACT_STATUS.save(store, &status)
-    }
-}
 
 pub static MINTERS: Item<Vec<Addr>> = Item::new(KEY_MINTERS);
+
+pub static TX_COUNT: Item<u64> = Item::new(KEY_TX_COUNT);
+
 pub struct MintersStore {}
 impl MintersStore {
     pub fn load(store: &dyn Storage) -> StdResult<Vec<Addr>> {
@@ -116,18 +85,6 @@ impl MintersStore {
         }
 
         MINTERS.save(store, &loaded_minters)
-    }
-}
-
-pub static TX_COUNT: Item<u64> = Item::new(KEY_TX_COUNT);
-pub struct TxCountStore {}
-impl TxCountStore {
-    pub fn load(store: &dyn Storage) -> u64 {
-        TX_COUNT.load(store).unwrap_or_default()
-    }
-
-    pub fn save(store: &mut dyn Storage, count: u64) -> StdResult<()> {
-        TX_COUNT.save(store, &count)
     }
 }
 

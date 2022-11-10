@@ -3,12 +3,12 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Binary, Uint128};
+use cosmwasm_std::{Binary, Uint128};
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct TransferAction {
-    pub recipient: Addr,
+    pub recipient: String,
     pub amount: Uint128,
     pub memo: Option<String>,
 }
@@ -16,7 +16,7 @@ pub struct TransferAction {
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct SendAction {
-    pub recipient: Addr,
+    pub recipient: String,
     pub recipient_code_hash: Option<String>,
     pub amount: Uint128,
     pub msg: Option<Binary>,
