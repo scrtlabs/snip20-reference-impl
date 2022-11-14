@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::batch;
 use crate::transaction_history::{ExtendedTx, Tx};
-use crate::viewing_key_obj::ViewingKeyObj;
 use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+#[derive(Serialize, Deserialize, Clone, JsonSchema)]
 pub struct InitialBalance {
     pub address: String,
     pub amount: Uint128,
@@ -251,7 +251,7 @@ pub enum ExecuteAnswer {
         status: ResponseStatus,
     },
     CreateViewingKey {
-        key: ViewingKeyObj,
+        key: String,
     },
     SetViewingKey {
         status: ResponseStatus,
@@ -318,7 +318,8 @@ pub enum ExecuteAnswer {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     TokenInfo {},
@@ -354,19 +355,19 @@ pub enum QueryMsg {
 }
 
 impl QueryMsg {
-    pub fn get_validation_params(&self, api: &dyn Api) -> StdResult<(Vec<Addr>, ViewingKeyObj)> {
+    pub fn get_validation_params(&self, api: &dyn Api) -> StdResult<(Vec<Addr>, String)> {
         match self {
             Self::Balance { address, key } => {
                 let address = api.addr_validate(address.as_str())?;
-                Ok((vec![address], ViewingKeyObj(key.clone())))
+                Ok((vec![address], key.clone()))
             }
             Self::TransferHistory { address, key, .. } => {
                 let address = api.addr_validate(address.as_str())?;
-                Ok((vec![address], ViewingKeyObj(key.clone())))
+                Ok((vec![address], key.clone()))
             }
             Self::TransactionHistory { address, key, .. } => {
                 let address = api.addr_validate(address.as_str())?;
-                Ok((vec![address], ViewingKeyObj(key.clone())))
+                Ok((vec![address], key.clone()))
             }
             Self::Allowance {
                 owner,
@@ -377,14 +378,15 @@ impl QueryMsg {
                 let owner = api.addr_validate(owner.as_str())?;
                 let spender = api.addr_validate(spender.as_str())?;
 
-                Ok((vec![owner, spender], ViewingKeyObj(key.clone())))
+                Ok((vec![owner, spender], key.clone()))
             }
             _ => panic!("This query type does not require authentication"),
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[serde(rename_all = "snake_case")]
 pub enum QueryWithPermit {
     Allowance { owner: String, spender: String },
@@ -441,12 +443,8 @@ pub enum QueryAnswer {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
-pub struct CreateViewingKeyResponse {
-    pub key: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, Clone, JsonSchema, Debug)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[serde(rename_all = "snake_case")]
 pub enum ResponseStatus {
     Success,

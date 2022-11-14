@@ -7,9 +7,7 @@ use secret_toolkit::storage::{Item, Keymap};
 
 use crate::msg::ContractStatusLevel;
 
-pub static CONFIG_KEY: &[u8] = b"config";
-
-pub const KEY_CONSTANTS: &[u8] = b"constants";
+pub const KEY_CONFIG: &[u8] = b"config";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
 pub const KEY_CONTRACT_STATUS: &[u8] = b"contract_status";
 pub const KEY_MINTERS: &[u8] = b"minters";
@@ -23,8 +21,9 @@ pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 
 // Config
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
-pub struct Constants {
+#[derive(Serialize, Debug, Deserialize, Clone, JsonSchema)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+pub struct Config {
     pub name: String,
     pub admin: Addr,
     pub symbol: String,
@@ -43,7 +42,7 @@ pub struct Constants {
     pub contract_address: Addr,
 }
 
-pub static CONSTANTS: Item<Constants> = Item::new(KEY_CONSTANTS);
+pub static CONFIG: Item<Config> = Item::new(KEY_CONFIG);
 
 pub static TOTAL_SUPPLY: Item<u128> = Item::new(KEY_TOTAL_SUPPLY);
 

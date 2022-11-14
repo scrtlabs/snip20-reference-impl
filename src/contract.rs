@@ -4,7 +4,7 @@ use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
     MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
-use secret_toolkit::permit::{validate, Permit, RevokedPermits, TokenPermissions};
+use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 
 use crate::batch;
@@ -15,8 +15,8 @@ use crate::msg::{
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    get_receiver_hash, set_receiver_hash, AllowancesStore, BalancesStore, Constants, MintersStore,
-    CONSTANTS, CONTRACT_STATUS, TOTAL_SUPPLY,
+    get_receiver_hash, set_receiver_hash, AllowancesStore, BalancesStore, Config, MintersStore,
+    CONFIG, CONTRACT_STATUS, TOTAL_SUPPLY,
 };
 use crate::transaction_history::{
     store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredExtendedTx,
@@ -24,7 +24,6 @@ use crate::transaction_history::{
 };
 use secret_toolkit::crypto::sha_256;
 
-use crate::viewing_key_obj::ViewingKeyObj;
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -86,9 +85,9 @@ pub fn instantiate(
         }
     }
 
-    CONSTANTS.save(
+    CONFIG.save(
         deps.storage,
-        &Constants {
+        &Config {
             name: msg.name,
             symbol: msg.symbol,
             decimals: msg.decimals,
@@ -268,9 +267,9 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<Binary, StdError> {
     // Validate permit content
-    let token_address = CONSTANTS.load(deps.storage)?.contract_address;
+    let token_address = CONFIG.load(deps.storage)?.contract_address;
 
-    let account = validate(
+    let account = secret_toolkit::permit::validate(
         deps,
         PREFIX_REVOKED_PERMITS,
         &permit,
@@ -363,7 +362,7 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 fn query_exchange_rate(storage: &dyn Storage) -> StdResult<Binary> {
-    let constants = CONSTANTS.load(storage)?;
+    let constants = CONFIG.load(storage)?;
 
     if constants.deposit_is_enabled || constants.redeem_is_enabled {
         let rate: Uint128;
@@ -386,7 +385,7 @@ fn query_exchange_rate(storage: &dyn Storage) -> StdResult<Binary> {
 }
 
 fn query_token_info(storage: &dyn Storage) -> StdResult<Binary> {
-    let constants = CONSTANTS.load(storage)?;
+    let constants = CONFIG.load(storage)?;
 
     let total_supply = if constants.total_supply_is_public {
         Some(Uint128::new(TOTAL_SUPPLY.load(storage)?))
@@ -403,7 +402,7 @@ fn query_token_info(storage: &dyn Storage) -> StdResult<Binary> {
 }
 
 fn query_token_config(storage: &dyn Storage) -> StdResult<Binary> {
-    let constants = CONSTANTS.load(storage)?;
+    let constants = CONFIG.load(storage)?;
 
     to_binary(&QueryAnswer::TokenConfig {
         public_total_supply: constants.total_supply_is_public,
@@ -486,11 +485,11 @@ fn query_minters(deps: Deps) -> StdResult<Binary> {
 fn change_admin(deps: DepsMut, info: MessageInfo, address: String) -> StdResult<Response> {
     let address = deps.api.addr_validate(address.as_str())?;
 
-    let mut constants = CONSTANTS.load(deps.storage)?;
+    let mut constants = CONFIG.load(deps.storage)?;
     check_if_admin(&constants.admin, &info.sender)?;
 
     constants.admin = address;
-    CONSTANTS.save(deps.storage, &constants)?;
+    CONFIG.save(deps.storage, &constants)?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::ChangeAdmin { status: Success })?))
 }
@@ -537,7 +536,7 @@ fn try_mint(
 ) -> StdResult<Response> {
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
-    let constants = CONSTANTS.load(deps.storage)?;
+    let constants = CONFIG.load(deps.storage)?;
 
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
@@ -581,7 +580,7 @@ fn try_batch_mint(
     info: MessageInfo,
     actions: Vec<batch::MintAction>,
 ) -> StdResult<Response> {
-    let constants = CONSTANTS.load(deps.storage)?;
+    let constants = CONFIG.load(deps.storage)?;
 
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
@@ -650,11 +649,7 @@ pub fn try_create_key(
         (&entropy).as_ref(),
     );
 
-    Ok(
-        Response::new().set_data(to_binary(&ExecuteAnswer::CreateViewingKey {
-            key: ViewingKeyObj(key),
-        })?),
-    )
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::CreateViewingKey { key })?))
 }
 
 fn set_contract_status(
@@ -662,7 +657,7 @@ fn set_contract_status(
     info: MessageInfo,
     status_level: ContractStatusLevel,
 ) -> StdResult<Response> {
-    let constants = CONSTANTS.load(deps.storage)?;
+    let constants = CONFIG.load(deps.storage)?;
     check_if_admin(&constants.admin, &info.sender)?;
 
     CONTRACT_STATUS.save(deps.storage, &status_level)?;
@@ -712,7 +707,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
 
     let raw_amount = amount.u128();
 
-    let constants = CONSTANTS.load(deps.storage)?;
+    let constants = CONFIG.load(deps.storage)?;
     if !constants.deposit_is_enabled {
         return Err(StdError::generic_err(
             "Deposit functionality is not enabled for this token.",
@@ -751,7 +746,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
 }
 
 fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128) -> StdResult<Response> {
-    let constants = CONSTANTS.load(deps.storage)?;
+    let constants = CONFIG.load(deps.storage)?;
     if !constants.redeem_is_enabled {
         return Err(StdError::generic_err(
             "Redeem functionality is not enabled for this token.",
@@ -822,7 +817,7 @@ fn try_transfer_impl(
 ) -> StdResult<()> {
     perform_transfer(deps.storage, sender, recipient, amount.u128())?;
 
-    let symbol = CONSTANTS.load(deps.storage)?.symbol;
+    let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
         deps.storage,
         sender,
@@ -1057,7 +1052,7 @@ fn try_transfer_from_impl(
 
     perform_transfer(deps.storage, owner, recipient, raw_amount)?;
 
-    let symbol = CONSTANTS.load(deps.storage)?.symbol;
+    let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
         deps.storage,
         owner,
@@ -1129,7 +1124,6 @@ fn try_send_from_impl(
     env: Env,
     info: &MessageInfo,
     messages: &mut Vec<CosmosMsg>,
-    spender: Addr, // redundant but more efficient
     owner: Addr,
     recipient: Addr,
     recipient_code_hash: Option<String>,
@@ -1137,6 +1131,7 @@ fn try_send_from_impl(
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<()> {
+    let spender = info.sender.clone();
     try_transfer_from_impl(
         deps,
         &env,
@@ -1182,7 +1177,6 @@ fn try_send_from(
         env,
         info,
         &mut messages,
-        info.sender.clone(),
         owner,
         recipient,
         recipient_code_hash,
@@ -1212,7 +1206,6 @@ fn try_batch_send_from(
             env.clone(),
             info,
             &mut messages,
-            info.sender.clone(),
             owner,
             recipient,
             action.recipient_code_hash,
@@ -1238,7 +1231,7 @@ fn try_burn_from(
     memo: Option<String>,
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
-    let constants = CONSTANTS.load(deps.storage)?;
+    let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
             "Burn functionality is not enabled for this token.",
@@ -1291,7 +1284,7 @@ fn try_batch_burn_from(
     info: MessageInfo,
     actions: Vec<batch::BurnFromAction>,
 ) -> StdResult<Response> {
-    let constants = CONSTANTS.load(deps.storage)?;
+    let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
             "Burn functionality is not enabled for this token.",
@@ -1426,7 +1419,7 @@ fn add_minters(
     info: MessageInfo,
     minters_to_add: Vec<String>,
 ) -> StdResult<Response> {
-    let constants = CONSTANTS.load(deps.storage)?;
+    let constants = CONFIG.load(deps.storage)?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
             "Mint functionality is not enabled for this token.",
@@ -1449,7 +1442,7 @@ fn remove_minters(
     info: MessageInfo,
     minters_to_remove: Vec<String>,
 ) -> StdResult<Response> {
-    let constants = CONSTANTS.load(deps.storage)?;
+    let constants = CONFIG.load(deps.storage)?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
             "Mint functionality is not enabled for this token.",
@@ -1458,11 +1451,11 @@ fn remove_minters(
 
     check_if_admin(&constants.admin, &info.sender)?;
 
-    let minters_to_remove: Vec<Addr> = minters_to_remove
+    let minters_to_remove: StdResult<Vec<Addr>> = minters_to_remove
         .iter()
-        .map(|minter| deps.api.addr_validate(minter.as_str()).unwrap())
+        .map(|minter| deps.api.addr_validate(minter.as_str()))
         .collect();
-    MintersStore::remove_minters(deps.storage, minters_to_remove)?;
+    MintersStore::remove_minters(deps.storage, minters_to_remove?)?;
 
     Ok(
         Response::new().set_data(to_binary(&ExecuteAnswer::RemoveMinters {
@@ -1476,7 +1469,7 @@ fn set_minters(
     info: MessageInfo,
     minters_to_set: Vec<String>,
 ) -> StdResult<Response> {
-    let constants = CONSTANTS.load(deps.storage)?;
+    let constants = CONFIG.load(deps.storage)?;
     if !constants.mint_is_enabled {
         return Err(StdError::generic_err(
             "Mint functionality is not enabled for this token.",
@@ -1506,7 +1499,7 @@ fn try_burn(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let constants = CONSTANTS.load(deps.storage)?;
+    let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
             "Burn functionality is not enabled for this token.",
@@ -1624,7 +1617,6 @@ mod tests {
     use super::*;
     use crate::msg::ResponseStatus;
     use crate::msg::{InitConfig, InitialBalance};
-    use crate::viewing_key_obj::ViewingKeyObj;
     use cosmwasm_std::testing::*;
     use cosmwasm_std::{
         from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
@@ -1750,6 +1742,34 @@ mod tests {
         }
     }
 
+    /// creates a cosmos_msg sending this struct to the named contract
+    pub fn into_cosmos_submsg(
+        msg: Snip20ReceiveMsg,
+        code_hash: String,
+        contract_addr: Addr,
+        id: u64,
+    ) -> StdResult<SubMsg> {
+        let msg = msg.into_binary()?;
+        let execute = SubMsg {
+            id,
+            msg: WasmMsg::Execute {
+                contract_addr: contract_addr.into_string(),
+                code_hash,
+                msg,
+                funds: vec![],
+            }
+            .into(),
+            // TODO: Discuss the wanted behavior
+            reply_on: match id {
+                0 => ReplyOn::Never,
+                _ => ReplyOn::Always,
+            },
+            gas_limit: None,
+        };
+
+        Ok(execute)
+    }
+
     // Init tests
 
     #[test]
@@ -1760,7 +1780,7 @@ mod tests {
         }]);
         assert_eq!(init_result.unwrap(), Response::default());
 
-        let constants = CONSTANTS.load(&deps.storage).unwrap();
+        let constants = CONFIG.load(&deps.storage).unwrap();
         assert_eq!(TOTAL_SUPPLY.load(&deps.storage).unwrap(), 5000);
         assert_eq!(
             CONTRACT_STATUS.load(&deps.storage).unwrap(),
@@ -1796,7 +1816,7 @@ mod tests {
         );
         assert_eq!(init_result.unwrap(), Response::default());
 
-        let constants = CONSTANTS.load(&deps.storage).unwrap();
+        let constants = CONFIG.load(&deps.storage).unwrap();
         assert_eq!(TOTAL_SUPPLY.load(&deps.storage).unwrap(), 5000);
         assert_eq!(
             CONTRACT_STATUS.load(&deps.storage).unwrap(),
@@ -1853,7 +1873,7 @@ mod tests {
     // Handle tests
 
     #[test]
-    fn test_handle_transfer() {
+    fn test_execute_transfer() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: "bob".to_string(),
             amount: Uint128::new(5000),
@@ -2059,9 +2079,9 @@ mod tests {
         );
 
         // Set valid VK
-        let actual_vk = ViewingKeyObj("x".to_string().repeat(VIEWING_KEY_SIZE));
+        let actual_vk = "x".to_string().repeat(VIEWING_KEY_SIZE);
         let handle_msg = ExecuteMsg::SetViewingKey {
-            key: actual_vk.0.clone(),
+            key: actual_vk.clone(),
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -2189,7 +2209,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_transfer_from() {
+    fn test_execute_transfer_from() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: "bob".to_string(),
             amount: Uint128::new(5000),
@@ -2424,13 +2444,13 @@ mod tests {
             handle_result.err().unwrap()
         );
         assert!(handle_result.unwrap().messages.contains(
-            &snip20_msg
-                .into_cosmos_submsg(
-                    "lolz".to_string(),
-                    Addr::unchecked("contract".to_string()),
-                    0
-                )
-                .unwrap()
+            &into_cosmos_submsg(
+                snip20_msg,
+                "lolz".to_string(),
+                Addr::unchecked("contract".to_string()),
+                0
+            )
+            .unwrap()
         ));
         let bob_canonical = Addr::unchecked("bob".to_string());
         let contract_canonical = Addr::unchecked("contract".to_string());
@@ -2938,7 +2958,7 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let admin = CONSTANTS.load(&deps.storage).unwrap().admin;
+        let admin = CONFIG.load(&deps.storage).unwrap().admin;
         assert_eq!(admin, Addr::unchecked("bob".to_string()));
     }
 
@@ -3790,7 +3810,7 @@ mod tests {
 
         let query_balance_msg = QueryMsg::Balance {
             address: "giannis".to_string(),
-            key: vk.0,
+            key: vk,
         };
 
         let query_response = query(deps.as_ref(), mock_env(), query_balance_msg).unwrap();
@@ -4190,13 +4210,13 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let vk1 = ViewingKeyObj("key1".to_string());
-        let vk2 = ViewingKeyObj("key2".to_string());
+        let vk1 = "key1".to_string();
+        let vk2 = "key2".to_string();
 
         let query_msg = QueryMsg::Allowance {
             owner: "giannis".to_string(),
             spender: "lebron".to_string(),
-            key: vk1.0.clone(),
+            key: vk1.clone(),
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         assert!(
@@ -4208,7 +4228,7 @@ mod tests {
         assert!(error.contains("Wrong viewing key"));
 
         let handle_msg = ExecuteMsg::SetViewingKey {
-            key: vk1.0.clone(),
+            key: vk1.clone(),
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -4226,7 +4246,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::SetViewingKey {
-            key: vk2.0.clone(),
+            key: vk2.clone(),
             padding: None,
         };
         let info = mock_info("giannis", &[]);
@@ -4246,7 +4266,7 @@ mod tests {
         let query_msg = QueryMsg::Allowance {
             owner: "giannis".to_string(),
             spender: "lebron".to_string(),
-            key: vk1.0.clone(),
+            key: vk1.clone(),
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {
@@ -4258,7 +4278,7 @@ mod tests {
         let query_msg = QueryMsg::Allowance {
             owner: "giannis".to_string(),
             spender: "lebron".to_string(),
-            key: vk2.0.clone(),
+            key: vk2.clone(),
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {
@@ -4270,7 +4290,7 @@ mod tests {
         let query_msg = QueryMsg::Allowance {
             owner: "lebron".to_string(),
             spender: "giannis".to_string(),
-            key: vk2.0.clone(),
+            key: vk2.clone(),
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let allowance = match from_binary(&query_result.unwrap()).unwrap() {
