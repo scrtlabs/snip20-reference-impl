@@ -87,15 +87,17 @@ impl MintersStore {
     }
 }
 
-pub static BALANCES: Keymap<Addr, u128> = Keymap::new(PREFIX_BALANCES);
+pub static BALANCES: Item<u128> = Item::new(PREFIX_BALANCES);
 pub struct BalancesStore {}
 impl BalancesStore {
     pub fn load(store: &dyn Storage, account: &Addr) -> u128 {
-        BALANCES.get(store, account).unwrap_or_default()
+        let balances = BALANCES.add_suffix(account.as_str().as_bytes());
+        balances.load(store).unwrap_or_default()
     }
 
     pub fn save(store: &mut dyn Storage, account: &Addr, amount: u128) -> StdResult<()> {
-        BALANCES.insert(store, account, &amount)
+        let balances = BALANCES.add_suffix(account.as_str().as_bytes());
+        balances.save(store, &amount)
     }
 }
 
