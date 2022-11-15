@@ -4,17 +4,11 @@
   "anyOf": [
     {
       "type": "object",
-      "required": [
-        "token_info"
-      ],
+      "required": ["token_info"],
       "properties": {
         "token_info": {
           "type": "object",
-          "required": [
-            "decimals",
-            "name",
-            "symbol"
-          ],
+          "required": ["decimals", "name", "symbol"],
           "properties": {
             "decimals": {
               "type": "integer",
@@ -43,9 +37,7 @@
     },
     {
       "type": "object",
-      "required": [
-        "token_config"
-      ],
+      "required": ["token_config"],
       "properties": {
         "token_config": {
           "type": "object",
@@ -78,15 +70,11 @@
     },
     {
       "type": "object",
-      "required": [
-        "contract_status"
-      ],
+      "required": ["contract_status"],
       "properties": {
         "contract_status": {
           "type": "object",
-          "required": [
-            "status"
-          ],
+          "required": ["status"],
           "properties": {
             "status": {
               "$ref": "#/definitions/ContractStatusLevel"
@@ -97,16 +85,11 @@
     },
     {
       "type": "object",
-      "required": [
-        "exchange_rate"
-      ],
+      "required": ["exchange_rate"],
       "properties": {
         "exchange_rate": {
           "type": "object",
-          "required": [
-            "denom",
-            "rate"
-          ],
+          "required": ["denom", "rate"],
           "properties": {
             "denom": {
               "type": "string"
@@ -120,26 +103,17 @@
     },
     {
       "type": "object",
-      "required": [
-        "allowance"
-      ],
+      "required": ["allowance"],
       "properties": {
         "allowance": {
           "type": "object",
-          "required": [
-            "allowance",
-            "owner",
-            "spender"
-          ],
+          "required": ["allowance", "owner", "spender"],
           "properties": {
             "allowance": {
               "$ref": "#/definitions/Uint128"
             },
             "expiration": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": ["integer", "null"],
               "format": "uint64",
               "minimum": 0.0
             },
@@ -155,15 +129,11 @@
     },
     {
       "type": "object",
-      "required": [
-        "balance"
-      ],
+      "required": ["balance"],
       "properties": {
         "balance": {
           "type": "object",
-          "required": [
-            "amount"
-          ],
+          "required": ["amount"],
           "properties": {
             "amount": {
               "$ref": "#/definitions/Uint128"
@@ -174,21 +144,14 @@
     },
     {
       "type": "object",
-      "required": [
-        "transfer_history"
-      ],
+      "required": ["transfer_history"],
       "properties": {
         "transfer_history": {
           "type": "object",
-          "required": [
-            "txs"
-          ],
+          "required": ["txs"],
           "properties": {
             "total": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": ["integer", "null"],
               "format": "uint64",
               "minimum": 0.0
             },
@@ -204,28 +167,21 @@
     },
     {
       "type": "object",
-      "required": [
-        "transaction_history"
-      ],
+      "required": ["transaction_history"],
       "properties": {
         "transaction_history": {
           "type": "object",
-          "required": [
-            "txs"
-          ],
+          "required": ["txs"],
           "properties": {
             "total": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": ["integer", "null"],
               "format": "uint64",
               "minimum": 0.0
             },
             "txs": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/RichTx"
+                "$ref": "#/definitions/ExtendedTx"
               }
             }
           }
@@ -234,15 +190,11 @@
     },
     {
       "type": "object",
-      "required": [
-        "viewing_key_error"
-      ],
+      "required": ["viewing_key_error"],
       "properties": {
         "viewing_key_error": {
           "type": "object",
-          "required": [
-            "msg"
-          ],
+          "required": ["msg"],
           "properties": {
             "msg": {
               "type": "string"
@@ -253,15 +205,11 @@
     },
     {
       "type": "object",
-      "required": [
-        "minters"
-      ],
+      "required": ["minters"],
       "properties": {
         "minters": {
           "type": "object",
-          "required": [
-            "minters"
-          ],
+          "required": ["minters"],
           "properties": {
             "minters": {
               "type": "array",
@@ -277,10 +225,7 @@
   "definitions": {
     "Coin": {
       "type": "object",
-      "required": [
-        "amount",
-        "denom"
-      ],
+      "required": ["amount", "denom"],
       "properties": {
         "amount": {
           "$ref": "#/definitions/Uint128"
@@ -292,24 +237,14 @@
     },
     "ContractStatusLevel": {
       "type": "string",
-      "enum": [
-        "normal_run",
-        "stop_all_but_redeems",
-        "stop_all"
-      ]
+      "enum": ["normal_run", "stop_all_but_redeems", "stop_all"]
     },
     "HumanAddr": {
       "type": "string"
     },
-    "RichTx": {
+    "ExtendedTx": {
       "type": "object",
-      "required": [
-        "action",
-        "block_height",
-        "block_time",
-        "coins",
-        "id"
-      ],
+      "required": ["action", "block_height", "block_time", "coins", "id"],
       "properties": {
         "action": {
           "$ref": "#/definitions/TxAction"
@@ -333,36 +268,21 @@
           "minimum": 0.0
         },
         "memo": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       }
     },
     "Tx": {
       "type": "object",
-      "required": [
-        "coins",
-        "from",
-        "id",
-        "receiver",
-        "sender"
-      ],
+      "required": ["coins", "from", "id", "receiver", "sender"],
       "properties": {
         "block_height": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "format": "uint64",
           "minimum": 0.0
         },
         "block_time": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "format": "uint64",
           "minimum": 0.0
         },
@@ -378,10 +298,7 @@
           "minimum": 0.0
         },
         "memo": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "receiver": {
           "$ref": "#/definitions/HumanAddr"
@@ -395,17 +312,11 @@
       "anyOf": [
         {
           "type": "object",
-          "required": [
-            "transfer"
-          ],
+          "required": ["transfer"],
           "properties": {
             "transfer": {
               "type": "object",
-              "required": [
-                "from",
-                "recipient",
-                "sender"
-              ],
+              "required": ["from", "recipient", "sender"],
               "properties": {
                 "from": {
                   "$ref": "#/definitions/HumanAddr"
@@ -422,16 +333,11 @@
         },
         {
           "type": "object",
-          "required": [
-            "mint"
-          ],
+          "required": ["mint"],
           "properties": {
             "mint": {
               "type": "object",
-              "required": [
-                "minter",
-                "recipient"
-              ],
+              "required": ["minter", "recipient"],
               "properties": {
                 "minter": {
                   "$ref": "#/definitions/HumanAddr"
@@ -445,16 +351,11 @@
         },
         {
           "type": "object",
-          "required": [
-            "burn"
-          ],
+          "required": ["burn"],
           "properties": {
             "burn": {
               "type": "object",
-              "required": [
-                "burner",
-                "owner"
-              ],
+              "required": ["burner", "owner"],
               "properties": {
                 "burner": {
                   "$ref": "#/definitions/HumanAddr"
@@ -468,9 +369,7 @@
         },
         {
           "type": "object",
-          "required": [
-            "deposit"
-          ],
+          "required": ["deposit"],
           "properties": {
             "deposit": {
               "type": "object"
@@ -479,9 +378,7 @@
         },
         {
           "type": "object",
-          "required": [
-            "redeem"
-          ],
+          "required": ["redeem"],
           "properties": {
             "redeem": {
               "type": "object"

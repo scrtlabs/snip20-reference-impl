@@ -33,8 +33,8 @@ default = []
 backtraces = ["cosmwasm-std/backtraces"]
 
 [dependencies]
-cosmwasm-std = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.0" }
-cosmwasm-storage = { git = "https://github.com/enigmampc/SecretNetwork", tag = "v1.0.0" }
-schemars = "0.7"
-serde = { version = "1.0.103", default-features = false, features = ["derive"] }
+cosmwasm-std = { git = "https://github.com/scrtlabs/cosmwasm", branch = "secret" }
+cosmwasm-storage = { git = "https://github.com/scrtlabs/cosmwasm", branch = "secret" }
+schemars = "0.8.1"
+serde = { version = "1.0.114", default-features = false, features = ["derive"] }
 snafu = { version = "0.6.3" }

@@ -4,21 +4,21 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::batch;
-use crate::transaction_history::{RichTx, Tx};
-use crate::viewing_key::ViewingKey;
-use cosmwasm_std::{Binary, HumanAddr, StdError, StdResult, Uint128};
+use crate::transaction_history::{ExtendedTx, Tx};
+use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+#[derive(Serialize, Deserialize, Clone, JsonSchema)]
 pub struct InitialBalance {
-    pub address: HumanAddr,
+    pub address: String,
     pub amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
-pub struct InitMsg {
+pub struct InstantiateMsg {
     pub name: String,
-    pub admin: Option<HumanAddr>,
+    pub admin: Option<String>,
     pub symbol: String,
     pub decimals: u8,
     pub initial_balances: Option<Vec<InitialBalance>>,
@@ -26,7 +26,7 @@ pub struct InitMsg {
     pub config: Option<InitConfig>,
 }
 
-impl InitMsg {
+impl InstantiateMsg {
     pub fn config(&self) -> InitConfig {
         self.config.clone().unwrap_or_default()
     }
@@ -79,7 +79,7 @@ impl InitConfig {
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
-pub enum HandleMsg {
+pub enum ExecuteMsg {
     // Native coin interactions
     Redeem {
         amount: Uint128,
@@ -92,13 +92,13 @@ pub enum HandleMsg {
 
     // Base ERC-20 stuff
     Transfer {
-        recipient: HumanAddr,
+        recipient: String,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
     },
     Send {
-        recipient: HumanAddr,
+        recipient: String,
         recipient_code_hash: Option<String>,
         amount: Uint128,
         msg: Option<Binary>,
@@ -133,27 +133,27 @@ pub enum HandleMsg {
 
     // Allowance
     IncreaseAllowance {
-        spender: HumanAddr,
+        spender: String,
         amount: Uint128,
         expiration: Option<u64>,
         padding: Option<String>,
     },
     DecreaseAllowance {
-        spender: HumanAddr,
+        spender: String,
         amount: Uint128,
         expiration: Option<u64>,
         padding: Option<String>,
     },
     TransferFrom {
-        owner: HumanAddr,
-        recipient: HumanAddr,
+        owner: String,
+        recipient: String,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
     },
     SendFrom {
-        owner: HumanAddr,
-        recipient: HumanAddr,
+        owner: String,
+        recipient: String,
         recipient_code_hash: Option<String>,
         amount: Uint128,
         msg: Option<Binary>,
@@ -169,7 +169,7 @@ pub enum HandleMsg {
         padding: Option<String>,
     },
     BurnFrom {
-        owner: HumanAddr,
+        owner: String,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
@@ -181,7 +181,7 @@ pub enum HandleMsg {
 
     // Mint
     Mint {
-        recipient: HumanAddr,
+        recipient: String,
         amount: Uint128,
         memo: Option<String>,
         padding: Option<String>,
@@ -191,21 +191,21 @@ pub enum HandleMsg {
         padding: Option<String>,
     },
     AddMinters {
-        minters: Vec<HumanAddr>,
+        minters: Vec<String>,
         padding: Option<String>,
     },
     RemoveMinters {
-        minters: Vec<HumanAddr>,
+        minters: Vec<String>,
         padding: Option<String>,
     },
     SetMinters {
-        minters: Vec<HumanAddr>,
+        minters: Vec<String>,
         padding: Option<String>,
     },
 
     // Admin
     ChangeAdmin {
-        address: HumanAddr,
+        address: String,
         padding: Option<String>,
     },
     SetContractStatus {
@@ -222,7 +222,7 @@ pub enum HandleMsg {
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
-pub enum HandleAnswer {
+pub enum ExecuteAnswer {
     // Native
     Deposit {
         status: ResponseStatus,
@@ -251,7 +251,7 @@ pub enum HandleAnswer {
         status: ResponseStatus,
     },
     CreateViewingKey {
-        key: ViewingKey,
+        key: String,
     },
     SetViewingKey {
         status: ResponseStatus,
@@ -259,13 +259,13 @@ pub enum HandleAnswer {
 
     // Allowance
     IncreaseAllowance {
-        spender: HumanAddr,
-        owner: HumanAddr,
+        spender: Addr,
+        owner: Addr,
         allowance: Uint128,
     },
     DecreaseAllowance {
-        spender: HumanAddr,
-        owner: HumanAddr,
+        spender: Addr,
+        owner: Addr,
         allowance: Uint128,
     },
     TransferFrom {
@@ -318,7 +318,8 @@ pub enum HandleAnswer {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     TokenInfo {},
@@ -326,22 +327,22 @@ pub enum QueryMsg {
     ContractStatus {},
     ExchangeRate {},
     Allowance {
-        owner: HumanAddr,
-        spender: HumanAddr,
+        owner: String,
+        spender: String,
         key: String,
     },
     Balance {
-        address: HumanAddr,
+        address: String,
         key: String,
     },
     TransferHistory {
-        address: HumanAddr,
+        address: String,
         key: String,
         page: Option<u32>,
         page_size: u32,
     },
     TransactionHistory {
-        address: HumanAddr,
+        address: String,
         key: String,
         page: Option<u32>,
         page_size: u32,
@@ -354,40 +355,44 @@ pub enum QueryMsg {
 }
 
 impl QueryMsg {
-    pub fn get_validation_params(&self) -> (Vec<&HumanAddr>, ViewingKey) {
+    pub fn get_validation_params(&self, api: &dyn Api) -> StdResult<(Vec<Addr>, String)> {
         match self {
-            Self::Balance { address, key } => (vec![address], ViewingKey(key.clone())),
-            Self::TransferHistory { address, key, .. } => (vec![address], ViewingKey(key.clone())),
+            Self::Balance { address, key } => {
+                let address = api.addr_validate(address.as_str())?;
+                Ok((vec![address], key.clone()))
+            }
+            Self::TransferHistory { address, key, .. } => {
+                let address = api.addr_validate(address.as_str())?;
+                Ok((vec![address], key.clone()))
+            }
             Self::TransactionHistory { address, key, .. } => {
-                (vec![address], ViewingKey(key.clone()))
+                let address = api.addr_validate(address.as_str())?;
+                Ok((vec![address], key.clone()))
             }
             Self::Allowance {
                 owner,
                 spender,
                 key,
                 ..
-            } => (vec![owner, spender], ViewingKey(key.clone())),
+            } => {
+                let owner = api.addr_validate(owner.as_str())?;
+                let spender = api.addr_validate(spender.as_str())?;
+
+                Ok((vec![owner, spender], key.clone()))
+            }
             _ => panic!("This query type does not require authentication"),
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[serde(rename_all = "snake_case")]
 pub enum QueryWithPermit {
-    Allowance {
-        owner: HumanAddr,
-        spender: HumanAddr,
-    },
+    Allowance { owner: String, spender: String },
     Balance {},
-    TransferHistory {
-        page: Option<u32>,
-        page_size: u32,
-    },
-    TransactionHistory {
-        page: Option<u32>,
-        page_size: u32,
-    },
+    TransferHistory { page: Option<u32>, page_size: u32 },
+    TransactionHistory { page: Option<u32>, page_size: u32 },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -414,8 +419,8 @@ pub enum QueryAnswer {
         denom: String,
     },
     Allowance {
-        spender: HumanAddr,
-        owner: HumanAddr,
+        spender: Addr,
+        owner: Addr,
         allowance: Uint128,
         expiration: Option<u64>,
     },
@@ -427,30 +432,26 @@ pub enum QueryAnswer {
         total: Option<u64>,
     },
     TransactionHistory {
-        txs: Vec<RichTx>,
+        txs: Vec<ExtendedTx>,
         total: Option<u64>,
     },
     ViewingKeyError {
         msg: String,
     },
     Minters {
-        minters: Vec<HumanAddr>,
+        minters: Vec<Addr>,
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
-pub struct CreateViewingKeyResponse {
-    pub key: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, Clone, JsonSchema, Debug)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[serde(rename_all = "snake_case")]
 pub enum ResponseStatus {
     Success,
     Failure,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ContractStatusLevel {
     NormalRun,
