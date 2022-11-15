@@ -15,8 +15,8 @@ use crate::msg::{
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    get_receiver_hash, set_receiver_hash, AllowancesStore, BalancesStore, Config, MintersStore,
-    CONFIG, CONTRACT_STATUS, TOTAL_SUPPLY,
+    AllowancesStore, BalancesStore, Config, MintersStore, ReceiverHashStore, CONFIG,
+    CONTRACT_STATUS, TOTAL_SUPPLY,
 };
 use crate::transaction_history::{
     store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredExtendedTx,
@@ -899,7 +899,7 @@ fn try_add_receiver_api_callback(
         return Ok(());
     }
 
-    let receiver_hash = get_receiver_hash(storage, &recipient)?;
+    let receiver_hash = ReceiverHashStore::load(storage, &recipient)?;
     let receiver_msg = Snip20ReceiveMsg::new(sender, from, amount, memo, msg);
     let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient)?;
     messages.push(callback_msg);
@@ -999,7 +999,7 @@ fn try_register_receive(
     info: MessageInfo,
     code_hash: String,
 ) -> StdResult<Response> {
-    set_receiver_hash(deps.storage, &info.sender, code_hash)?;
+    ReceiverHashStore::save(deps.storage, &info.sender, code_hash)?;
 
     let data = to_binary(&ExecuteAnswer::RegisterReceive { status: Success })?;
     Ok(Response::new()
@@ -2002,8 +2002,8 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        let hash =
-            get_receiver_hash(&deps.storage, &Addr::unchecked("contract".to_string())).unwrap();
+        let hash = ReceiverHashStore::load(&deps.storage, &Addr::unchecked("contract".to_string()))
+            .unwrap();
         assert_eq!(hash, "this_is_a_hash_of_a_code".to_string());
     }
 
