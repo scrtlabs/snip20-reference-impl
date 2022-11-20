@@ -45,7 +45,7 @@ pub fn instantiate(
     }
     if !is_valid_symbol(&msg.symbol) {
         return Err(StdError::generic_err(
-            "Ticker symbol is not in expected format [A-Z]{3,6}",
+            "Ticker symbol is not in expected format [A-Z]{3,20}",
         ));
     }
     if msg.decimals > 18 {
@@ -85,6 +85,11 @@ pub fn instantiate(
         }
     }
 
+    let supported_denoms = match msg.supported_denoms {
+        None => vec![],
+        Some(x) => x,
+    };
+
     CONFIG.save(
         deps.storage,
         &Config {
@@ -98,6 +103,7 @@ pub fn instantiate(
             mint_is_enabled: init_config.mint_enabled(),
             burn_is_enabled: init_config.burn_enabled(),
             contract_address: env.contract.address,
+            supported_denoms
         },
     )?;
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
@@ -125,10 +131,10 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
                 ExecuteMsg::SetContractStatus { level, .. } => {
                     set_contract_status(deps, info, level)
                 }
-                ExecuteMsg::Redeem { amount, .. }
+                ExecuteMsg::Redeem { amount, denom, .. }
                     if contract_status == ContractStatusLevel::StopAllButRedeems =>
                 {
-                    try_redeem(deps, env, info, amount)
+                    try_redeem(deps, env, info, amount, denom)
                 }
                 _ => Err(StdError::generic_err(
                     "This contract is stopped and this action is not allowed",
@@ -142,7 +148,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
     let response = match msg {
         // Native
         ExecuteMsg::Deposit { .. } => try_deposit(deps, env, info),
-        ExecuteMsg::Redeem { amount, .. } => try_redeem(deps, env, info, amount),
+        ExecuteMsg::Redeem { amount, denom, .. } => try_redeem(deps, env, info, amount, denom),
 
         // Base
         ExecuteMsg::Transfer {
@@ -244,6 +250,10 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ExecuteMsg::RemoveMinters { minters, .. } => remove_minters(deps, info, minters),
         ExecuteMsg::SetMinters { minters, .. } => set_minters(deps, info, minters),
         ExecuteMsg::RevokePermit { permit_name, .. } => revoke_permit(deps, info, permit_name),
+        ExecuteMsg::AddSupportedDenoms { denoms, .. } => add_supported_denoms(deps, info, denoms),
+        ExecuteMsg::RemoveSupportedDenoms { denoms, .. } => {
+            remove_supported_denoms(deps, info, denoms)
+        }
     };
 
     pad_handle_result(response, RESPONSE_BLOCK_SIZE)
@@ -410,6 +420,7 @@ fn query_token_config(storage: &dyn Storage) -> StdResult<Binary> {
         redeem_enabled: constants.redeem_is_enabled,
         mint_enabled: constants.mint_is_enabled,
         burn_enabled: constants.burn_is_enabled,
+        supported_denoms: constants.supported_denoms,
     })
 }
 
@@ -493,6 +504,62 @@ fn change_admin(deps: DepsMut, info: MessageInfo, address: String) -> StdResult<
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::ChangeAdmin { status: Success })?))
 }
+
+fn add_supported_denoms(
+    deps: &mut DepsMut,
+    env: Env,
+    denoms: Vec<String>,
+) -> StdResult<HandleResponse> {
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    let mut consts = config.constants()?;
+
+    for denom in denoms.iter() {
+        if !consts.supported_denoms.contains(denom) {
+            consts.supported_denoms.push(denom.clone());
+        }
+    }
+
+    config.set_constants(&consts)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::AddSupportedDenoms {
+            status: Success,
+        })?),
+    })
+}
+
+fn remove_supported_denoms(
+    deps: &mut DepsMut,
+    env: Env,
+    denoms: Vec<String>,
+) -> StdResult<HandleResponse> {
+
+    let mut config = Config::from_storage(&mut deps.storage);
+
+    check_if_admin(&config, &env.message.sender)?;
+
+    let mut consts = config.constants()?;
+
+    for denom in denoms.iter() {
+        consts.supported_denoms.retain(|x| x != denom);
+    }
+
+    config.set_constants(&consts)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![],
+        data: Some(to_binary(&HandleAnswer::RemoveSupportedDenoms {
+            status: Success,
+        })?),
+    })
+}
+
 
 fn try_mint_impl(
     deps: &mut DepsMut,
@@ -689,15 +756,19 @@ pub fn query_allowance(deps: Deps, owner: String, spender: String) -> StdResult<
 }
 
 fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response> {
+
+    let constants = CONFIG.load(deps.storage)?;
+
     let mut amount = Uint128::zero();
 
     for coin in &info.funds {
-        if coin.denom == "uscrt" {
-            amount = coin.amount
+        if constants.supported_denoms.contains(&coin.denom) {
+            amount += coin.amount
         } else {
-            return Err(StdError::generic_err(
-                "Tried to deposit an unsupported token",
-            ));
+            return Err(StdError::generic_err(format!(
+                "Tried to deposit an unsupported coin {}",
+                coin.denom
+            )));
         }
     }
 
@@ -707,10 +778,9 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
 
     let raw_amount = amount.u128();
 
-    let constants = CONFIG.load(deps.storage)?;
     if !constants.deposit_is_enabled {
         return Err(StdError::generic_err(
-            "Deposit functionality is not enabled for this token.",
+            "Deposit functionality is not enabled.",
         ));
     }
 
@@ -745,12 +815,19 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?))
 }
 
-fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128) -> StdResult<Response> {
+fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128, denom: String) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.redeem_is_enabled {
         return Err(StdError::generic_err(
             "Redeem functionality is not enabled for this token.",
         ));
+    }
+
+    if !constants.supported_denoms.contains(&denom) {
+        return Err(StdError::generic_err(format!(
+            "Tried to redeem an unsupported coin {}",
+            denom
+        )));
     }
 
     let sender_address = &info.sender;
@@ -777,18 +854,16 @@ fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128) -> St
 
     let token_reserve = deps
         .querier
-        .query_balance(env.contract.address, "uscrt")?
+        .query_balance(&env.contract.address, &denom)?
         .amount;
     if amount > token_reserve {
-        return Err(StdError::generic_err(
-            "You are trying to redeem for more SCRT than the token has in its deposit reserve.",
-        ));
+        return Err(StdError::generic_err(format!(
+            "You are trying to redeem for more {} than the token has in its deposit reserve.",
+            denom
+        )));
     }
 
-    let withdrawal_coins: Vec<Coin> = vec![Coin {
-        denom: "uscrt".to_string(),
-        amount,
-    }];
+    let withdrawal_coins: Vec<Coin> = vec![Coin { denom, amount }];
 
     store_redeem(
         deps.storage,
@@ -1599,7 +1674,7 @@ fn is_valid_name(name: &str) -> bool {
 
 fn is_valid_symbol(symbol: &str) -> bool {
     let len = symbol.len();
-    let len_is_valid = (3..=6).contains(&len);
+    let len_is_valid = (3..=20).contains(&len);
 
     len_is_valid && symbol.bytes().all(|byte| (b'A'..=b'Z').contains(&byte))
 }
@@ -1646,6 +1721,7 @@ mod tests {
             initial_balances: Some(initial_balances),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: None,
+            supported_denoms: None,
         };
 
         (instantiate(deps.as_mut(), env, info, init_msg), deps)
@@ -1658,6 +1734,7 @@ mod tests {
         enable_mint: bool,
         enable_burn: bool,
         contract_bal: u128,
+        supported_denoms: Vec<String>,
     ) -> (
         StdResult<Response>,
         OwnedDeps<MockStorage, MockApi, MockQuerier>,
@@ -1690,6 +1767,7 @@ mod tests {
             initial_balances: Some(initial_balances),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            supported_denoms: Some(supported_denoms),
         };
 
         (instantiate(deps.as_mut(), env, info, init_msg), deps)
@@ -1813,6 +1891,7 @@ mod tests {
             true,
             true,
             0,
+            vec!["uscrt".to_string()],
         );
         assert_eq!(init_result.unwrap(), Response::default());
 
@@ -2491,6 +2570,7 @@ mod tests {
             false,
             true,
             0,
+            vec![],
         );
         assert!(
             init_result.is_ok(),
@@ -2623,6 +2703,7 @@ mod tests {
             false,
             true,
             0,
+            vec![],
         );
         assert!(
             init_result.is_ok(),
@@ -3007,6 +3088,7 @@ mod tests {
             false,
             false,
             1000,
+            vec!["uscrt".to_string()],
         );
         assert!(
             init_result.is_ok(),
@@ -3024,6 +3106,7 @@ mod tests {
             false,
             false,
             0,
+            vec!["uscrt".to_string()],
         );
         assert!(
             init_result_no_reserve.is_ok(),
@@ -3043,7 +3126,7 @@ mod tests {
         // test when redeem disabled
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
-            denom: None,
+            denom: "uscrt".to_string(),
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3056,7 +3139,7 @@ mod tests {
         // try to redeem when contract has 0 balance
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
-            denom: None,
+            denom: "uscrt".to_string(),
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3065,12 +3148,12 @@ mod tests {
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains(
-            "You are trying to redeem for more SCRT than the token has in its deposit reserve."
+            "You are trying to redeem for more uscrt than the token has in its deposit reserve."
         ));
 
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
-            denom: None,
+            denom: "uscrt".to_string(),
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3099,6 +3182,7 @@ mod tests {
             false,
             false,
             0,
+            vec!["uscrt".to_string()],
         );
         assert!(
             init_result.is_ok(),
@@ -3127,7 +3211,7 @@ mod tests {
 
         let handle_result = execute(deps_for_failure.as_mut(), mock_env(), info, handle_msg);
         let error = extract_error_msg(handle_result);
-        assert!(error.contains("Deposit functionality is not enabled for this token."));
+        assert!(error.contains("Tried to deposit an unsupported coin uscrt"));
 
         let handle_msg = ExecuteMsg::Deposit { padding: None };
 
@@ -3162,6 +3246,7 @@ mod tests {
             false,
             true,
             0,
+            vec![],
         );
         assert!(
             init_result.is_ok(),
@@ -3224,6 +3309,7 @@ mod tests {
             true,
             false,
             0,
+            vec![],
         );
         assert!(
             init_result.is_ok(),
@@ -3289,6 +3375,7 @@ mod tests {
             true,
             false,
             0,
+            vec![],
         );
         assert!(
             init_result.is_ok(),
@@ -3364,6 +3451,7 @@ mod tests {
             false,
             false,
             5000,
+            vec!["uscrt".to_string()],
         );
         assert!(
             init_result.is_ok(),
@@ -3404,7 +3492,7 @@ mod tests {
 
         let withdraw_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(5000),
-            denom: None,
+            denom: "uscrt".to_string(),
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3463,7 +3551,7 @@ mod tests {
 
         let withdraw_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(5000),
-            denom: None,
+            denom: "uscrt".to_string(),
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3489,6 +3577,7 @@ mod tests {
             true,
             false,
             0,
+            vec![],
         );
         assert!(
             init_result.is_ok(),
@@ -3575,6 +3664,7 @@ mod tests {
             true,
             false,
             0,
+            vec![],
         );
         assert!(
             init_result.is_ok(),
@@ -3660,6 +3750,7 @@ mod tests {
             true,
             false,
             0,
+            vec![],
         );
         assert!(
             init_result.is_ok(),
@@ -3858,6 +3949,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            supported_denoms: None,
         };
         let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
@@ -3925,6 +4017,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            supported_denoms: None,
         };
         let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
@@ -3948,12 +4041,14 @@ mod tests {
                 redeem_enabled,
                 mint_enabled,
                 burn_enabled,
+                supported_denoms,
             } => {
                 assert_eq!(public_total_supply, true);
                 assert_eq!(deposit_enabled, false);
                 assert_eq!(redeem_enabled, false);
                 assert_eq!(mint_enabled, true);
                 assert_eq!(burn_enabled, false);
+                assert_eq!(supported_denoms.len(), 0);
             }
             _ => panic!("unexpected"),
         }
@@ -3995,6 +4090,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            supported_denoms: Some(vec!["uscrt".to_string()]),
         };
         let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
@@ -4053,6 +4149,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            supported_denoms: Some(vec!["uscrt".to_string()]),
         };
         let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
@@ -4111,6 +4208,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: Some(init_config),
+            supported_denoms: Some(vec!["uscrt".to_string()]),
         };
         let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
@@ -4157,6 +4255,7 @@ mod tests {
             }]),
             prng_seed: Binary::from("lolz fun yay".as_bytes()),
             config: None,
+            supported_denoms: None,
         };
         let init_result = instantiate(deps.as_mut(), env, info, init_msg);
         assert!(
@@ -4476,6 +4575,7 @@ mod tests {
             true,
             true,
             1000,
+            vec!["uscrt".to_string()],
         );
         assert!(
             init_result.is_ok(),
@@ -4510,7 +4610,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
-            denom: None,
+            denom: "uscrt".to_string(),
             padding: None,
         };
         let info = mock_info("bob", &[]);
