@@ -1,11 +1,13 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
-    MessageInfo, Response, StdError, StdResult, Storage, Uint128,
+    Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, entry_point, Env, MessageInfo,
+    Response, StdError, StdResult, Storage, to_binary, Uint128,
 };
+use secret_toolkit::crypto::sha_256;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
+use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 
 use crate::batch;
 use crate::msg::QueryWithPermit;
@@ -15,16 +17,13 @@ use crate::msg::{
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    AllowancesStore, BalancesStore, Config, MintersStore, ReceiverHashStore, CONFIG,
-    CONTRACT_STATUS, TOTAL_SUPPLY,
+    AllowancesStore, BalancesStore, Config, CONFIG, CONTRACT_STATUS, MintersStore,
+    ReceiverHashStore, TOTAL_SUPPLY,
 };
 use crate::transaction_history::{
     store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredExtendedTx,
     StoredLegacyTransfer,
 };
-use secret_toolkit::crypto::sha_256;
-
-use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
@@ -52,7 +51,8 @@ pub fn instantiate(
         return Err(StdError::generic_err("Decimals must not exceed 18"));
     }
 
-    let init_config = msg.config();
+    let init_config = msg.config.unwrap_or_default();
+
     let admin = match msg.admin {
         Some(admin_addr) => deps.api.addr_validate(admin_addr.as_str())?,
         None => info.sender,
@@ -103,7 +103,8 @@ pub fn instantiate(
             mint_is_enabled: init_config.mint_enabled(),
             burn_is_enabled: init_config.burn_enabled(),
             contract_address: env.contract.address,
-            supported_denoms
+            supported_denoms,
+            can_modify_denoms: init_config.can_modify_denoms()
         },
     )?;
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
@@ -506,58 +507,52 @@ fn change_admin(deps: DepsMut, info: MessageInfo, address: String) -> StdResult<
 }
 
 fn add_supported_denoms(
-    deps: &mut DepsMut,
-    env: Env,
+    deps: DepsMut,
+    info: MessageInfo,
     denoms: Vec<String>,
-) -> StdResult<HandleResponse> {
-    let mut config = Config::from_storage(&mut deps.storage);
+) -> StdResult<Response> {
+    let mut config = CONFIG.load(deps.storage)?;
 
-    check_if_admin(&config, &env.message.sender)?;
-
-    let mut consts = config.constants()?;
+    check_if_admin(&config.admin, &info.sender)?;
+    if !config.can_modify_denoms {
+        return Err(StdError::generic_err("Cannot modify denoms for this contract"));
+    }
 
     for denom in denoms.iter() {
-        if !consts.supported_denoms.contains(denom) {
-            consts.supported_denoms.push(denom.clone());
+        if !config.supported_denoms.contains(denom) {
+            config.supported_denoms.push(denom.clone());
         }
     }
 
-    config.set_constants(&consts)?;
+    CONFIG.save(deps.storage, &config)?;
 
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: Some(to_binary(&HandleAnswer::AddSupportedDenoms {
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::AddSupportedDenoms {
             status: Success,
-        })?),
-    })
+        })?))
 }
 
 fn remove_supported_denoms(
-    deps: &mut DepsMut,
-    env: Env,
+    deps: DepsMut,
+    info: MessageInfo,
     denoms: Vec<String>,
-) -> StdResult<HandleResponse> {
+) -> StdResult<Response> {
 
-    let mut config = Config::from_storage(&mut deps.storage);
+    let mut config = CONFIG.load(deps.storage)?;
 
-    check_if_admin(&config, &env.message.sender)?;
-
-    let mut consts = config.constants()?;
-
-    for denom in denoms.iter() {
-        consts.supported_denoms.retain(|x| x != denom);
+    check_if_admin(&config.admin, &info.sender)?;
+    if !config.can_modify_denoms {
+        return Err(StdError::generic_err("Cannot modify denoms for this contract"));
     }
 
-    config.set_constants(&consts)?;
+    for denom in denoms.iter() {
+        config.supported_denoms.retain(|x| x != denom);
+    }
 
-    Ok(HandleResponse {
-        messages: vec![],
-        log: vec![],
-        data: Some(to_binary(&HandleAnswer::RemoveSupportedDenoms {
-            status: Success,
-        })?),
-    })
+    CONFIG.save(deps.storage, &config)?;
+
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::RemoveSupportedDenoms {
+        status: Success,
+    })?))
 }
 
 
@@ -713,7 +708,7 @@ pub fn try_create_key(
         &info,
         &env,
         info.sender.as_str(),
-        (&entropy).as_ref(),
+        entropy.as_ref(),
     );
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::CreateViewingKey { key })?))
@@ -815,7 +810,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?))
 }
 
-fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128, denom: String) -> StdResult<Response> {
+fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128, denom: Option<String>) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.redeem_is_enabled {
         return Err(StdError::generic_err(
@@ -823,12 +818,22 @@ fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128, denom
         ));
     }
 
-    if !constants.supported_denoms.contains(&denom) {
-        return Err(StdError::generic_err(format!(
-            "Tried to redeem an unsupported coin {}",
-            denom
-        )));
-    }
+    // if denom is none and there is only 1 supported denom then we don't need to check anything
+    let withdraw_denom = if denom.is_none() && constants.supported_denoms.len() == 1 {
+        constants.supported_denoms.first().unwrap().clone()
+    // if denom is specified make sure it's on the list before trying to withdraw with it
+    } else if denom.is_some() && constants.supported_denoms.contains(denom.as_ref().unwrap()) {
+        denom.unwrap()
+    // error handling
+    } else if denom.is_none() {
+        return Err(StdError::generic_err(
+            "Tried to redeem without specifying denom, but multiple coins are supported"
+        ));
+    } else {
+        return Err(StdError::generic_err(
+            "Tried to redeem for an unsupported coin"
+        ));
+    };
 
     let sender_address = &info.sender;
     let amount_raw = amount.u128();
@@ -854,16 +859,16 @@ fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128, denom
 
     let token_reserve = deps
         .querier
-        .query_balance(&env.contract.address, &denom)?
+        .query_balance(&env.contract.address, &withdraw_denom)?
         .amount;
     if amount > token_reserve {
         return Err(StdError::generic_err(format!(
-            "You are trying to redeem for more {} than the token has in its deposit reserve.",
-            denom
+            "You are trying to redeem for more {} than the contract has in its reserve",
+            withdraw_denom
         )));
     }
 
-    let withdrawal_coins: Vec<Coin> = vec![Coin { denom, amount }];
+    let withdrawal_coins: Vec<Coin> = vec![Coin { denom: withdraw_denom, amount }];
 
     store_redeem(
         deps.storage,
@@ -1446,7 +1451,7 @@ fn try_increase_allowance(
 
     Ok(
         Response::new().set_data(to_binary(&ExecuteAnswer::IncreaseAllowance {
-            owner: info.sender.clone(),
+            owner: info.sender,
             spender,
             allowance: Uint128::from(new_amount),
         })?),
@@ -1482,7 +1487,7 @@ fn try_decrease_allowance(
 
     Ok(
         Response::new().set_data(to_binary(&ExecuteAnswer::DecreaseAllowance {
-            owner: info.sender.clone(),
+            owner: info.sender,
             spender,
             allowance: Uint128::from(new_amount),
         })?),
@@ -1609,7 +1614,7 @@ fn try_burn(
     store_burn(
         deps.storage,
         info.sender.clone(),
-        info.sender.clone(),
+        info.sender,
         amount,
         constants.symbol,
         memo,
@@ -1689,16 +1694,20 @@ fn is_valid_symbol(symbol: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::msg::ResponseStatus;
-    use crate::msg::{InitConfig, InitialBalance};
-    use cosmwasm_std::testing::*;
+    use std::any::Any;
+
     use cosmwasm_std::{
-        from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
+        BlockInfo, ContractInfo, from_binary, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
         SubMsg, Timestamp, TransactionInfo, WasmMsg,
     };
+    use cosmwasm_std::testing::*;
     use secret_toolkit::permit::{PermitParams, PermitSignature, PubKey};
-    use std::any::Any;
+
+    use crate::msg::{InitConfig, InitialBalance};
+    use crate::msg::ResponseStatus;
+
+    use super::*;
+
     pub const VIEWING_KEY_SIZE: usize = 32;
 
     // Helper functions
@@ -3126,7 +3135,7 @@ mod tests {
         // test when redeem disabled
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
-            denom: "uscrt".to_string(),
+            denom: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3139,7 +3148,7 @@ mod tests {
         // try to redeem when contract has 0 balance
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
-            denom: "uscrt".to_string(),
+            denom: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3147,13 +3156,30 @@ mod tests {
         let handle_result = execute(deps_no_reserve.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
-        assert!(error.contains(
-            "You are trying to redeem for more uscrt than the token has in its deposit reserve."
-        ));
+        assert_eq!(error,
+            "You are trying to redeem for more uscrt than the contract has in its reserve"
+        );
 
+        // test without denom
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
-            denom: "uscrt".to_string(),
+            denom: None,
+            padding: None,
+        };
+        let info = mock_info("butler", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        // test with denom specified
+        let handle_msg = ExecuteMsg::Redeem {
+            amount: Uint128::new(1000),
+            denom: Option::from("uscrt".to_string()),
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3167,7 +3193,7 @@ mod tests {
         );
 
         let canonical = Addr::unchecked("butler".to_string());
-        assert_eq!(BalancesStore::load(&deps.storage, &canonical), 4000)
+        assert_eq!(BalancesStore::load(&deps.storage, &canonical), 3000)
     }
 
     #[test]
@@ -3492,7 +3518,7 @@ mod tests {
 
         let withdraw_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(5000),
-            denom: "uscrt".to_string(),
+            denom: Option::from("uscrt".to_string()),
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3551,7 +3577,7 @@ mod tests {
 
         let withdraw_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(5000),
-            denom: "uscrt".to_string(),
+            denom: Option::from("uscrt".to_string()),
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -4610,7 +4636,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
-            denom: "uscrt".to_string(),
+            denom: Option::from("uscrt".to_string()),
             padding: None,
         };
         let info = mock_info("bob", &[]);

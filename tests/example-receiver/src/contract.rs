@@ -43,7 +43,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             to,
             amount,
             denom,
-        } => try_redeem(deps, addr, hash, to, amount),
+        } => try_redeem(deps, addr, hash, to, amount, denom),
         ExecuteMsg::Fail {} => try_fail(),
     }
 }
@@ -130,7 +130,7 @@ fn try_redeem(
     hash: String,
     to: Addr,
     amount: Uint128,
-    denom: String,
+    denom: Option<String>,
 ) -> StdResult<Response> {
     // let state = config_read(&deps.storage).load()?;
     // if !state.known_snip_20.contains(&addr) {
@@ -139,8 +139,9 @@ fn try_redeem(
     //         addr
     //     )));
     // }
+    let unwrapped_denom = denom.unwrap_or("uscrt".to_string());
 
-    let msg = to_binary(&Snip20Msg::redeem(amount, denom))?;
+    let msg = to_binary(&Snip20Msg::redeem(amount, unwrapped_denom.clone()))?;
     let secret_redeem = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: addr.into_string(),
         code_hash: hash,
@@ -148,7 +149,8 @@ fn try_redeem(
         funds: vec![],
     });
     let redeem = CosmosMsg::Bank(BankMsg::Send {
-        amount: vec![Coin::new(amount.u128(), "uscrt")],
+        // unsafe, don't use in production obviously
+        amount: vec![Coin::new(amount.u128(), unwrapped_denom)],
         to_address: to.into_string(),
     });
 

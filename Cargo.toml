@@ -1,6 +1,6 @@
 [package]
 name = "snip20-reference-impl"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Itzik <itzik@keytango.io>"]
 edition = "2018"
 exclude = [
@@ -41,13 +41,7 @@ secret-toolkit = { version = "0.6.0", features = [
 ] }
 schemars = "0.8.1"
 serde = { version = "1.0.114", default-features = false, features = ["derive"] }
-snafu = { version = "0.6.3" }
-bincode2 = "2.0.1"
-subtle = { version = "2.2.3", default-features = false }
-base64 = "0.12.3"
-rand_chacha = { version = "0.2.2", default-features = false }
-rand_core = { version = "0.5.1", default-features = false }
-sha2 = { version = "0.9.1", default-features = false }
+base64 = "0.13.1"
 
 [dev-dependencies]
 cosmwasm-schema = { version = "1.1.0" }

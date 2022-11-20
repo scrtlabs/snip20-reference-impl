@@ -30,7 +30,7 @@ pub enum ExecuteMsg {
         hash: String,
         to: Addr,
         amount: Uint128,
-        denom: String,
+        denom: Option<String>,
     },
     Fail {},
 }

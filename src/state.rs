@@ -42,6 +42,8 @@ pub struct Config {
     pub contract_address: Addr,
     // coin denoms that are supported for deposit/redeem
     pub supported_denoms: Vec<String>,
+    // can admin add or remove supported denoms
+    pub can_modify_denoms: bool,
 }
 
 pub static CONFIG: Item<Config> = Item::new(KEY_CONFIG);

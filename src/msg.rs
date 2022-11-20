@@ -54,6 +54,9 @@ pub struct InitConfig {
     /// Indicates whether burn functionality should be enabled
     /// default: False
     enable_burn: Option<bool>,
+    /// Indicated whether an admin can modify supported denoms
+    /// default: False
+    can_modify_denoms: Option<bool>
 }
 
 impl InitConfig {
@@ -76,6 +79,8 @@ impl InitConfig {
     pub fn burn_enabled(&self) -> bool {
         self.enable_burn.unwrap_or(false)
     }
+
+    pub fn can_modify_denoms(&self) -> bool {self.can_modify_denoms.unwrap_or(false)}
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
@@ -84,7 +89,7 @@ pub enum ExecuteMsg {
     // Native coin interactions
     Redeem {
         amount: Uint128,
-        denom: String,
+        denom: Option<String>,
         padding: Option<String>,
     },
     Deposit {
