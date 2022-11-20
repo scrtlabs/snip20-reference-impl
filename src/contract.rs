@@ -1,8 +1,8 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, entry_point, Env, MessageInfo,
-    Response, StdError, StdResult, Storage, to_binary, Uint128,
+    entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
+    MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit::crypto::sha_256;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
@@ -17,8 +17,8 @@ use crate::msg::{
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    AllowancesStore, BalancesStore, Config, CONFIG, CONTRACT_STATUS, MintersStore,
-    ReceiverHashStore, TOTAL_SUPPLY,
+    AllowancesStore, BalancesStore, Config, MintersStore, ReceiverHashStore, CONFIG,
+    CONTRACT_STATUS, TOTAL_SUPPLY,
 };
 use crate::transaction_history::{
     store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredExtendedTx,
@@ -104,7 +104,7 @@ pub fn instantiate(
             burn_is_enabled: init_config.burn_enabled(),
             contract_address: env.contract.address,
             supported_denoms,
-            can_modify_denoms: init_config.can_modify_denoms()
+            can_modify_denoms: init_config.can_modify_denoms(),
         },
     )?;
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
@@ -515,7 +515,9 @@ fn add_supported_denoms(
 
     check_if_admin(&config.admin, &info.sender)?;
     if !config.can_modify_denoms {
-        return Err(StdError::generic_err("Cannot modify denoms for this contract"));
+        return Err(StdError::generic_err(
+            "Cannot modify denoms for this contract",
+        ));
     }
 
     for denom in denoms.iter() {
@@ -526,9 +528,11 @@ fn add_supported_denoms(
 
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::AddSupportedDenoms {
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::AddSupportedDenoms {
             status: Success,
-        })?))
+        })?),
+    )
 }
 
 fn remove_supported_denoms(
@@ -536,12 +540,13 @@ fn remove_supported_denoms(
     info: MessageInfo,
     denoms: Vec<String>,
 ) -> StdResult<Response> {
-
     let mut config = CONFIG.load(deps.storage)?;
 
     check_if_admin(&config.admin, &info.sender)?;
     if !config.can_modify_denoms {
-        return Err(StdError::generic_err("Cannot modify denoms for this contract"));
+        return Err(StdError::generic_err(
+            "Cannot modify denoms for this contract",
+        ));
     }
 
     for denom in denoms.iter() {
@@ -550,11 +555,12 @@ fn remove_supported_denoms(
 
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::RemoveSupportedDenoms {
-        status: Success,
-    })?))
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::RemoveSupportedDenoms {
+            status: Success,
+        })?),
+    )
 }
-
 
 fn try_mint_impl(
     deps: &mut DepsMut,
@@ -751,7 +757,6 @@ pub fn query_allowance(deps: Deps, owner: String, spender: String) -> StdResult<
 }
 
 fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response> {
-
     let constants = CONFIG.load(deps.storage)?;
 
     let mut amount = Uint128::zero();
@@ -810,7 +815,13 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?))
 }
 
-fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128, denom: Option<String>) -> StdResult<Response> {
+fn try_redeem(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    amount: Uint128,
+    denom: Option<String>,
+) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.redeem_is_enabled {
         return Err(StdError::generic_err(
@@ -827,11 +838,11 @@ fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128, denom
     // error handling
     } else if denom.is_none() {
         return Err(StdError::generic_err(
-            "Tried to redeem without specifying denom, but multiple coins are supported"
+            "Tried to redeem without specifying denom, but multiple coins are supported",
         ));
     } else {
         return Err(StdError::generic_err(
-            "Tried to redeem for an unsupported coin"
+            "Tried to redeem for an unsupported coin",
         ));
     };
 
@@ -868,7 +879,10 @@ fn try_redeem(deps: DepsMut, env: Env, info: MessageInfo, amount: Uint128, denom
         )));
     }
 
-    let withdrawal_coins: Vec<Coin> = vec![Coin { denom: withdraw_denom, amount }];
+    let withdrawal_coins: Vec<Coin> = vec![Coin {
+        denom: withdraw_denom,
+        amount,
+    }];
 
     store_redeem(
         deps.storage,
@@ -1696,15 +1710,15 @@ fn is_valid_symbol(symbol: &str) -> bool {
 mod tests {
     use std::any::Any;
 
+    use cosmwasm_std::testing::*;
     use cosmwasm_std::{
-        BlockInfo, ContractInfo, from_binary, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
+        from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
         SubMsg, Timestamp, TransactionInfo, WasmMsg,
     };
-    use cosmwasm_std::testing::*;
     use secret_toolkit::permit::{PermitParams, PermitSignature, PubKey};
 
-    use crate::msg::{InitConfig, InitialBalance};
     use crate::msg::ResponseStatus;
+    use crate::msg::{InitConfig, InitialBalance};
 
     use super::*;
 
@@ -3156,7 +3170,8 @@ mod tests {
         let handle_result = execute(deps_no_reserve.as_mut(), mock_env(), info, handle_msg);
 
         let error = extract_error_msg(handle_result);
-        assert_eq!(error,
+        assert_eq!(
+            error,
             "You are trying to redeem for more uscrt than the contract has in its reserve"
         );
 

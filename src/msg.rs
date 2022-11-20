@@ -56,7 +56,7 @@ pub struct InitConfig {
     enable_burn: Option<bool>,
     /// Indicated whether an admin can modify supported denoms
     /// default: False
-    can_modify_denoms: Option<bool>
+    can_modify_denoms: Option<bool>,
 }
 
 impl InitConfig {
@@ -80,7 +80,9 @@ impl InitConfig {
         self.enable_burn.unwrap_or(false)
     }
 
-    pub fn can_modify_denoms(&self) -> bool {self.can_modify_denoms.unwrap_or(false)}
+    pub fn can_modify_denoms(&self) -> bool {
+        self.can_modify_denoms.unwrap_or(false)
+    }
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
