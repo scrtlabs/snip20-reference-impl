@@ -58,14 +58,16 @@ jobs:
             toolchain: 1.63.0
             target: wasm32-unknown-unknown
             override: true
-
         - name: Compile WASM contract
-          uses: actions-rs/cargo@v1
-          with:
-            command: build
-            args: --release --target wasm32-unknown-unknown --locked
-          env:
-            RUSTFLAGS: "-C link-arg=-s"
+          run: |
+              make compile-optimized
+#         - name: Compile WASM contract
+#           uses: actions-rs/cargo@v1
+#           with:
+#             command: build
+#             args: --release --target wasm32-unknown-unknown --locked
+#           env:
+#             RUSTFLAGS: "-C link-arg=-s"
 
         - name: Run Integration Tests
           run: |
