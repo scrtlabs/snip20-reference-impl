@@ -69,7 +69,7 @@ jobs:
 
         - name: Run Integration Tests
           run: |
-              cd tests && ./integration.sh
+              ./tests/integration.sh
 
   lints:
     name: Lints
