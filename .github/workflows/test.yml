@@ -2,11 +2,13 @@
 
 on: [push, pull_request]
 
-name: Basic
+name: Tests
 
 jobs:
-  test:
-    name: Test Suite
+  
+          
+  unit-test:
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -19,7 +21,6 @@ jobs:
           toolchain: 1.63.0
           target: wasm32-unknown-unknown
           override: true
-
       - name: Run unit tests
         uses: actions-rs/cargo@v1
         with:
@@ -28,19 +29,50 @@ jobs:
         env:
           RUST_BACKTRACE: 1
 
-      - name: Compile WASM contract
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target wasm32-unknown-unknown --locked
-        env:
-          RUSTFLAGS: "-C link-arg=-s"
+  integration-tests:
+      name: Integration Tests
+      runs-on: ubuntu-latest
+      services:
+        # Label used to access the service container
+        secretdev:
+          # Docker Hub image
+          options: --name secretdev
+          image: ghcr.io/scrtlabs/localsecret:v1.6.0-alpha.4
+          volumes: 
+            - "/home/runner/work/snip20-reference-impl/snip20-reference-impl/:/root/code"
+          ports:
+            # Opens tcp port
+            - 5000:5000
+            - 9091:9091
+            - 1317:1317
 
-      - name: Run integration tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: integration-test
-          args: --locked
+
+      steps:
+        - name: Checkout sources
+          uses: actions/checkout@v2
+
+        - name: Install stable toolchain
+          uses: actions-rs/toolchain@v1
+          with:
+            profile: minimal
+            toolchain: 1.63.0
+            target: wasm32-unknown-unknown
+            override: true
+        - name: Compile WASM contract
+          run: |
+              sudo apt-get install -y binaryen
+              make compile-optimized && make compile-optimized-receiver
+#         - name: Compile WASM contract
+#           uses: actions-rs/cargo@v1
+#           with:
+#             command: build
+#             args: --release --target wasm32-unknown-unknown --locked
+#           env:
+#             RUSTFLAGS: "-C link-arg=-s"
+
+        - name: Run Integration Tests
+          run: |
+              ./tests/integration.sh
 
   lints:
     name: Lints

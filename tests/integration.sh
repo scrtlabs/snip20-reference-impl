@@ -47,7 +47,7 @@ function assert_eq() {
     local right="$2"
     local message
 
-    if [[ "$left" != "$right" ]]; then
+    if [[ "$(echo $left | xargs)" != "$(echo $right | xargs)" ]]; then
         if [ -z ${3+x} ]; then
             local lineno="${BASH_LINENO[0]}"
             message="assertion failed on line $lineno - both sides differ. left: ${left@Q}, right: ${right@Q}"
@@ -1157,7 +1157,7 @@ function register_receiver() {
     register_tx="$(wait_for_compute_tx "$tx_hash" 'Waiting for receiver registration')"
 
     assert_eq \
-        "$(jq -r '.output_logs[] | select(.type == "wasm") | .attributes[] | select(.key == "register_status") | .value' <<<"$register_tx")" \
+        "$(jq -r '.output_logs[] | select(.type == "wasm") | .attributes[] | select(.key == "register_status                                                                                                                                                                                                                                                 ") | .value' <<<"$register_tx")" \
         'success'
     log 'receiver registered successfully'
 }

@@ -22,6 +22,17 @@ rustup target list --installed
 rustup target add wasm32-unknown-unknown
 ```
 
+### Using macos?
+
+You'll need to install LLVM using Homebrew:
+```sh
+brew install llvm
+echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> ~/.profile
+echo 'export CC=/usr/local/opt/llvm/bin/clang' >> ~/.profile
+echo 'export AR=/usr/local/opt/llvm/bin/llvm-ar' >> ~/.profile
+source ~/.profile
+```
+
 ## Compiling and running tests
 
 Now that you created your custom contract, make sure you can compile and run it before
