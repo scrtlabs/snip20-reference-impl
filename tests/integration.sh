@@ -82,6 +82,7 @@ function assert_ne() {
     return 0
 }
 
+# what the fuck is this?
 function assert_contains() {
     set -e
     local str="$1"
@@ -589,7 +590,7 @@ function test_permit() {
         permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$permit"') --from '$key'")
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$wrong_contract"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
-        assert_contains "$result" "$expected_error"
+        assert_eq "$result" "$expected_error"
     done
 
     # fail due to revoked permit
@@ -606,7 +607,7 @@ function test_permit() {
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"to_be_revoked","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_error="Error: query result: Generic error: Permit \"to_be_revoked\" was revoked by account \"${ADDRESS[$key]}"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
-        assert_contains "$result" "$expected_error"
+        assert_eq "$result" "$expected_error"
     done
 
     # fail due to params not matching params that were signed on
@@ -620,7 +621,7 @@ function test_permit() {
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"not_blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_error="Error: query result: Generic error: Failed to verify signatures for the given permit"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
-        assert_contains "$result" "$expected_error"
+        assert_eq "$result" "$expected_error"
     done
 
     # fail balance query due to no balance permission
@@ -635,7 +636,7 @@ function test_permit() {
         permit_query='{"with_permit":{"query":{"balance":{}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
         expected_error="Error: query result: Generic error: No permission to query balance, got permissions [History]"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
-        assert_contains "$result" "$expected_error"
+        assert_eq "$result" "$expected_error"
     done
 
     # fail history query due to no history permission
@@ -651,12 +652,12 @@ function test_permit() {
         permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_error="Error: query result: Generic error: No permission to query history, got permissions [Balance]"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
-        assert_contains "$result" "$expected_error"
+        assert_eq "$result" "$expected_error"
 
         permit_query='{"with_permit":{"query":{"transaction_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_error="Error: query result: Generic error: No permission to query history, got permissions [Balance]"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
-        assert_contains "$result" "$expected_error"
+        assert_eq "$result" "$expected_error"
     done
 
     # fail allowance query due to no allowance permission
@@ -671,7 +672,7 @@ function test_permit() {
         permit_query='{"with_permit":{"query":{"allowance":{"owner":"'"${ADDRESS[$key]}"'","spender":"'"${ADDRESS[$key]}"'"}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
         expected_error="Error: query result: Generic error: No permission to query allowance, got permissions [History]"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
-        assert_contains "$result" "$expected_error"
+        assert_eq "$result" "$expected_error"
     done
 
     # fail allowance query due to no permit signer not owner or spender
@@ -684,7 +685,7 @@ function test_permit() {
     permit_query='{"with_permit":{"query":{"allowance":{"owner":"'"$wrong_contract"'","spender":"'"$wrong_contract"'"}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["allowance"]},"signature":'"$permit"'}}}'
     expected_error="Error: query result: Generic error: Cannot query allowance. Requires permit for either owner \"$wrong_contract\" or spender \"$wrong_contract\", got permit for \"${ADDRESS[a]}"
     result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
-    assert_contains "$result" "$expected_error"
+    assert_eq "$result" "$expected_error"
 
     # succeed balance query
     local permit
