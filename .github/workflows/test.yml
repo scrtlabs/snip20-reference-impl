@@ -15,10 +15,10 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: actions-rs/toolchain@v2
         with:
-          profile: minimal
-          toolchain: 1.63.0
+          profile: default
+          toolchain: 1.65.0
           target: wasm32-unknown-unknown
           override: true
       - name: Run unit tests
@@ -52,10 +52,10 @@ jobs:
           uses: actions/checkout@v3
 
         - name: Install stable toolchain
-          uses: actions-rs/toolchain@v1
+          uses: actions-rs/toolchain@v2
           with:
-            profile: minimal
-            toolchain: 1.63.0
+            profile: default
+            toolchain: 1.65.0
             target: wasm32-unknown-unknown
             override: true
         - name: Compile WASM contract
@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: actions-rs/toolchain@v2
         with:
           profile: minimal
           toolchain: 1.63.0
@@ -90,7 +90,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Run cargo fmt
-        uses: actions-rs/cargo@v1
+        uses: actions-rs/cargo@v2
         with:
           command: fmt
           args: --all -- --check
@@ -105,7 +105,7 @@ jobs:
       # CHANGES_IN_REPO=$(git status --porcelain)
       # after this, but I don't know how
       - name: Generate Schema
-        uses: actions-rs/cargo@v1
+        uses: actions-rs/cargo@v2
         with:
           command: schema
           args: --locked
