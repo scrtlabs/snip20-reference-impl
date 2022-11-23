@@ -420,6 +420,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_chacha"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.6.3",
+]
+
+[[package]]
 name = "rand_core"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -598,7 +608,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23c8e5a5d0f115409280e49831e8ddcc5642031b7e66ab70b957b2e38cae068a"
 dependencies = [
- "rand_chacha",
+ "rand_chacha 0.2.2",
  "rand_core 0.5.1",
  "secret-cosmwasm-std",
  "sha2 0.9.9",
@@ -820,7 +830,7 @@ dependencies = [
  "base64 0.12.3",
  "bincode2",
  "cosmwasm-schema",
- "rand_chacha",
+ "rand_chacha 0.3.1",
  "rand_core 0.5.1",
  "schemars 0.8.10",
  "secret-cosmwasm-std",
