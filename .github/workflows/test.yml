@@ -61,7 +61,7 @@ jobs:
         - name: Compile WASM contract
           run: |
               sudo apt-get install -y binaryen
-              make compile-optimized
+              make compile-optimized && make compile-optimized-receiver
 #         - name: Compile WASM contract
 #           uses: actions-rs/cargo@v1
 #           with:
