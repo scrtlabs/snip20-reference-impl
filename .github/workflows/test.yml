@@ -60,6 +60,7 @@ jobs:
             override: true
         - name: Compile WASM contract
           run: |
+              sudo apt-get install -y binaryen
               make compile-optimized
 #         - name: Compile WASM contract
 #           uses: actions-rs/cargo@v1
