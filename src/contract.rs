@@ -1695,7 +1695,10 @@ fn is_valid_symbol(symbol: &str) -> bool {
     let len = symbol.len();
     let len_is_valid = (3..=20).contains(&len);
 
-    len_is_valid && symbol.bytes().all(|byte| (b'A'..=b'Z').contains(&byte) || (b'a'..=b'z').contains(&byte))
+    len_is_valid
+        && symbol
+            .bytes()
+            .all(|byte| (b'A'..=b'Z').contains(&byte) || (b'a'..=b'z').contains(&byte))
 }
 
 // pub fn migrate(
