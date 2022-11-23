@@ -4,10 +4,10 @@ use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
     MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
-use secret_toolkit::crypto::sha_256;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
+use secret_toolkit_crypto::sha_256;
 
 use crate::batch;
 use crate::msg::QueryWithPermit;
@@ -1706,6 +1706,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
 //     _env: Env,
 //     _msg: MigrateMsg,
 // ) -> StdResult<MigrateResponse> {
+//     Ok(MigrateResponse::default())
 //     Ok(MigrateResponse::default())
 // }
 
