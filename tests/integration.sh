@@ -1137,7 +1137,7 @@ function register_receiver() {
     register_tx="$(wait_for_compute_tx "$tx_hash" 'Waiting for receiver registration')"
 
     assert_eq \
-        "$(jq -r '.output_logs[] | select(.type == "wasm") | .attributes[] | select(.key == "register_status") | .value' <<<"$register_tx")" \
+        "$(jq -r '.output_logs[] | select(.type == "wasm") | .attributes[] | select(.key == "register_status                                                                                                                                                                                                                                                 ") | .value' <<<"$register_tx")" \
         'success'
     log 'receiver registered successfully'
 }
