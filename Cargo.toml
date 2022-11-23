@@ -41,7 +41,7 @@ secret-toolkit = { version = "0.6.0", features = [
 ] }
 schemars = "0.8.1"
 serde = { version = "1.0.114", default-features = false, features = ["derive"] }
-snafu = { version = "0.6.3" }
+snafu = { version = "0.7.3" }
 bincode2 = "2.0.1"
 subtle = { version = "2.2.3", default-features = false }
 base64 = "0.12.3"
