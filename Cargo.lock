@@ -10,21 +10,9 @@ checksum = "349a06037c7bf932dd7e7d1f653678b2038b9ad46a74102f1fc7bd7872678cce"
 
 [[package]]
 name = "base64"
-version = "0.11.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
-
-[[package]]
-name = "base64"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
-
-[[package]]
-name = "base64"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
+checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
 name = "base64ct"
@@ -34,9 +22,9 @@ checksum = "ea2b2456fd614d856680dcd9fcc660a51a820fa09daef2e49772b56a193c8474"
 
 [[package]]
 name = "bech32"
-version = "0.8.1"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf9ff0bbfd639f15c74af777d81383cf53efb7c93613f6cab67c6c11e05bbf8b"
+checksum = "d86b93f97252c47b41663388e6d155714a9d0c398b99f1005cbc5f978b29f445"
 
 [[package]]
 name = "bincode2"
@@ -100,7 +88,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df88ec704055474b3fad0c02de319b8eb3993a02eefe9ef7f403ba1c56308e31"
 dependencies = [
  "cosmwasm-schema-derive",
- "schemars 0.8.10",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror",
@@ -139,7 +127,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03c6a1d5fa1de37e071642dfa44ec552ca5b299adb128fab16138e24b548fd21"
 dependencies = [
  "generic-array",
- "rand_core 0.6.3",
+ "rand_core 0.6.4",
  "subtle",
  "zeroize",
 ]
@@ -206,12 +194,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "doc-comment"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
-
-[[package]]
 name = "dyn-clone"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -237,7 +219,7 @@ checksum = "403ef3e961ab98f0ba902771d29f842058578bb1ce7e3c59dad5a6a93e784c69"
 dependencies = [
  "curve25519-dalek",
  "hex",
- "rand_core 0.6.3",
+ "rand_core 0.6.4",
  "serde",
  "sha2 0.9.9",
  "thiserror",
@@ -256,7 +238,7 @@ dependencies = [
  "ff",
  "generic-array",
  "group",
- "rand_core 0.6.3",
+ "rand_core 0.6.4",
  "sec1",
  "subtle",
  "zeroize",
@@ -268,7 +250,7 @@ version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "131655483be284720a17d74ff97592b8e76576dc25563148601df2d7c9080924"
 dependencies = [
- "rand_core 0.6.3",
+ "rand_core 0.6.4",
  "subtle",
 ]
 
@@ -317,15 +299,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc5ac374b108929de78460075f3dc439fa66df9d8fc77e8f12caa5165fcf0c89"
 dependencies = [
  "ff",
- "rand_core 0.6.3",
+ "rand_core 0.6.4",
  "subtle",
 ]
-
-[[package]]
-name = "heck"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2540771e65fc8cb83cd6e8a237f70c319bd5c29f78ed1084ba5d50eeac86f7f9"
 
 [[package]]
 name = "hex"
@@ -387,9 +363,9 @@ dependencies = [
 
 [[package]]
 name = "ppv-lite86"
-version = "0.2.16"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb9f9e6e233e5c4a35559a617bf40a4ec447db2e84c20b55a6f83167b7e57872"
+checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
 name = "proc-macro2"
@@ -411,12 +387,12 @@ dependencies = [
 
 [[package]]
 name = "rand_chacha"
-version = "0.2.2"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4c8ed856279c9737206bf725bf36935d8666ead7aa69b52be55af369d193402"
+checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
 dependencies = [
  "ppv-lite86",
- "rand_core 0.5.1",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -430,9 +406,9 @@ dependencies = [
 
 [[package]]
 name = "rand_core"
-version = "0.6.3"
+version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d34f1408f55294453790c48b2f1ebbb1c5b4b7563eb1f418bcfcfdbb06ebb4e7"
+checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.7",
 ]
@@ -460,14 +436,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "ripemd160"
-version = "0.9.1"
+name = "ripemd"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2eca4ecc81b7f313189bf73ce724400a07da2a6dac19588b03c8bd76a2dcc251"
+checksum = "bd124222d17ad93a644ed9d011a40f4fb64aa54275c08cc216524a9ea82fb09f"
 dependencies = [
- "block-buffer 0.9.0",
- "digest 0.9.0",
- "opaque-debug",
+ "digest 0.10.6",
 ]
 
 [[package]]
@@ -478,48 +452,25 @@ checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
 
 [[package]]
 name = "schemars"
-version = "0.7.6"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be77ed66abed6954aabf6a3e31a84706bedbf93750d267e92ef4a6d90bbd6a61"
-dependencies = [
- "schemars_derive 0.7.6",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "schemars"
-version = "0.8.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1847b767a3d62d95cbf3d8a9f0e421cf57a0d8aa4f411d4b16525afb0284d4ed"
+checksum = "2a5fb6c61f29e723026dc8e923d94c694313212abbecbbe5f55a7748eec5b307"
 dependencies = [
  "dyn-clone",
- "schemars_derive 0.8.10",
+ "schemars_derive",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "schemars_derive"
-version = "0.7.6"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11af7a475c9ee266cfaa9e303a47c830ebe072bf3101ab907a7b7b9d816fa01d"
+checksum = "f188d036977451159430f3b8dc82ec76364a42b7e289c2b18a9a18f4470058e9"
 dependencies = [
  "proc-macro2",
  "quote",
- "serde_derive_internals 0.25.0",
- "syn",
-]
-
-[[package]]
-name = "schemars_derive"
-version = "0.8.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af4d7e1b012cb3d9129567661a63755ea4b8a7386d339dc945ae187e403c6743"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde_derive_internals 0.26.0",
+ "serde_derive_internals",
  "syn",
 ]
 
@@ -545,7 +496,7 @@ dependencies = [
  "digest 0.9.0",
  "ed25519-zebra",
  "k256",
- "rand_core 0.6.3",
+ "rand_core 0.6.4",
  "thiserror",
 ]
 
@@ -555,10 +506,10 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0cf71b9340ef6a67d0e2078a1ca5cda31816aa5028f90ee79864ac231a1fcb6"
 dependencies = [
- "base64 0.13.0",
+ "base64",
  "cosmwasm-derive",
  "forward_ref",
- "schemars 0.8.10",
+ "schemars",
  "secret-cosmwasm-crypto",
  "serde",
  "serde-json-wasm",
@@ -578,9 +529,8 @@ dependencies = [
 
 [[package]]
 name = "secret-toolkit"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f531d2706770c89dd24ed93bbfdf4d2a3cd0b9f2575d32b96f75f522a9ed3307"
+version = "0.7.0"
+source = "git+https://github.com/scrtlabs/secret-toolkit?rev=260e61b63a32cd909a64f3202f756392b2ee3d8d#260e61b63a32cd909a64f3202f756392b2ee3d8d"
 dependencies = [
  "secret-toolkit-crypto",
  "secret-toolkit-permit",
@@ -594,26 +544,24 @@ dependencies = [
 
 [[package]]
 name = "secret-toolkit-crypto"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23c8e5a5d0f115409280e49831e8ddcc5642031b7e66ab70b957b2e38cae068a"
+version = "0.7.0"
+source = "git+https://github.com/scrtlabs/secret-toolkit?rev=260e61b63a32cd909a64f3202f756392b2ee3d8d#260e61b63a32cd909a64f3202f756392b2ee3d8d"
 dependencies = [
  "rand_chacha",
- "rand_core 0.5.1",
+ "rand_core 0.6.4",
  "secret-cosmwasm-std",
- "sha2 0.9.9",
+ "sha2 0.10.6",
 ]
 
 [[package]]
 name = "secret-toolkit-permit"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4de09e681de9a91e426527f06942e149487d37454d38cb13732b4c936092856e"
+version = "0.7.0"
+source = "git+https://github.com/scrtlabs/secret-toolkit?rev=260e61b63a32cd909a64f3202f756392b2ee3d8d#260e61b63a32cd909a64f3202f756392b2ee3d8d"
 dependencies = [
  "bech32",
  "remain",
- "ripemd160",
- "schemars 0.8.10",
+ "ripemd",
+ "schemars",
  "secret-cosmwasm-std",
  "secret-toolkit-crypto",
  "serde",
@@ -621,23 +569,21 @@ dependencies = [
 
 [[package]]
 name = "secret-toolkit-serialization"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d192f627bfd3024ab5503c3f034096a6c3bc16e912ee3981eccab82a897489c"
+version = "0.7.0"
+source = "git+https://github.com/scrtlabs/secret-toolkit?rev=260e61b63a32cd909a64f3202f756392b2ee3d8d#260e61b63a32cd909a64f3202f756392b2ee3d8d"
 dependencies = [
  "bincode2",
- "schemars 0.8.10",
+ "schemars",
  "secret-cosmwasm-std",
  "serde",
 ]
 
 [[package]]
 name = "secret-toolkit-snip20"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a68dc5c628530e9f9a4cb2cb602e3dba7ae631ea6cd9693b884b29bfaaf0ebfc"
+version = "0.7.0"
+source = "git+https://github.com/scrtlabs/secret-toolkit?rev=260e61b63a32cd909a64f3202f756392b2ee3d8d#260e61b63a32cd909a64f3202f756392b2ee3d8d"
 dependencies = [
- "schemars 0.8.10",
+ "schemars",
  "secret-cosmwasm-std",
  "secret-toolkit-utils",
  "serde",
@@ -645,11 +591,10 @@ dependencies = [
 
 [[package]]
 name = "secret-toolkit-snip721"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fc20fd157fe191d74a19e277763064a420397ad9704d8bded9150ecaf1fe1f7"
+version = "0.7.0"
+source = "git+https://github.com/scrtlabs/secret-toolkit?rev=260e61b63a32cd909a64f3202f756392b2ee3d8d#260e61b63a32cd909a64f3202f756392b2ee3d8d"
 dependencies = [
- "schemars 0.8.10",
+ "schemars",
  "secret-cosmwasm-std",
  "secret-toolkit-utils",
  "serde",
@@ -657,9 +602,8 @@ dependencies = [
 
 [[package]]
 name = "secret-toolkit-storage"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5498d9923928e4650233748f66bc6ac28c7b7d60d6c5026c2fdad4952fca6fc5"
+version = "0.7.0"
+source = "git+https://github.com/scrtlabs/secret-toolkit?rev=260e61b63a32cd909a64f3202f756392b2ee3d8d#260e61b63a32cd909a64f3202f756392b2ee3d8d"
 dependencies = [
  "secret-cosmwasm-std",
  "secret-cosmwasm-storage",
@@ -669,11 +613,10 @@ dependencies = [
 
 [[package]]
 name = "secret-toolkit-utils"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47665d6263cc22f94dfb74277aaffeec6caa9adabdf900eb8300508005a53b07"
+version = "0.7.0"
+source = "git+https://github.com/scrtlabs/secret-toolkit?rev=260e61b63a32cd909a64f3202f756392b2ee3d8d#260e61b63a32cd909a64f3202f756392b2ee3d8d"
 dependencies = [
- "schemars 0.8.10",
+ "schemars",
  "secret-cosmwasm-std",
  "secret-cosmwasm-storage",
  "serde",
@@ -681,12 +624,11 @@ dependencies = [
 
 [[package]]
 name = "secret-toolkit-viewing-key"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b97d08ba376171cb58e134508fc317824566af808722ac889e956f0447a5ef9"
+version = "0.7.0"
+source = "git+https://github.com/scrtlabs/secret-toolkit?rev=260e61b63a32cd909a64f3202f756392b2ee3d8d#260e61b63a32cd909a64f3202f756392b2ee3d8d"
 dependencies = [
- "base64 0.11.0",
- "schemars 0.7.6",
+ "base64",
+ "schemars",
  "secret-cosmwasm-std",
  "secret-cosmwasm-storage",
  "secret-toolkit-crypto",
@@ -718,17 +660,6 @@ name = "serde_derive"
 version = "1.0.144"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94ed3a816fb1d101812f83e789f888322c34e291f894f19590dc310963e87a00"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "serde_derive_internals"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1dbab34ca63057a1f15280bdf3c39f2b1eb1b54c17e98360e511637aef7418c6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -788,48 +719,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02658e48d89f2bec991f9a78e69cfa4c316f8d6a6c4ec12fae1aeb263d486788"
 dependencies = [
  "digest 0.9.0",
- "rand_core 0.6.3",
-]
-
-[[package]]
-name = "snafu"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a152ba99b054b22972ee794cf04e5ef572da1229e33b65f3c57abbff0525a454"
-dependencies = [
- "doc-comment",
- "snafu-derive",
-]
-
-[[package]]
-name = "snafu-derive"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5e79cdebbabaebb06a9bdbaedc7f159b410461f63611d4d0e3fb0fab8fed850"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
 name = "snip20-reference-impl"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
- "base64 0.12.3",
- "bincode2",
+ "base64",
  "cosmwasm-schema",
- "rand_chacha",
- "rand_core 0.5.1",
- "schemars 0.8.10",
+ "schemars",
  "secret-cosmwasm-std",
  "secret-cosmwasm-storage",
  "secret-toolkit",
+ "secret-toolkit-crypto",
  "serde",
- "sha2 0.10.6",
- "snafu",
- "subtle",
 ]
 
 [[package]]

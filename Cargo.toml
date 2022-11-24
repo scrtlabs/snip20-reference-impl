@@ -1,8 +1,8 @@
 [package]
 name = "snip20-reference-impl"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Itzik <itzik@keytango.io>"]
-edition = "2018"
+edition = "2021"
 exclude = [
   # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.
   "contract.wasm",
@@ -32,22 +32,17 @@ backtraces = ["cosmwasm-std/backtraces"]
 
 # debug-print = ["cosmwasm-std/debug-print"]
 [dependencies]
-cosmwasm-std = { package = "secret-cosmwasm-std", version = "1.0.0" }
+cosmwasm-std = { package = "secret-cosmwasm-std", version = "1.0.0", default-features = false }
 cosmwasm-storage = { package = "secret-cosmwasm-storage", version = "1.0.0" }
-secret-toolkit = { version = "0.6.0", features = [
+secret-toolkit = { git = "https://github.com/scrtlabs/secret-toolkit", rev = "260e61b63a32cd909a64f3202f756392b2ee3d8d", features = [
   "permit",
   "viewing-key",
-  "crypto",
 ] }
-schemars = "0.8.1"
+secret-toolkit-crypto = { git = "https://github.com/scrtlabs/secret-toolkit", rev = "260e61b63a32cd909a64f3202f756392b2ee3d8d", features = ["rand", "hash"] }
+
+schemars = "0.8.11"
 serde = { version = "1.0.114", default-features = false, features = ["derive"] }
-snafu = { version = "0.7.3" }
-bincode2 = "2.0.1"
-subtle = { version = "2.2.3", default-features = false }
-base64 = "0.12.3"
-rand_chacha = { version = "0.2.2", default-features = false }
-rand_core = { version = "0.5.1", default-features = false }
-sha2 = { version = "0.10.6", default-features = false }
+base64 = "0.13.0"
 
 [dev-dependencies]
 cosmwasm-schema = { version = "1.1.8" }

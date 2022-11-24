@@ -24,6 +24,7 @@ pub struct InstantiateMsg {
     pub initial_balances: Option<Vec<InitialBalance>>,
     pub prng_seed: Binary,
     pub config: Option<InitConfig>,
+    pub supported_denoms: Option<Vec<String>>,
 }
 
 impl InstantiateMsg {
@@ -53,6 +54,9 @@ pub struct InitConfig {
     /// Indicates whether burn functionality should be enabled
     /// default: False
     enable_burn: Option<bool>,
+    /// Indicated whether an admin can modify supported denoms
+    /// default: False
+    can_modify_denoms: Option<bool>,
 }
 
 impl InitConfig {
@@ -74,6 +78,10 @@ impl InitConfig {
 
     pub fn burn_enabled(&self) -> bool {
         self.enable_burn.unwrap_or(false)
+    }
+
+    pub fn can_modify_denoms(&self) -> bool {
+        self.can_modify_denoms.unwrap_or(false)
     }
 }
 
@@ -212,6 +220,14 @@ pub enum ExecuteMsg {
         level: ContractStatusLevel,
         padding: Option<String>,
     },
+    /// Add deposit/redeem support for these coin denoms
+    AddSupportedDenoms {
+        denoms: Vec<String>,
+    },
+    /// Remove deposit/redeem support for these coin denoms
+    RemoveSupportedDenoms {
+        denoms: Vec<String>,
+    },
 
     // Permit
     RevokePermit {
@@ -309,6 +325,12 @@ pub enum ExecuteAnswer {
         status: ResponseStatus,
     },
     SetContractStatus {
+        status: ResponseStatus,
+    },
+    AddSupportedDenoms {
+        status: ResponseStatus,
+    },
+    RemoveSupportedDenoms {
         status: ResponseStatus,
     },
 
@@ -410,6 +432,7 @@ pub enum QueryAnswer {
         redeem_enabled: bool,
         mint_enabled: bool,
         burn_enabled: bool,
+        supported_denoms: Vec<String>,
     },
     ContractStatus {
         status: ContractStatusLevel,
