@@ -993,11 +993,14 @@ fn try_add_receiver_api_callback(
         return Ok(());
     }
 
-    let receiver_hash = ReceiverHashStore::load(storage, &recipient)?;
-    let receiver_msg = Snip20ReceiveMsg::new(sender, from, amount, memo, msg);
-    let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient)?;
-    messages.push(callback_msg);
+    let receiver_hash = ReceiverHashStore::load(storage, &recipient);
+    if let Some(receiver_hash) = receiver_hash {
+        let receiver_hash = receiver_hash?;
+        let receiver_msg = Snip20ReceiveMsg::new(sender, from, amount, memo, msg);
+        let callback_msg = receiver_msg.into_cosmos_msg(receiver_hash, recipient)?;
 
+        messages.push(callback_msg);
+    }    
     Ok(())
 }
 
@@ -2108,8 +2111,7 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        let hash = ReceiverHashStore::load(&deps.storage, &Addr::unchecked("contract".to_string()))
-            .unwrap();
+        let hash = ReceiverHashStore::load(&deps.storage, &Addr::unchecked("contract".to_string())).unwrap().unwrap();
         assert_eq!(hash, "this_is_a_hash_of_a_code".to_string());
     }
 

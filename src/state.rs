@@ -145,11 +145,11 @@ impl AllowancesStore {
 pub static RECEIVER_HASH: Item<String> = Item::new(PREFIX_RECEIVERS);
 pub struct ReceiverHashStore {}
 impl ReceiverHashStore {
-    pub fn load(store: &dyn Storage, account: &Addr) -> StdResult<String> {
+    pub fn load(store: &dyn Storage, account: &Addr) -> Option<StdResult<String>> {
         let receiver_hash = RECEIVER_HASH.add_suffix(account.as_str().as_bytes());
-        receiver_hash
+        Some(receiver_hash
             .load(store)
-            .map_err(|_err| StdError::generic_err("stored code hash was not a valid String"))
+            .map_err(|_err| StdError::generic_err("stored code hash was not a valid String")))
     }
 
     pub fn save(store: &mut dyn Storage, account: &Addr, code_hash: String) -> StdResult<()> {
