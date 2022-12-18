@@ -34,11 +34,14 @@ backtraces = ["cosmwasm-std/backtraces"]
 [dependencies]
 cosmwasm-std = { package = "secret-cosmwasm-std", version = "1.0.0", default-features = false }
 cosmwasm-storage = { package = "secret-cosmwasm-storage", version = "1.0.0" }
-secret-toolkit = { git = "https://github.com/scrtlabs/secret-toolkit", rev = "260e61b63a32cd909a64f3202f756392b2ee3d8d", features = [
+
+secret-toolkit = { version = "0.7.0",  features = [
   "permit",
   "viewing-key",
 ] }
-secret-toolkit-crypto = { git = "https://github.com/scrtlabs/secret-toolkit", rev = "260e61b63a32cd909a64f3202f756392b2ee3d8d", features = ["rand", "hash"] }
+secret-toolkit-crypto = { version = "0.7.0", features = ["rand", "hash"]}
+
+#secret-toolkit-crypto = { package = "secret-toolkit-crypto", version = "0.7.0", features = ["rand", "hash"] }
 
 schemars = "0.8.11"
 serde = { version = "1.0.114", default-features = false, features = ["derive"] }
