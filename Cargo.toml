@@ -41,7 +41,7 @@ secret-toolkit = { git = "https://github.com/scrtlabs/secret-toolkit", rev = "26
 secret-toolkit-crypto = { git = "https://github.com/scrtlabs/secret-toolkit", rev = "260e61b63a32cd909a64f3202f756392b2ee3d8d", features = ["rand", "hash"] }
 
 schemars = "0.8.11"
-serde = { version = "1.0.114", default-features = false, features = ["derive"] }
+serde = { version = "1.0.151", default-features = false, features = ["derive"] }
 base64 = "0.13.0"
 
 [dev-dependencies]
