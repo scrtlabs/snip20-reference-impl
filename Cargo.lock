@@ -26,6 +26,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
+name = "base64"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ea22880d78093b0cbe17c89f64a7d457941e65759157ec6cb31a31d652b05e5"
+
+[[package]]
 name = "base64ct"
 version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -518,7 +524,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0cf71b9340ef6a67d0e2078a1ca5cda31816aa5028f90ee79864ac231a1fcb6"
 dependencies = [
- "base64",
+ "base64 0.13.1",
  "cosmwasm-derive",
  "forward_ref",
  "schemars",
@@ -648,7 +654,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b555a4b863521be8e4f10cdfe808afd5925fa0d27c73830ed1ff578acd7086b8"
 dependencies = [
- "base64",
+ "base64 0.13.1",
  "schemars",
  "secret-cosmwasm-std",
  "secret-cosmwasm-storage",
@@ -747,7 +753,7 @@ dependencies = [
 name = "snip20-reference-impl"
 version = "1.0.0"
 dependencies = [
- "base64",
+ "base64 0.20.0",
  "cosmwasm-schema",
  "schemars",
  "secret-cosmwasm-std",
