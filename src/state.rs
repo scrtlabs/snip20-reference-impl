@@ -145,7 +145,7 @@ impl AllowancesStore {
 pub static RECEIVER_HASH: Item<String> = Item::new(PREFIX_RECEIVERS);
 pub struct ReceiverHashStore {}
 impl ReceiverHashStore {
-    pub fn load(store: &dyn Storage, account: &Addr) -> StdResult<Option<String>> {
+    pub fn may_load(store: &dyn Storage, account: &Addr) -> StdResult<Option<String>> {
         let receiver_hash = RECEIVER_HASH.add_suffix(account.as_str().as_bytes());
         receiver_hash.may_load(store)
     }
