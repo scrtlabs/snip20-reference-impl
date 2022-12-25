@@ -2110,9 +2110,10 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        let hash = ReceiverHashStore::may_load(&deps.storage, &Addr::unchecked("contract".to_string()))
-            .unwrap()
-            .unwrap();
+        let hash =
+            ReceiverHashStore::may_load(&deps.storage, &Addr::unchecked("contract".to_string()))
+                .unwrap()
+                .unwrap();
         assert_eq!(hash, "this_is_a_hash_of_a_code".to_string());
     }
 
