@@ -1614,11 +1614,11 @@ fn try_burn(
 fn perform_safe_addition(balance: &mut u128, amount: u128) -> u128 {
     // Note that new_amount can be equal to base after this operation.
     // Currently we do nothing maybe on other implementations we will have something to add here
-    let prev_balance: u128 = balance.clone();
+    let prev_balance: u128 = *balance;
     *balance = balance.saturating_add(amount);
 
     // Won't underflow as the minimal value possible is 0
-    return balance.clone() - prev_balance;
+    *balance - prev_balance
 }
 
 fn perform_transfer(
