@@ -2,7 +2,11 @@
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
+<<<<<<< HEAD
     MessageInfo, Response, StdError, StdResult, Storage, Uint128, 
+=======
+    MessageInfo, Response, StdError, StdResult, Storage, Uint128, OverflowError, 
+>>>>>>> 07b6d1baa214af24edeea0a2f2cb30e458aa5f7c
 };
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
