@@ -1612,9 +1612,9 @@ fn try_burn(
 // Assuming that max of u128 is probably an unreachable balance, we want the addition to be bounded the max of u128
 // Currently the logic here is very straight forward yet the existence of the function is mendatory for future changes if needed.
 fn perform_safe_addition(balance: &mut u128, amount: u128) -> u128 {
-    // Note that new_amount can be equal to base after this operation. 
+    // Note that new_amount can be equal to base after this operation.
     // Currently we do nothing maybe on other implementations we will have something to add here
-    let prev_balance : u128 = balance.clone();
+    let prev_balance: u128 = balance.clone();
     *balance = balance.saturating_add(amount);
 
     // Won't underflow as the minimal value possible is 0
