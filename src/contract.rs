@@ -2,7 +2,7 @@
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
-    MessageInfo, Response, StdError, StdResult, Storage, Uint128, 
+    MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
@@ -768,11 +768,10 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
     let sender_address = &info.sender;
 
     let mut account_balance = BalancesStore::load(deps.storage, sender_address);
-    
     // Note that althought raw_amount might be different than the actual added amount it doesn't really metter as we are in a case that someone somehow minted the maximum amount of coins that we can store
     perform_safe_addition(&mut account_balance, raw_amount);
     BalancesStore::save(deps.storage, sender_address, account_balance)?;
-    
+
     store_deposit(
         deps.storage,
         sender_address,
