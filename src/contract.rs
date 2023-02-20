@@ -575,7 +575,7 @@ fn try_mint_impl(
 
     let mut account_balance = BalancesStore::load(deps.storage, &recipient);
 
-    perform_safe_addition(&mut account_balance, raw_amount);
+    safe_add(&mut account_balance, raw_amount);
 
     BalancesStore::save(deps.storage, &recipient, account_balance)?;
 
@@ -610,7 +610,7 @@ fn try_mint(
     }
 
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
-    let minted_amount = perform_safe_addition(&mut total_supply, amount.u128());
+    let minted_amount = safe_add(&mut total_supply, amount.u128());
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
     // Note that even when minted_amount is equal to 0 we still want to perform the operations for logic consistency
@@ -652,7 +652,7 @@ fn try_batch_mint(
 
     // Quick loop to check that the total of amounts is valid
     for action in actions {
-        let actual_amount = perform_safe_addition(&mut total_supply, action.amount.u128());
+        let actual_amount = safe_add(&mut total_supply, action.amount.u128());
 
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_mint_impl(
@@ -762,14 +762,14 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
     }
 
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
-    raw_amount = perform_safe_addition(&mut total_supply, raw_amount);
+    raw_amount = safe_add(&mut total_supply, raw_amount);
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
     let sender_address = &info.sender;
 
     let mut account_balance = BalancesStore::load(deps.storage, sender_address);
     // Note that althought raw_amount might be different than the actual added amount it doesn't really metter as we are in a case that someone somehow minted the maximum amount of coins that we can store
-    perform_safe_addition(&mut account_balance, raw_amount);
+    safe_add(&mut account_balance, raw_amount);
     BalancesStore::save(deps.storage, sender_address, account_balance)?;
 
     store_deposit(
@@ -1611,7 +1611,7 @@ fn try_burn(
 // To avoid balance guessing attacks based on balance overflow we need to perform safe addition and don't expose overflows to the caller.
 // Assuming that max of u128 is probably an unreachable balance, we want the addition to be bounded the max of u128
 // Currently the logic here is very straight forward yet the existence of the function is mendatory for future changes if needed.
-fn perform_safe_addition(balance: &mut u128, amount: u128) -> u128 {
+fn safe_add(balance: &mut u128, amount: u128) -> u128 {
     // Note that new_amount can be equal to base after this operation.
     // Currently we do nothing maybe on other implementations we will have something to add here
     let prev_balance: u128 = *balance;
@@ -1640,7 +1640,7 @@ fn perform_transfer(
     BalancesStore::save(store, from, from_balance)?;
 
     let mut to_balance = BalancesStore::load(store, to);
-    perform_safe_addition(&mut to_balance, amount);
+    safe_add(&mut to_balance, amount);
     BalancesStore::save(store, to, to_balance)?;
 
     Ok(())
