@@ -17,7 +17,7 @@ use crate::msg::{
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    AllowancesStore, BalancesStore, Config, MintersStore, ReceiverHashStore, CONFIG,
+    AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG,
     CONTRACT_STATUS, TOTAL_SUPPLY,
 };
 use crate::transaction_history::{
@@ -59,12 +59,17 @@ pub fn instantiate(
     };
 
     let mut total_supply: u128 = 0;
+
+    let prng_seed_hashed = sha_256(&msg.prng_seed.0);
+    PrngStore::save(deps.storage, prng_seed_hashed)?;
+
     {
         let initial_balances = msg.initial_balances.unwrap_or_default();
         for balance in initial_balances {
             let amount = balance.amount.u128();
             let balance_address = deps.api.addr_validate(balance.address.as_str())?;
-            BalancesStore::save(deps.storage, &balance_address, amount)?;
+            BalancesStore::update_balance(deps.storage, &balance_address, amount, None, None)?;
+
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
                 total_supply = new_total_supply;
             } else {
@@ -116,7 +121,6 @@ pub fn instantiate(
     };
     MintersStore::save(deps.storage, minters)?;
 
-    let prng_seed_hashed = sha_256(&msg.prng_seed.0);
     ViewingKey::set_seed(deps.storage, &prng_seed_hashed);
 
     Ok(Response::default())
@@ -132,10 +136,14 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
                 ExecuteMsg::SetContractStatus { level, .. } => {
                     set_contract_status(deps, info, level)
                 }
-                ExecuteMsg::Redeem { amount, denom, .. }
-                    if contract_status == ContractStatusLevel::StopAllButRedeems =>
-                {
-                    try_redeem(deps, env, info, amount, denom)
+                ExecuteMsg::Redeem {
+                    amount,
+                    denom,
+                    decoys,
+                    entropy,
+                    ..
+                } if contract_status == ContractStatusLevel::StopAllButRedeems => {
+                    try_redeem(deps, env, info, amount, denom, decoys, entropy)
                 }
                 _ => Err(StdError::generic_err(
                     "This contract is stopped and this action is not allowed",
@@ -148,22 +156,34 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
 
     let response = match msg {
         // Native
-        ExecuteMsg::Deposit { .. } => try_deposit(deps, env, info),
-        ExecuteMsg::Redeem { amount, denom, .. } => try_redeem(deps, env, info, amount, denom),
+        ExecuteMsg::Deposit {
+            decoys, entropy, ..
+        } => try_deposit(deps, env, info, decoys, entropy),
+        ExecuteMsg::Redeem {
+            amount,
+            denom,
+            decoys,
+            entropy,
+            ..
+        } => try_redeem(deps, env, info, amount, denom, decoys, entropy),
 
         // Base
         ExecuteMsg::Transfer {
             recipient,
             amount,
             memo,
+            decoys,
+            entropy,
             ..
-        } => try_transfer(deps, env, info, recipient, amount, memo),
+        } => try_transfer(deps, env, info, recipient, amount, memo, decoys, entropy),
         ExecuteMsg::Send {
             recipient,
             recipient_code_hash,
             amount,
             msg,
             memo,
+            decoys,
+            entropy,
             ..
         } => try_send(
             deps,
@@ -174,10 +194,22 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             msg,
+            decoys,
+            entropy,
         ),
-        ExecuteMsg::BatchTransfer { actions, .. } => try_batch_transfer(deps, env, info, actions),
-        ExecuteMsg::BatchSend { actions, .. } => try_batch_send(deps, env, info, actions),
-        ExecuteMsg::Burn { amount, memo, .. } => try_burn(deps, env, info, amount, memo),
+        ExecuteMsg::BatchTransfer {
+            actions, entropy, ..
+        } => try_batch_transfer(deps, env, info, actions, entropy),
+        ExecuteMsg::BatchSend {
+            actions, entropy, ..
+        } => try_batch_send(deps, env, info, actions, entropy),
+        ExecuteMsg::Burn {
+            amount,
+            memo,
+            decoys,
+            entropy,
+            ..
+        } => try_burn(deps, env, info, amount, memo, decoys, entropy),
         ExecuteMsg::RegisterReceive { code_hash, .. } => {
             try_register_receive(deps, info, code_hash)
         }
@@ -202,8 +234,12 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             recipient,
             amount,
             memo,
+            decoys,
+            entropy,
             ..
-        } => try_transfer_from(deps, &env, info, owner, recipient, amount, memo),
+        } => try_transfer_from(
+            deps, &env, info, owner, recipient, amount, memo, decoys, entropy,
+        ),
         ExecuteMsg::SendFrom {
             owner,
             recipient,
@@ -211,6 +247,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             msg,
             memo,
+            decoys,
+            entropy,
             ..
         } => try_send_from(
             deps,
@@ -222,27 +260,39 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             msg,
+            decoys,
+            entropy,
         ),
-        ExecuteMsg::BatchTransferFrom { actions, .. } => {
-            try_batch_transfer_from(deps, &env, info, actions)
-        }
-        ExecuteMsg::BatchSendFrom { actions, .. } => try_batch_send_from(deps, env, &info, actions),
+        ExecuteMsg::BatchTransferFrom {
+            actions, entropy, ..
+        } => try_batch_transfer_from(deps, &env, info, actions, entropy),
+        ExecuteMsg::BatchSendFrom {
+            actions, entropy, ..
+        } => try_batch_send_from(deps, env, &info, actions, entropy),
         ExecuteMsg::BurnFrom {
             owner,
             amount,
             memo,
+            decoys,
+            entropy,
             ..
-        } => try_burn_from(deps, &env, info, owner, amount, memo),
-        ExecuteMsg::BatchBurnFrom { actions, .. } => try_batch_burn_from(deps, &env, info, actions),
+        } => try_burn_from(deps, &env, info, owner, amount, memo, decoys, entropy),
+        ExecuteMsg::BatchBurnFrom {
+            actions, entropy, ..
+        } => try_batch_burn_from(deps, &env, info, actions, entropy),
 
         // Mint
         ExecuteMsg::Mint {
             recipient,
             amount,
             memo,
+            decoys,
+            entropy,
             ..
-        } => try_mint(deps, env, info, recipient, amount, memo),
-        ExecuteMsg::BatchMint { actions, .. } => try_batch_mint(deps, env, info, actions),
+        } => try_mint(deps, env, info, recipient, amount, memo, decoys, entropy),
+        ExecuteMsg::BatchMint {
+            actions, entropy, ..
+        } => try_batch_mint(deps, env, info, actions, entropy),
 
         // Other
         ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, info, address),
@@ -570,6 +620,8 @@ fn try_mint_impl(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
 
@@ -577,7 +629,7 @@ fn try_mint_impl(
 
     safe_add(&mut account_balance, raw_amount);
 
-    BalancesStore::save(deps.storage, &recipient, account_balance)?;
+    BalancesStore::update_balance(deps.storage, &recipient, account_balance, decoys, entropy)?;
 
     store_mint(deps.storage, minter, recipient, amount, denom, memo, block)?;
 
@@ -591,6 +643,8 @@ fn try_mint(
     recipient: String,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
@@ -622,6 +676,8 @@ fn try_mint(
         constants.symbol,
         memo,
         &env.block,
+        decoys,
+        entropy,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?))
@@ -632,6 +688,7 @@ fn try_batch_mint(
     env: Env,
     info: MessageInfo,
     actions: Vec<batch::MintAction>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
 
@@ -663,6 +720,8 @@ fn try_batch_mint(
             constants.symbol.clone(),
             action.memo,
             &env.block,
+            action.decoys,
+            entropy.clone(),
         )?;
     }
 
@@ -733,7 +792,13 @@ pub fn query_allowance(deps: Deps, owner: String, spender: String) -> StdResult<
     to_binary(&response)
 }
 
-fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response> {
+fn try_deposit(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
+) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
 
     let mut amount = Uint128::zero();
@@ -768,9 +833,16 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
     let sender_address = &info.sender;
 
     let mut account_balance = BalancesStore::load(deps.storage, sender_address);
-    // Note that althought raw_amount might be different than the actual added amount it doesn't really metter as we are in a case that someone somehow minted the maximum amount of coins that we can store
+    // Note that althought raw_amount might be different than the actual added amount it doesn't really matter as we are in a case that someone somehow minted the maximum amount of coins that we can store
     safe_add(&mut account_balance, raw_amount);
-    BalancesStore::save(deps.storage, sender_address, account_balance)?;
+
+    BalancesStore::update_balance(
+        deps.storage,
+        sender_address,
+        account_balance,
+        decoys,
+        entropy,
+    )?;
 
     store_deposit(
         deps.storage,
@@ -789,6 +861,8 @@ fn try_redeem(
     info: MessageInfo,
     amount: Uint128,
     denom: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.redeem_is_enabled {
@@ -819,7 +893,13 @@ fn try_redeem(
 
     let account_balance = BalancesStore::load(deps.storage, sender_address);
     if let Some(account_balance) = account_balance.checked_sub(amount_raw) {
-        BalancesStore::save(deps.storage, sender_address, account_balance)?;
+        BalancesStore::update_balance(
+            deps.storage,
+            sender_address,
+            account_balance,
+            decoys,
+            entropy,
+        )?;
     } else {
         return Err(StdError::generic_err(format!(
             "insufficient funds to redeem: balance={}, required={}",
@@ -876,8 +956,17 @@ fn try_transfer_impl(
     amount: Uint128,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<()> {
-    perform_transfer(deps.storage, sender, recipient, amount.u128())?;
+    perform_transfer(
+        deps.storage,
+        sender,
+        recipient,
+        amount.u128(),
+        decoys,
+        entropy,
+    )?;
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
@@ -901,6 +990,8 @@ fn try_transfer(
     recipient: String,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
@@ -911,6 +1002,8 @@ fn try_transfer(
         amount,
         memo,
         &env.block,
+        decoys,
+        entropy,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?))
@@ -921,6 +1014,7 @@ fn try_batch_transfer(
     env: Env,
     info: MessageInfo,
     actions: Vec<batch::TransferAction>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
@@ -931,6 +1025,8 @@ fn try_batch_transfer(
             action.amount,
             action.memo,
             &env.block,
+            action.decoys,
+            entropy.clone(),
         )?;
     }
 
@@ -982,8 +1078,19 @@ fn try_send_impl(
     memo: Option<String>,
     msg: Option<Binary>,
     block: &cosmwasm_std::BlockInfo,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<()> {
-    try_transfer_impl(deps, &sender, &recipient, amount, memo.clone(), block)?;
+    try_transfer_impl(
+        deps,
+        &sender,
+        &recipient,
+        amount,
+        memo.clone(),
+        block,
+        decoys,
+        entropy,
+    )?;
 
     try_add_receiver_api_callback(
         deps.storage,
@@ -1010,6 +1117,8 @@ fn try_send(
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
@@ -1024,6 +1133,8 @@ fn try_send(
         memo,
         msg,
         &env.block,
+        decoys,
+        entropy,
     )?;
 
     Ok(Response::new()
@@ -1036,6 +1147,7 @@ fn try_batch_send(
     env: Env,
     info: MessageInfo,
     actions: Vec<batch::SendAction>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
     for action in actions {
@@ -1050,6 +1162,8 @@ fn try_batch_send(
             action.memo,
             action.msg,
             &env.block,
+            action.decoys,
+            entropy.clone(),
         )?;
     }
 
@@ -1109,12 +1223,14 @@ fn try_transfer_from_impl(
     recipient: &Addr,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
 
     use_allowance(deps.storage, env, owner, spender, raw_amount)?;
 
-    perform_transfer(deps.storage, owner, recipient, raw_amount)?;
+    perform_transfer(deps.storage, owner, recipient, raw_amount, decoys, entropy)?;
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
@@ -1139,6 +1255,8 @@ fn try_transfer_from(
     recipient: String,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
@@ -1150,6 +1268,8 @@ fn try_transfer_from(
         &recipient,
         amount,
         memo,
+        decoys,
+        entropy,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?))
@@ -1160,6 +1280,7 @@ fn try_batch_transfer_from(
     env: &Env,
     info: MessageInfo,
     actions: Vec<batch::TransferFromAction>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     for action in actions {
         let owner = deps.api.addr_validate(action.owner.as_str())?;
@@ -1172,6 +1293,8 @@ fn try_batch_transfer_from(
             &recipient,
             action.amount,
             action.memo,
+            action.decoys,
+            entropy.clone(),
         )?;
     }
 
@@ -1194,6 +1317,8 @@ fn try_send_from_impl(
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<()> {
     let spender = info.sender.clone();
     try_transfer_from_impl(
@@ -1204,6 +1329,8 @@ fn try_send_from_impl(
         &recipient,
         amount,
         memo.clone(),
+        decoys,
+        entropy,
     )?;
 
     try_add_receiver_api_callback(
@@ -1232,6 +1359,8 @@ fn try_send_from(
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
@@ -1247,6 +1376,8 @@ fn try_send_from(
         amount,
         memo,
         msg,
+        decoys,
+        entropy,
     )?;
 
     Ok(Response::new()
@@ -1259,6 +1390,7 @@ fn try_batch_send_from(
     env: Env,
     info: &MessageInfo,
     actions: Vec<batch::SendFromAction>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
 
@@ -1276,6 +1408,8 @@ fn try_batch_send_from(
             action.amount,
             action.memo,
             action.msg,
+            action.decoys,
+            entropy.clone(),
         )?;
     }
 
@@ -1293,6 +1427,8 @@ fn try_burn_from(
     owner: String,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
     let constants = CONFIG.load(deps.storage)?;
@@ -1315,7 +1451,7 @@ fn try_burn_from(
             account_balance, raw_amount
         )));
     }
-    BalancesStore::save(deps.storage, &owner, account_balance)?;
+    BalancesStore::update_balance(deps.storage, &owner, account_balance, decoys, entropy)?;
 
     // remove from supply
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
@@ -1347,6 +1483,7 @@ fn try_batch_burn_from(
     env: &Env,
     info: MessageInfo,
     actions: Vec<batch::BurnFromAction>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
@@ -1374,7 +1511,13 @@ fn try_batch_burn_from(
                 account_balance, amount
             )));
         }
-        BalancesStore::save(deps.storage, &owner, account_balance)?;
+        BalancesStore::update_balance(
+            deps.storage,
+            &owner,
+            account_balance,
+            action.decoys.clone(),
+            entropy.clone(),
+        )?;
 
         // remove from supply
         if let Some(new_total_supply) = total_supply.checked_sub(amount) {
@@ -1562,6 +1705,8 @@ fn try_burn(
     info: MessageInfo,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
@@ -1583,7 +1728,7 @@ fn try_burn(
         )));
     }
 
-    BalancesStore::save(deps.storage, &info.sender, account_balance)?;
+    BalancesStore::update_balance(deps.storage, &info.sender, account_balance, decoys, entropy)?;
 
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
@@ -1626,6 +1771,8 @@ fn perform_transfer(
     from: &Addr,
     to: &Addr,
     amount: u128,
+    decoys: Option<Vec<Addr>>,
+    entropy: Option<Binary>,
 ) -> StdResult<()> {
     let mut from_balance = BalancesStore::load(store, from);
 
@@ -1637,11 +1784,12 @@ fn perform_transfer(
             from_balance, amount
         )));
     }
-    BalancesStore::save(store, from, from_balance)?;
+    BalancesStore::update_balance(store, from, from_balance, decoys.clone(), entropy.clone())?;
 
     let mut to_balance = BalancesStore::load(store, to);
     safe_add(&mut to_balance, amount);
-    BalancesStore::save(store, to, to_balance)?;
+
+    BalancesStore::update_balance(store, to, to_balance, decoys, entropy)?;
 
     Ok(())
 }
@@ -1975,6 +2123,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -1993,6 +2143,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(10000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -2033,6 +2185,8 @@ mod tests {
             memo: Some("my memo".to_string()),
             padding: None,
             msg: Some(to_binary("hey hey you you").unwrap()),
+            decoys: None,
+            entropy: None,
         };
         let info = mock_info("bob", &[]);
 
@@ -2315,6 +2469,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2345,6 +2501,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2360,6 +2518,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
 
@@ -2394,6 +2554,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2421,6 +2583,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2451,6 +2615,8 @@ mod tests {
             amount: Uint128::new(2500),
             memo: None,
             msg: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2483,6 +2649,8 @@ mod tests {
             amount: Uint128::new(2500),
             memo: None,
             msg: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2521,6 +2689,8 @@ mod tests {
             amount: Uint128::new(2000),
             memo: Some("my memo".to_string()),
             msg: Some(send_msg),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2558,6 +2728,8 @@ mod tests {
             amount: Uint128::new(1),
             memo: None,
             msg: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2602,6 +2774,8 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2616,6 +2790,8 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2645,6 +2821,8 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2659,6 +2837,8 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2681,6 +2861,8 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(1),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2737,10 +2919,12 @@ mod tests {
                 owner: name.to_string(),
                 amount: Uint128::new(2500),
                 memo: None,
+                decoys: None,
             })
             .collect();
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2782,6 +2966,8 @@ mod tests {
                 owner: "name".to_string(),
                 amount: Uint128::new(2500),
                 memo: None,
+                decoys: None,
+                entropy: None,
                 padding: None,
             };
             let info = mock_info("alice", &[]);
@@ -2799,11 +2985,13 @@ mod tests {
                 owner: name.to_string(),
                 amount: Uint128::new(*amount),
                 memo: None,
+                decoys: None,
             })
             .collect();
 
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2830,11 +3018,13 @@ mod tests {
                 owner: name.to_string(),
                 amount: Uint128::new(allowance_size - *amount),
                 memo: None,
+                decoys: None,
             })
             .collect();
 
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2861,10 +3051,12 @@ mod tests {
                 owner: name.to_string(),
                 amount: Uint128::new(1),
                 memo: None,
+                decoys: None,
             })
             .collect();
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3137,6 +3329,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3150,6 +3344,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3166,6 +3362,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3182,6 +3380,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: Option::from("uscrt".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3228,7 +3428,11 @@ mod tests {
             init_result_for_failure.err().unwrap()
         );
         // test when deposit disabled
-        let handle_msg = ExecuteMsg::Deposit { padding: None };
+        let handle_msg = ExecuteMsg::Deposit {
+            decoys: None,
+            entropy: None,
+            padding: None,
+        };
         let info = mock_info(
             "lebron",
             &[Coin {
@@ -3241,7 +3445,11 @@ mod tests {
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Tried to deposit an unsupported coin uscrt"));
 
-        let handle_msg = ExecuteMsg::Deposit { padding: None };
+        let handle_msg = ExecuteMsg::Deposit {
+            decoys: None,
+            entropy: None,
+            padding: None,
+        };
 
         let info = mock_info(
             "lebron",
@@ -3295,6 +3503,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3309,6 +3519,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(burn_amount),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3359,6 +3571,8 @@ mod tests {
             recipient: "lebron".to_string(),
             amount: Uint128::new(mint_amount),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3374,6 +3588,8 @@ mod tests {
             recipient: "lebron".to_string(),
             amount: Uint128::new(mint_amount),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3506,6 +3722,8 @@ mod tests {
             recipient: "account".to_string(),
             amount: Uint128::new(123),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3521,6 +3739,8 @@ mod tests {
         let withdraw_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(5000),
             denom: Option::from("uscrt".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3565,6 +3785,8 @@ mod tests {
             recipient: "account".to_string(),
             amount: Uint128::new(123),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3580,6 +3802,8 @@ mod tests {
         let withdraw_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(5000),
             denom: Option::from("uscrt".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3658,6 +3882,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -3670,6 +3896,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3745,6 +3973,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -3757,6 +3987,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3831,6 +4063,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -3844,6 +4078,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3868,6 +4104,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -3881,6 +4119,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4503,6 +4743,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4515,6 +4757,8 @@ mod tests {
             recipient: "banana".to_string(),
             amount: Uint128::new(500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4527,6 +4771,8 @@ mod tests {
             recipient: "mango".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4624,6 +4870,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(1),
             memo: Some("my burn message".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4639,6 +4887,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: Option::from("uscrt".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4655,6 +4905,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: Some("my mint message".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4663,7 +4915,11 @@ mod tests {
 
         assert!(ensure_success(handle_result.unwrap()));
 
-        let handle_msg = ExecuteMsg::Deposit { padding: None };
+        let handle_msg = ExecuteMsg::Deposit {
+            decoys: None,
+            entropy: None,
+            padding: None,
+        };
         let info = mock_info(
             "bob",
             &[Coin {
@@ -4683,6 +4939,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: Some("my transfer message #1".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4696,6 +4954,8 @@ mod tests {
             recipient: "banana".to_string(),
             amount: Uint128::new(500),
             memo: Some("my transfer message #2".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4709,6 +4969,8 @@ mod tests {
             recipient: "mango".to_string(),
             amount: Uint128::new(2500),
             memo: Some("my transfer message #3".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);

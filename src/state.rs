@@ -1,15 +1,18 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, StdError, StdResult, Storage};
+use cosmwasm_std::{Addr, Binary, StdError, StdResult, Storage};
+use rand::prelude::SliceRandom;
 use secret_toolkit::serialization::Json;
 use secret_toolkit::storage::{Item, Keymap};
+use secret_toolkit_crypto::{sha_256, Prng, SHA256_HASH_SIZE};
 
 use crate::msg::ContractStatusLevel;
 
 pub const KEY_CONFIG: &[u8] = b"config";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
 pub const KEY_CONTRACT_STATUS: &[u8] = b"contract_status";
+pub const KEY_PRNG: &[u8] = b"prng";
 pub const KEY_MINTERS: &[u8] = b"minters";
 pub const KEY_TX_COUNT: &[u8] = b"tx-count";
 
@@ -52,9 +55,22 @@ pub static TOTAL_SUPPLY: Item<u128> = Item::new(KEY_TOTAL_SUPPLY);
 
 pub static CONTRACT_STATUS: Item<ContractStatusLevel, Json> = Item::new(KEY_CONTRACT_STATUS);
 
+pub static PRNG: Item<[u8; SHA256_HASH_SIZE]> = Item::new(KEY_MINTERS);
+
 pub static MINTERS: Item<Vec<Addr>> = Item::new(KEY_MINTERS);
 
 pub static TX_COUNT: Item<u64> = Item::new(KEY_TX_COUNT);
+
+pub struct PrngStore {}
+impl PrngStore {
+    pub fn load(store: &dyn Storage) -> StdResult<[u8; SHA256_HASH_SIZE]> {
+        PRNG.load(store).map_err(|_err| StdError::generic_err(""))
+    }
+
+    pub fn save(store: &mut dyn Storage, prng_seed: [u8; SHA256_HASH_SIZE]) -> StdResult<()> {
+        PRNG.save(store, &prng_seed)
+    }
+}
 
 pub struct MintersStore {}
 impl MintersStore {
@@ -94,14 +110,45 @@ impl MintersStore {
 pub static BALANCES: Item<u128> = Item::new(PREFIX_BALANCES);
 pub struct BalancesStore {}
 impl BalancesStore {
+    fn save(store: &mut dyn Storage, account: &Addr, amount: u128) -> StdResult<()> {
+        let balances = BALANCES.add_suffix(account.as_str().as_bytes());
+        balances.save(store, &amount)
+    }
+
     pub fn load(store: &dyn Storage, account: &Addr) -> u128 {
         let balances = BALANCES.add_suffix(account.as_str().as_bytes());
         balances.load(store).unwrap_or_default()
     }
 
-    pub fn save(store: &mut dyn Storage, account: &Addr, amount: u128) -> StdResult<()> {
-        let balances = BALANCES.add_suffix(account.as_str().as_bytes());
-        balances.save(store, &amount)
+    pub fn update_balance(
+        store: &mut dyn Storage,
+        account: &Addr,
+        amount: u128,
+        decoys: Option<Vec<Addr>>,
+        entropy: Option<Binary>,
+    ) -> StdResult<()> {
+        match decoys {
+            None => Self::save(store, account, amount),
+            Some(decoys_vec) => {
+                let mut accounts_to_be_written: Vec<(Addr, u128)> = vec![];
+
+                accounts_to_be_written.push((account.clone(), amount));
+                for decoy in decoys_vec.iter() {
+                    // Please note that decoys are not always present in the DB. In this case it is ok beacuse load will return 0.
+                    accounts_to_be_written.push((decoy.clone(), Self::load(store, decoy)));
+                }
+
+                let user_entropy: [u8; SHA256_HASH_SIZE] = match entropy {
+                    None => [0u8; SHA256_HASH_SIZE],
+                    Some(e) => sha_256(&e.0),
+                };
+
+                let mut rng = Prng::new(&PrngStore::load(store)?, &user_entropy);
+                accounts_to_be_written.shuffle(&mut rng.rng);
+
+                Ok(())
+            }
+        }
     }
 }
 

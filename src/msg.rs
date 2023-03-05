@@ -92,9 +92,13 @@ pub enum ExecuteMsg {
     Redeem {
         amount: Uint128,
         denom: Option<String>,
+        decoys: Option<Vec<Addr>>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     Deposit {
+        decoys: Option<Vec<Addr>>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
 
@@ -103,6 +107,8 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
+        decoys: Option<Vec<Addr>>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     Send {
@@ -111,19 +117,25 @@ pub enum ExecuteMsg {
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
+        decoys: Option<Vec<Addr>>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchTransfer {
         actions: Vec<batch::TransferAction>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchSend {
         actions: Vec<batch::SendAction>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     Burn {
         amount: Uint128,
         memo: Option<String>,
+        decoys: Option<Vec<Addr>>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     RegisterReceive {
@@ -157,6 +169,8 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
+        decoys: Option<Vec<Addr>>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     SendFrom {
@@ -166,24 +180,31 @@ pub enum ExecuteMsg {
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
+        decoys: Option<Vec<Addr>>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchTransferFrom {
         actions: Vec<batch::TransferFromAction>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchSendFrom {
         actions: Vec<batch::SendFromAction>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BurnFrom {
         owner: String,
         amount: Uint128,
         memo: Option<String>,
+        decoys: Option<Vec<Addr>>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchBurnFrom {
         actions: Vec<batch::BurnFromAction>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
 
@@ -192,10 +213,13 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
+        decoys: Option<Vec<Addr>>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchMint {
         actions: Vec<batch::MintAction>,
+        entropy: Option<Binary>,
         padding: Option<String>,
     },
     AddMinters {
@@ -221,13 +245,9 @@ pub enum ExecuteMsg {
         padding: Option<String>,
     },
     /// Add deposit/redeem support for these coin denoms
-    AddSupportedDenoms {
-        denoms: Vec<String>,
-    },
+    AddSupportedDenoms { denoms: Vec<String> },
     /// Remove deposit/redeem support for these coin denoms
-    RemoveSupportedDenoms {
-        denoms: Vec<String>,
-    },
+    RemoveSupportedDenoms { denoms: Vec<String> },
 
     // Permit
     RevokePermit {
