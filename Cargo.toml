@@ -32,7 +32,7 @@ backtraces = ["cosmwasm-std/backtraces"]
 
 # debug-print = ["cosmwasm-std/debug-print"]
 [dependencies]
-cosmwasm-std = { git = "https://github.com/scrtlabs/cosmwasm/", tag = "v1.1.9-secret", default-features = false }
+cosmwasm-std = { git = "https://github.com/scrtlabs/cosmwasm/", tag = "v1.1.9-secret", default-features = false}
 cosmwasm-storage = { git = "https://github.com/scrtlabs/cosmwasm/", tag = "v1.1.9-secret"}
 rand = "0.8.5"
 secret-toolkit = { git="https://github.com/scrtlabs/secret-toolkit", features = [
@@ -44,6 +44,7 @@ secret-toolkit-crypto = { git="https://github.com/scrtlabs/secret-toolkit", feat
 schemars = "0.8.11"
 serde = { version = "1.0.114", default-features = false, features = ["derive"] }
 base64 = "0.13.0"
+getrandom = { version = "0.2.8", features = ["js"] }
 
 [dev-dependencies]
 cosmwasm-schema = { version = "1.1.8" }
