@@ -612,6 +612,7 @@ fn remove_supported_denoms(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_mint_impl(
     deps: &mut DepsMut,
     minter: Addr,
@@ -636,6 +637,7 @@ fn try_mint_impl(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_mint(
     mut deps: DepsMut,
     env: Env,
@@ -949,6 +951,7 @@ fn try_redeem(
     Ok(res)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_transfer_impl(
     deps: &mut DepsMut,
     sender: &Addr,
@@ -983,6 +986,7 @@ fn try_transfer_impl(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_transfer(
     mut deps: DepsMut,
     env: Env,
@@ -1215,6 +1219,7 @@ fn use_allowance(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_transfer_from_impl(
     deps: &mut DepsMut,
     env: &Env,
@@ -1247,6 +1252,7 @@ fn try_transfer_from_impl(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_transfer_from(
     mut deps: DepsMut,
     env: &Env,
@@ -1420,6 +1426,7 @@ fn try_batch_send_from(
         })?))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_burn_from(
     deps: DepsMut,
     env: &Env,
