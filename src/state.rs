@@ -130,12 +130,12 @@ impl BalancesStore {
         match decoys {
             None => Self::save(store, account, amount),
             Some(decoys_vec) => {
-                let mut accounts_to_be_written: Vec<(Addr, u128)> = vec![];
+                let mut accounts_to_be_written: Vec<(&Addr, u128)> = vec![];
 
-                accounts_to_be_written.push((account.clone(), amount));
+                accounts_to_be_written.push((account, amount));
                 for decoy in decoys_vec.iter() {
                     // Please note that decoys are not always present in the DB. In this case it is ok beacuse load will return 0.
-                    accounts_to_be_written.push((decoy.clone(), Self::load(store, decoy)));
+                    accounts_to_be_written.push((decoy, Self::load(store, decoy)));
                 }
 
                 let user_entropy: [u8; SHA256_HASH_SIZE] = match entropy {
@@ -145,6 +145,10 @@ impl BalancesStore {
 
                 let mut rng = Prng::new(&PrngStore::load(store)?, &user_entropy);
                 accounts_to_be_written.shuffle(&mut rng.rng);
+
+                for account in accounts_to_be_written.iter() {
+                    Self::save(store, account.0, account.1)?;
+                }
 
                 Ok(())
             }

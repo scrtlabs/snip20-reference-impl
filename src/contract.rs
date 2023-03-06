@@ -1791,12 +1791,12 @@ fn perform_transfer(
             from_balance, amount
         )));
     }
-    BalancesStore::update_balance(store, from, from_balance, decoys.clone(), entropy.clone())?;
+    BalancesStore::update_balance(store, from, from_balance, decoys, entropy)?;
 
     let mut to_balance = BalancesStore::load(store, to);
     safe_add(&mut to_balance, amount);
 
-    BalancesStore::update_balance(store, to, to_balance, decoys, entropy)?;
+    BalancesStore::update_balance(store, to, to_balance, None, None)?;
 
     Ok(())
 }
