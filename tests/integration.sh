@@ -223,7 +223,6 @@ function upload_code() {
     local code_id
 
     tx_hash="$(tx_of secretcli tx compute store "code/$directory/contract.wasm.gz" ${FROM[a]} --gas 10000000)"
-    secretcli q tx $tx_hash
     code_id="$(
         wait_for_tx "$tx_hash" 'waiting for contract upload' |
             jq -r '.logs[0].events[0].attributes[] | select(.key == "code_id") | .value'
