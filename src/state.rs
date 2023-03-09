@@ -55,7 +55,7 @@ pub static TOTAL_SUPPLY: Item<u128> = Item::new(KEY_TOTAL_SUPPLY);
 
 pub static CONTRACT_STATUS: Item<ContractStatusLevel, Json> = Item::new(KEY_CONTRACT_STATUS);
 
-pub static PRNG: Item<[u8; SHA256_HASH_SIZE]> = Item::new(KEY_MINTERS);
+pub static PRNG: Item<[u8; SHA256_HASH_SIZE]> = Item::new(KEY_PRNG);
 
 pub static MINTERS: Item<Vec<Addr>> = Item::new(KEY_MINTERS);
 
@@ -130,12 +130,11 @@ impl BalancesStore {
         match decoys {
             None => Self::save(store, account, amount),
             Some(decoys_vec) => {
-                let mut accounts_to_be_written: Vec<(&Addr, u128)> = vec![];
+                let mut accounts_to_be_written: Vec<&Addr> = vec![];
 
-                accounts_to_be_written.push((account, amount));
+                accounts_to_be_written.push(account);
                 for decoy in decoys_vec.iter() {
-                    // Please note that decoys are not always present in the DB. In this case it is ok beacuse load will return 0.
-                    accounts_to_be_written.push((decoy, Self::load(store, decoy)));
+                    accounts_to_be_written.push(decoy);
                 }
 
                 let user_entropy: [u8; SHA256_HASH_SIZE] = match entropy {
@@ -146,8 +145,12 @@ impl BalancesStore {
                 let mut rng = Prng::new(&PrngStore::load(store)?, &user_entropy);
                 accounts_to_be_written.shuffle(&mut rng.rng);
 
-                for account in accounts_to_be_written.iter() {
-                    Self::save(store, account.0, account.1)?;
+                for acc in accounts_to_be_written.iter() {
+                    // Always load account balance to obfuscate the real account
+                    // Please note that decoys are not always present in the DB. In this case it is ok beacuse load will return 0.
+                    let acc_balance = Self::load(store, acc);
+                    let new_balance = if *acc == account { amount } else { acc_balance };
+                    Self::save(store, acc, new_balance)?;
                 }
 
                 Ok(())

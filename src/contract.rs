@@ -2163,6 +2163,63 @@ mod tests {
     }
 
     #[test]
+    fn test_decoys_balance_stays_on_transfer() {
+        let (init_result, mut deps) = init_helper(vec![
+            InitialBalance {
+                address: "bob".to_string(),
+                amount: Uint128::new(5000),
+            },
+            InitialBalance {
+                address: "lior".to_string(),
+                amount: Uint128::new(7000),
+            },
+        ]);
+
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let bob_addr = Addr::unchecked("bob".to_string());
+        let alice_addr = Addr::unchecked("alice".to_string());
+        let lior_addr = Addr::unchecked("lior".to_string());
+        let jhon_addr = Addr::unchecked("jhon".to_string());
+
+        let bob_balance = BalancesStore::load(&deps.storage, &bob_addr);
+        let alice_balance = BalancesStore::load(&deps.storage, &alice_addr);
+        let lior_balance = BalancesStore::load(&deps.storage, &lior_addr);
+        let jhon_balance = BalancesStore::load(&deps.storage, &jhon_addr);
+
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "alice".to_string(),
+            amount: Uint128::new(1000),
+            memo: None,
+            decoys: Some(vec![lior_addr.clone(), jhon_addr.clone()]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        assert_eq!(
+            bob_balance - 1000,
+            BalancesStore::load(&deps.storage, &bob_addr)
+        );
+        assert_eq!(
+            alice_balance + 1000,
+            BalancesStore::load(&deps.storage, &alice_addr)
+        );
+        assert_eq!(lior_balance, BalancesStore::load(&deps.storage, &lior_addr));
+        assert_eq!(jhon_balance, BalancesStore::load(&deps.storage, &jhon_addr));
+    }
+
+    #[test]
     fn test_handle_send() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: "bob".to_string(),
