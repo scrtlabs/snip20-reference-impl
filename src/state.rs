@@ -133,9 +133,7 @@ impl BalancesStore {
                 let mut accounts_to_be_written: Vec<&Addr> = vec![];
 
                 accounts_to_be_written.push(account);
-                for decoy in decoys_vec.iter() {
-                    accounts_to_be_written.push(decoy);
-                }
+                accounts_to_be_written.extend(decoys_vec.iter());
 
                 let user_entropy: [u8; SHA256_HASH_SIZE] = match entropy {
                     None => [0u8; SHA256_HASH_SIZE],
