@@ -1679,7 +1679,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
     len_is_valid
         && symbol
             .bytes()
-            .all(|byte| (b'A'..=b'Z').contains(&byte) || (b'a'..=b'z').contains(&byte))
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_lowercase())
 }
 
 // pub fn migrate(
