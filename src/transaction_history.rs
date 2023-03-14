@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{coin, Addr, Coin, StdError, StdResult, Storage, Uint128};
+use cosmwasm_std::{Addr, Coin, StdError, StdResult, Storage, Uint128};
 
 use secret_toolkit::storage::AppendStore;
 
@@ -82,9 +82,12 @@ impl From<Coin> for StoredCoin {
     }
 }
 
-impl Into<Coin> for StoredCoin {
-    fn into(self) -> Coin {
-        coin(self.amount, self.denom)
+impl From<StoredCoin> for Coin {
+    fn from(value: StoredCoin) -> Self {
+        Self {
+            denom: value.denom,
+            amount: Uint128::new(value.amount),
+        }
     }
 }
 
