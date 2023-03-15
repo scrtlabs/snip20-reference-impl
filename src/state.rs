@@ -125,7 +125,7 @@ impl BalancesStore {
         account: &Addr,
         amount: u128,
         decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
+        account_random_pos: Option<usize>,
     ) -> StdResult<()> {
         match decoys {
             None => Self::save(store, account, amount),

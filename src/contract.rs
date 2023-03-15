@@ -4,16 +4,17 @@ use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
     MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
+use rand::RngCore;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
-use secret_toolkit_crypto::sha_256;
+use secret_toolkit_crypto::{sha_256, Prng};
 
 use crate::batch;
 use crate::msg::QueryWithPermit;
 use crate::msg::{
-    ContractStatusLevel, ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg,
-    ResponseStatus::Success,
+    ContractStatusLevel, Decoyable, ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer,
+    QueryMsg, ResponseStatus::Success,
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
@@ -126,6 +127,15 @@ pub fn instantiate(
     Ok(Response::default())
 }
 
+fn get_address_position(
+    store: &dyn Storage,
+    decoys_size: usize,
+    entropy: Binary,
+) -> StdResult<usize> {
+    let mut rng = Prng::new(&PrngStore::load(store)?, &entropy);
+    Ok(rng.rng.next_u64() as usize % decoys_size)
+}
+
 #[entry_point]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     let contract_status = CONTRACT_STATUS.load(deps.storage)?;
@@ -153,6 +163,21 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         }
         ContractStatusLevel::NormalRun => {} // If it's a normal run just continue
     }
+
+    let adddress_pos_in_decoys: Option<usize> = {
+        if msg.get_entropy().is_none() {
+            None::<usize>;
+        }
+
+        let decoys_size = msg.get_minimal_decoys_size();
+        if decoys_size == 0 {
+            None::<usize>;
+        } else {
+            Some(decoys_size);
+        }
+
+        None
+    };
 
     let response = match msg {
         // Native

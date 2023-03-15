@@ -256,6 +256,153 @@ pub enum ExecuteMsg {
     },
 }
 
+pub trait Decoyable {
+    fn get_minimal_decoys_size(&self) -> usize;
+    fn get_entropy(self) -> Option<Binary>;
+}
+
+impl Decoyable for ExecuteMsg {
+    fn get_minimal_decoys_size(&self) -> usize {
+        match self {
+            ExecuteMsg::Deposit {
+                decoys, entropy, ..
+            }
+            | ExecuteMsg::Redeem {
+                decoys, entropy, ..
+            }
+            | ExecuteMsg::Transfer {
+                decoys, entropy, ..
+            }
+            | ExecuteMsg::Send {
+                decoys, entropy, ..
+            }
+            | ExecuteMsg::Burn {
+                decoys, entropy, ..
+            }
+            | ExecuteMsg::TransferFrom {
+                decoys, entropy, ..
+            }
+            | ExecuteMsg::SendFrom {
+                decoys, entropy, ..
+            }
+            | ExecuteMsg::BurnFrom {
+                decoys, entropy, ..
+            } => {
+                if let Some(user_decoys) = decoys {
+                    user_decoys.len();
+                }
+
+                0
+            }
+            ExecuteMsg::BatchTransferFrom {
+                actions, entropy, ..
+            } => {
+                let mut min_decoys_count = 0;
+                for action in actions {
+                    if let Some(user_decoys) = action.decoys {
+                        if user_decoys.len() < min_decoys_count {
+                            min_decoys_count = user_decoys.len();
+                        }
+                    }
+                }
+
+                min_decoys_count
+            }
+            ExecuteMsg::BatchSendFrom {
+                actions, entropy, ..
+            } => {
+                let mut min_decoys_count = 0;
+                for action in actions {
+                    if let Some(user_decoys) = action.decoys {
+                        if user_decoys.len() < min_decoys_count {
+                            min_decoys_count = user_decoys.len();
+                        }
+                    }
+                }
+
+                min_decoys_count
+            }
+            ExecuteMsg::BatchTransfer {
+                actions, entropy, ..
+            } => {
+                let mut min_decoys_count = 0;
+                for action in actions {
+                    if let Some(user_decoys) = action.decoys {
+                        if user_decoys.len() < min_decoys_count {
+                            min_decoys_count = user_decoys.len();
+                        }
+                    }
+                }
+
+                min_decoys_count
+            }
+            ExecuteMsg::BatchSend {
+                actions, entropy, ..
+            } => {
+                let mut min_decoys_count = 0;
+                for action in actions {
+                    if let Some(user_decoys) = action.decoys {
+                        if user_decoys.len() < min_decoys_count {
+                            min_decoys_count = user_decoys.len();
+                        }
+                    }
+                }
+
+                min_decoys_count
+            }
+            ExecuteMsg::BatchBurnFrom {
+                actions, entropy, ..
+            } => {
+                let mut min_decoys_count = 0;
+                for action in actions {
+                    if let Some(user_decoys) = action.decoys {
+                        if user_decoys.len() < min_decoys_count {
+                            min_decoys_count = user_decoys.len();
+                        }
+                    }
+                }
+
+                min_decoys_count
+            }
+            ExecuteMsg::BatchMint {
+                actions, entropy, ..
+            } => {
+                let mut min_decoys_count = 0;
+                for action in actions {
+                    if let Some(user_decoys) = action.decoys {
+                        if user_decoys.len() < min_decoys_count {
+                            min_decoys_count = user_decoys.len();
+                        }
+                    }
+                }
+
+                min_decoys_count
+            }
+            _ => 0,
+        }
+    }
+
+    fn get_entropy(self) -> Option<Binary> {
+        match self {
+            ExecuteMsg::Deposit { entropy, .. }
+            | ExecuteMsg::Redeem { entropy, .. }
+            | ExecuteMsg::Transfer { entropy, .. }
+            | ExecuteMsg::Send { entropy, .. }
+            | ExecuteMsg::Burn { entropy, .. }
+            | ExecuteMsg::TransferFrom { entropy, .. }
+            | ExecuteMsg::SendFrom { entropy, .. }
+            | ExecuteMsg::BurnFrom { entropy, .. }
+            | ExecuteMsg::BatchTransferFrom { entropy, .. }
+            | ExecuteMsg::BatchSendFrom { entropy, .. }
+            | ExecuteMsg::BatchTransfer { entropy, .. }
+            | ExecuteMsg::BatchSend { entropy, .. }
+            | ExecuteMsg::BatchBurnFrom { entropy, .. }
+            | ExecuteMsg::BatchMint { entropy, .. } => entropy,
+            _ => None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteAnswer {
