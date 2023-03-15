@@ -69,7 +69,7 @@ pub fn instantiate(
         for balance in initial_balances {
             let amount = balance.amount.u128();
             let balance_address = deps.api.addr_validate(balance.address.as_str())?;
-            BalancesStore::update_balance(deps.storage, &balance_address, amount, None, None)?;
+            BalancesStore::update_balance(deps.storage, &balance_address, amount, &None, &None)?;
 
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
                 total_supply = new_total_supply;
@@ -87,6 +87,8 @@ pub fn instantiate(
                 msg.symbol.clone(),
                 Some("Initial Balance".to_string()),
                 &env.block,
+                &None,
+                None,
             )?;
         }
     }
@@ -645,9 +647,9 @@ fn try_mint_impl(
 
     safe_add(&mut account_balance, raw_amount);
 
-    BalancesStore::update_balance(deps.storage, &recipient, account_balance, decoys, account_random_pos)?;
+    BalancesStore::update_balance(deps.storage, &recipient, account_balance, &decoys, &account_random_pos)?;
 
-    store_mint(deps.storage, minter, recipient, amount, denom, memo, block)?;
+    store_mint(deps.storage, minter, recipient, amount, denom, memo, block, &decoys, account_random_pos)?;
 
     Ok(())
 }
@@ -857,8 +859,8 @@ fn try_deposit(
         deps.storage,
         sender_address,
         account_balance,
-        decoys,
-        account_random_pos,
+        &decoys,
+        &account_random_pos,
     )?;
 
     store_deposit(
@@ -867,6 +869,8 @@ fn try_deposit(
         Uint128::new(raw_amount),
         "uscrt".to_string(),
         &env.block,
+        &decoys, 
+        account_random_pos
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?))
@@ -914,8 +918,8 @@ fn try_redeem(
             deps.storage,
             sender_address,
             account_balance,
-            decoys,
-            account_random_pos,
+            &decoys,
+            &account_random_pos,
         )?;
     } else {
         return Err(StdError::generic_err(format!(
@@ -955,6 +959,8 @@ fn try_redeem(
         amount,
         constants.symbol,
         &env.block,
+        &decoys,
+        account_random_pos,
     )?;
 
     let message = CosmosMsg::Bank(BankMsg::Send {
@@ -1473,7 +1479,7 @@ fn try_burn_from(
             account_balance, raw_amount
         )));
     }
-    BalancesStore::update_balance(deps.storage, &owner, account_balance, decoys, account_random_pos)?;
+    BalancesStore::update_balance(deps.storage, &owner, account_balance, &decoys, &account_random_pos)?;
 
     // remove from supply
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
@@ -1495,6 +1501,8 @@ fn try_burn_from(
         constants.symbol,
         memo,
         &env.block,
+        &decoys, 
+        account_random_pos
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BurnFrom { status: Success })?))
@@ -1537,8 +1545,8 @@ fn try_batch_burn_from(
             deps.storage,
             &owner,
             account_balance,
-            action.decoys.clone(),
-            account_random_pos.clone(),
+            &action.decoys,
+            &account_random_pos,
         )?;
 
         // remove from supply
@@ -1559,6 +1567,8 @@ fn try_batch_burn_from(
             constants.symbol.clone(),
             action.memo,
             &env.block,
+            &action.decoys,
+            account_random_pos
         )?;
     }
 
@@ -1750,7 +1760,7 @@ fn try_burn(
         )));
     }
 
-    BalancesStore::update_balance(deps.storage, &info.sender, account_balance, decoys, account_random_pos)?;
+    BalancesStore::update_balance(deps.storage, &info.sender, account_balance, &decoys, &account_random_pos)?;
 
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
@@ -1770,6 +1780,8 @@ fn try_burn(
         constants.symbol,
         memo,
         &env.block,
+        &decoys, 
+        account_random_pos
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?))
@@ -1806,12 +1818,12 @@ fn perform_transfer(
             from_balance, amount
         )));
     }
-    BalancesStore::update_balance(store, from, from_balance, decoys, account_random_pos)?;
+    BalancesStore::update_balance(store, from, from_balance, &decoys, &account_random_pos)?;
 
     let mut to_balance = BalancesStore::load(store, to);
     safe_add(&mut to_balance, amount);
 
-    BalancesStore::update_balance(store, to, to_balance, None, None)?;
+    BalancesStore::update_balance(store, to, to_balance, &None, &None)?;
 
     Ok(())
 }

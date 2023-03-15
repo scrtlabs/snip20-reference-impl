@@ -123,8 +123,8 @@ impl BalancesStore {
         store: &mut dyn Storage,
         account: &Addr,
         amount: u128,
-        decoys: Option<Vec<Addr>>,
-        account_random_pos: Option<usize>,
+        decoys: &Option<Vec<Addr>>,
+        account_random_pos: &Option<usize>,
     ) -> StdResult<()> {
         match decoys {
             None => Self::save(store, account, amount),
