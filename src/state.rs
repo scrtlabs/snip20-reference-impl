@@ -1,11 +1,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Binary, StdError, StdResult, Storage};
-use rand::prelude::SliceRandom;
+use cosmwasm_std::{Addr, StdError, StdResult, Storage};
 use secret_toolkit::serialization::Json;
 use secret_toolkit::storage::{Item, Keymap};
-use secret_toolkit_crypto::{sha_256, Prng, SHA256_HASH_SIZE};
+use secret_toolkit_crypto::SHA256_HASH_SIZE;
 
 use crate::msg::ContractStatusLevel;
 
@@ -130,18 +129,16 @@ impl BalancesStore {
         match decoys {
             None => Self::save(store, account, amount),
             Some(decoys_vec) => {
+                // It should always be set when decoys_vec is set
+                let account_pos = account_random_pos.unwrap();
+
                 let mut accounts_to_be_written: Vec<&Addr> = vec![];
 
+                
+                let (first_part, second_part) = decoys_vec.split_at(account_pos);
+                accounts_to_be_written.extend(first_part);
                 accounts_to_be_written.push(account);
-                accounts_to_be_written.extend(decoys_vec.iter());
-
-                let user_entropy: [u8; SHA256_HASH_SIZE] = match entropy {
-                    None => [0u8; SHA256_HASH_SIZE],
-                    Some(e) => sha_256(&e.0),
-                };
-
-                let mut rng = Prng::new(&PrngStore::load(store)?, &user_entropy);
-                accounts_to_be_written.shuffle(&mut rng.rng);
+                accounts_to_be_written.extend(second_part);
 
                 for acc in accounts_to_be_written.iter() {
                     // Always load account balance to obfuscate the real account

@@ -8,7 +8,7 @@ use rand::RngCore;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
-use secret_toolkit_crypto::{sha_256, Prng};
+use secret_toolkit_crypto::{sha_256, Prng, SHA256_HASH_SIZE};
 
 use crate::batch;
 use crate::msg::QueryWithPermit;
@@ -130,15 +130,31 @@ pub fn instantiate(
 fn get_address_position(
     store: &dyn Storage,
     decoys_size: usize,
-    entropy: Binary,
+    entropy: &[u8; SHA256_HASH_SIZE],
 ) -> StdResult<usize> {
-    let mut rng = Prng::new(&PrngStore::load(store)?, &entropy);
-    Ok(rng.rng.next_u64() as usize % decoys_size)
+    let mut rng = Prng::new(&PrngStore::load(store)?, entropy);
+
+    // decoys_size is also an accepted output which means: set the account balance after you've set decoys' balanace 
+    Ok(rng.rng.next_u64() as usize % (decoys_size + 1))
 }
 
 #[entry_point]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     let contract_status = CONTRACT_STATUS.load(deps.storage)?;
+
+    let account_random_pos: Option<usize> = {
+        let entropy = match msg.clone().get_entropy() {
+            None => [0u8; SHA256_HASH_SIZE],
+            Some(e) => sha_256(&e.0),
+        };
+
+        let decoys_size = msg.get_minimal_decoys_size();
+        if decoys_size != 0 {
+            Some(get_address_position(deps.storage, decoys_size, &entropy));
+        }
+
+        None
+    };
 
     match contract_status {
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
@@ -150,10 +166,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
                     amount,
                     denom,
                     decoys,
-                    entropy,
                     ..
                 } if contract_status == ContractStatusLevel::StopAllButRedeems => {
-                    try_redeem(deps, env, info, amount, denom, decoys, entropy)
+                    try_redeem(deps, env, info, amount, denom, decoys, account_random_pos)
                 }
                 _ => Err(StdError::generic_err(
                     "This contract is stopped and this action is not allowed",
@@ -164,33 +179,17 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ContractStatusLevel::NormalRun => {} // If it's a normal run just continue
     }
 
-    let adddress_pos_in_decoys: Option<usize> = {
-        if msg.get_entropy().is_none() {
-            None::<usize>;
-        }
-
-        let decoys_size = msg.get_minimal_decoys_size();
-        if decoys_size == 0 {
-            None::<usize>;
-        } else {
-            Some(decoys_size);
-        }
-
-        None
-    };
-
-    let response = match msg {
+    let response = match msg.clone() {
         // Native
         ExecuteMsg::Deposit {
-            decoys, entropy, ..
-        } => try_deposit(deps, env, info, decoys, entropy),
+            decoys, ..
+        } => try_deposit(deps, env, info, decoys, account_random_pos),
         ExecuteMsg::Redeem {
             amount,
             denom,
             decoys,
-            entropy,
             ..
-        } => try_redeem(deps, env, info, amount, denom, decoys, entropy),
+        } => try_redeem(deps, env, info, amount, denom, decoys, account_random_pos),
 
         // Base
         ExecuteMsg::Transfer {
@@ -198,9 +197,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             decoys,
-            entropy,
             ..
-        } => try_transfer(deps, env, info, recipient, amount, memo, decoys, entropy),
+        } => try_transfer(deps, env, info, recipient, amount, memo, decoys, account_random_pos),
         ExecuteMsg::Send {
             recipient,
             recipient_code_hash,
@@ -208,7 +206,6 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             msg,
             memo,
             decoys,
-            entropy,
             ..
         } => try_send(
             deps,
@@ -220,21 +217,20 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             memo,
             msg,
             decoys,
-            entropy,
+            account_random_pos,
         ),
         ExecuteMsg::BatchTransfer {
-            actions, entropy, ..
-        } => try_batch_transfer(deps, env, info, actions, entropy),
+            actions, ..
+        } => try_batch_transfer(deps, env, info, actions, account_random_pos),
         ExecuteMsg::BatchSend {
-            actions, entropy, ..
-        } => try_batch_send(deps, env, info, actions, entropy),
+            actions, ..
+        } => try_batch_send(deps, env, info, actions, account_random_pos),
         ExecuteMsg::Burn {
             amount,
             memo,
             decoys,
-            entropy,
             ..
-        } => try_burn(deps, env, info, amount, memo, decoys, entropy),
+        } => try_burn(deps, env, info, amount, memo, decoys, account_random_pos),
         ExecuteMsg::RegisterReceive { code_hash, .. } => {
             try_register_receive(deps, info, code_hash)
         }
@@ -260,10 +256,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             decoys,
-            entropy,
             ..
         } => try_transfer_from(
-            deps, &env, info, owner, recipient, amount, memo, decoys, entropy,
+            deps, &env, info, owner, recipient, amount, memo, decoys, account_random_pos,
         ),
         ExecuteMsg::SendFrom {
             owner,
@@ -273,7 +268,6 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             msg,
             memo,
             decoys,
-            entropy,
             ..
         } => try_send_from(
             deps,
@@ -286,25 +280,24 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             memo,
             msg,
             decoys,
-            entropy,
+            account_random_pos,
         ),
         ExecuteMsg::BatchTransferFrom {
-            actions, entropy, ..
-        } => try_batch_transfer_from(deps, &env, info, actions, entropy),
+            actions, ..
+        } => try_batch_transfer_from(deps, &env, info, actions, account_random_pos),
         ExecuteMsg::BatchSendFrom {
-            actions, entropy, ..
-        } => try_batch_send_from(deps, env, &info, actions, entropy),
+            actions, ..
+        } => try_batch_send_from(deps, env, &info, actions, account_random_pos),
         ExecuteMsg::BurnFrom {
             owner,
             amount,
             memo,
             decoys,
-            entropy,
             ..
-        } => try_burn_from(deps, &env, info, owner, amount, memo, decoys, entropy),
+        } => try_burn_from(deps, &env, info, owner, amount, memo, decoys, account_random_pos),
         ExecuteMsg::BatchBurnFrom {
-            actions, entropy, ..
-        } => try_batch_burn_from(deps, &env, info, actions, entropy),
+            actions, ..
+        } => try_batch_burn_from(deps, &env, info, actions, account_random_pos),
 
         // Mint
         ExecuteMsg::Mint {
@@ -312,12 +305,11 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             decoys,
-            entropy,
             ..
-        } => try_mint(deps, env, info, recipient, amount, memo, decoys, entropy),
+        } => try_mint(deps, env, info, recipient, amount, memo, decoys, account_random_pos),
         ExecuteMsg::BatchMint {
-            actions, entropy, ..
-        } => try_batch_mint(deps, env, info, actions, entropy),
+            actions, ..
+        } => try_batch_mint(deps, env, info, actions, account_random_pos),
 
         // Other
         ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, info, address),
@@ -647,7 +639,7 @@ fn try_mint_impl(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
 
@@ -655,7 +647,7 @@ fn try_mint_impl(
 
     safe_add(&mut account_balance, raw_amount);
 
-    BalancesStore::update_balance(deps.storage, &recipient, account_balance, decoys, entropy)?;
+    BalancesStore::update_balance(deps.storage, &recipient, account_balance, decoys, account_random_pos)?;
 
     store_mint(deps.storage, minter, recipient, amount, denom, memo, block)?;
 
@@ -671,7 +663,7 @@ fn try_mint(
     amount: Uint128,
     memo: Option<String>,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
@@ -704,7 +696,7 @@ fn try_mint(
         memo,
         &env.block,
         decoys,
-        entropy,
+        account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?))
@@ -715,7 +707,7 @@ fn try_batch_mint(
     env: Env,
     info: MessageInfo,
     actions: Vec<batch::MintAction>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
 
@@ -748,7 +740,7 @@ fn try_batch_mint(
             action.memo,
             &env.block,
             action.decoys,
-            entropy.clone(),
+            account_random_pos.clone(),
         )?;
     }
 
@@ -824,7 +816,7 @@ fn try_deposit(
     env: Env,
     info: MessageInfo,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
 
@@ -868,7 +860,7 @@ fn try_deposit(
         sender_address,
         account_balance,
         decoys,
-        entropy,
+        account_random_pos,
     )?;
 
     store_deposit(
@@ -889,7 +881,7 @@ fn try_redeem(
     amount: Uint128,
     denom: Option<String>,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.redeem_is_enabled {
@@ -925,7 +917,7 @@ fn try_redeem(
             sender_address,
             account_balance,
             decoys,
-            entropy,
+            account_random_pos,
         )?;
     } else {
         return Err(StdError::generic_err(format!(
@@ -985,7 +977,7 @@ fn try_transfer_impl(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<()> {
     perform_transfer(
         deps.storage,
@@ -993,7 +985,7 @@ fn try_transfer_impl(
         recipient,
         amount.u128(),
         decoys,
-        entropy,
+        account_random_pos,
     )?;
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
@@ -1020,7 +1012,7 @@ fn try_transfer(
     amount: Uint128,
     memo: Option<String>,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
@@ -1032,7 +1024,7 @@ fn try_transfer(
         memo,
         &env.block,
         decoys,
-        entropy,
+        account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?))
@@ -1043,7 +1035,7 @@ fn try_batch_transfer(
     env: Env,
     info: MessageInfo,
     actions: Vec<batch::TransferAction>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
@@ -1055,7 +1047,7 @@ fn try_batch_transfer(
             action.memo,
             &env.block,
             action.decoys,
-            entropy.clone(),
+            account_random_pos.clone(),
         )?;
     }
 
@@ -1108,7 +1100,7 @@ fn try_send_impl(
     msg: Option<Binary>,
     block: &cosmwasm_std::BlockInfo,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<()> {
     try_transfer_impl(
         deps,
@@ -1118,7 +1110,7 @@ fn try_send_impl(
         memo.clone(),
         block,
         decoys,
-        entropy,
+        account_random_pos,
     )?;
 
     try_add_receiver_api_callback(
@@ -1147,7 +1139,7 @@ fn try_send(
     memo: Option<String>,
     msg: Option<Binary>,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
@@ -1163,7 +1155,7 @@ fn try_send(
         msg,
         &env.block,
         decoys,
-        entropy,
+        account_random_pos,
     )?;
 
     Ok(Response::new()
@@ -1176,7 +1168,7 @@ fn try_batch_send(
     env: Env,
     info: MessageInfo,
     actions: Vec<batch::SendAction>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
     for action in actions {
@@ -1192,7 +1184,7 @@ fn try_batch_send(
             action.msg,
             &env.block,
             action.decoys,
-            entropy.clone(),
+            account_random_pos.clone(),
         )?;
     }
 
@@ -1254,13 +1246,13 @@ fn try_transfer_from_impl(
     amount: Uint128,
     memo: Option<String>,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
 
     use_allowance(deps.storage, env, owner, spender, raw_amount)?;
 
-    perform_transfer(deps.storage, owner, recipient, raw_amount, decoys, entropy)?;
+    perform_transfer(deps.storage, owner, recipient, raw_amount, decoys, account_random_pos)?;
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
@@ -1287,7 +1279,7 @@ fn try_transfer_from(
     amount: Uint128,
     memo: Option<String>,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
@@ -1300,7 +1292,7 @@ fn try_transfer_from(
         amount,
         memo,
         decoys,
-        entropy,
+        account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?))
@@ -1311,7 +1303,7 @@ fn try_batch_transfer_from(
     env: &Env,
     info: MessageInfo,
     actions: Vec<batch::TransferFromAction>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     for action in actions {
         let owner = deps.api.addr_validate(action.owner.as_str())?;
@@ -1325,7 +1317,7 @@ fn try_batch_transfer_from(
             action.amount,
             action.memo,
             action.decoys,
-            entropy.clone(),
+            account_random_pos.clone(),
         )?;
     }
 
@@ -1349,7 +1341,7 @@ fn try_send_from_impl(
     memo: Option<String>,
     msg: Option<Binary>,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<()> {
     let spender = info.sender.clone();
     try_transfer_from_impl(
@@ -1361,7 +1353,7 @@ fn try_send_from_impl(
         amount,
         memo.clone(),
         decoys,
-        entropy,
+        account_random_pos,
     )?;
 
     try_add_receiver_api_callback(
@@ -1391,7 +1383,7 @@ fn try_send_from(
     memo: Option<String>,
     msg: Option<Binary>,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
@@ -1408,7 +1400,7 @@ fn try_send_from(
         memo,
         msg,
         decoys,
-        entropy,
+        account_random_pos,
     )?;
 
     Ok(Response::new()
@@ -1421,7 +1413,7 @@ fn try_batch_send_from(
     env: Env,
     info: &MessageInfo,
     actions: Vec<batch::SendFromAction>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
 
@@ -1440,7 +1432,7 @@ fn try_batch_send_from(
             action.memo,
             action.msg,
             action.decoys,
-            entropy.clone(),
+            account_random_pos.clone(),
         )?;
     }
 
@@ -1460,7 +1452,7 @@ fn try_burn_from(
     amount: Uint128,
     memo: Option<String>,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
     let constants = CONFIG.load(deps.storage)?;
@@ -1483,7 +1475,7 @@ fn try_burn_from(
             account_balance, raw_amount
         )));
     }
-    BalancesStore::update_balance(deps.storage, &owner, account_balance, decoys, entropy)?;
+    BalancesStore::update_balance(deps.storage, &owner, account_balance, decoys, account_random_pos)?;
 
     // remove from supply
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
@@ -1515,7 +1507,7 @@ fn try_batch_burn_from(
     env: &Env,
     info: MessageInfo,
     actions: Vec<batch::BurnFromAction>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
@@ -1548,7 +1540,7 @@ fn try_batch_burn_from(
             &owner,
             account_balance,
             action.decoys.clone(),
-            entropy.clone(),
+            account_random_pos.clone(),
         )?;
 
         // remove from supply
@@ -1738,7 +1730,7 @@ fn try_burn(
     amount: Uint128,
     memo: Option<String>,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
@@ -1760,7 +1752,7 @@ fn try_burn(
         )));
     }
 
-    BalancesStore::update_balance(deps.storage, &info.sender, account_balance, decoys, entropy)?;
+    BalancesStore::update_balance(deps.storage, &info.sender, account_balance, decoys, account_random_pos)?;
 
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
@@ -1804,7 +1796,7 @@ fn perform_transfer(
     to: &Addr,
     amount: u128,
     decoys: Option<Vec<Addr>>,
-    entropy: Option<Binary>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<()> {
     let mut from_balance = BalancesStore::load(store, from);
 
@@ -1816,7 +1808,7 @@ fn perform_transfer(
             from_balance, amount
         )));
     }
-    BalancesStore::update_balance(store, from, from_balance, decoys, entropy)?;
+    BalancesStore::update_balance(store, from, from_balance, decoys, account_random_pos)?;
 
     let mut to_balance = BalancesStore::load(store, to);
     safe_add(&mut to_balance, amount);
