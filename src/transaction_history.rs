@@ -67,6 +67,30 @@ pub struct ExtendedTx {
 
 // Stored types:
 
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
+pub struct StoredCoin {
+    pub denom: String,
+    pub amount: u128,
+}
+
+impl From<Coin> for StoredCoin {
+    fn from(value: Coin) -> Self {
+        Self {
+            denom: value.denom,
+            amount: value.amount.u128(),
+        }
+    }
+}
+
+impl From<StoredCoin> for Coin {
+    fn from(value: StoredCoin) -> Self {
+        Self {
+            denom: value.denom,
+            amount: Uint128::new(value.amount),
+        }
+    }
+}
+
 /// This type is the stored version of the legacy transfers
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -75,7 +99,7 @@ pub struct StoredLegacyTransfer {
     from: Addr,
     sender: Addr,
     receiver: Addr,
-    coins: Coin,
+    coins: StoredCoin,
     memo: Option<String>,
     block_time: u64,
     block_height: u64,
@@ -89,7 +113,7 @@ impl StoredLegacyTransfer {
             from: self.from,
             sender: self.sender,
             receiver: self.receiver,
-            coins: self.coins,
+            coins: self.coins.into(),
             memo: self.memo,
             block_time: Some(self.block_time),
             block_height: Some(self.block_height),
@@ -262,7 +286,7 @@ static TRANSACTIONS: AppendStore<StoredExtendedTx> = AppendStore::new(PREFIX_TXS
 pub struct StoredExtendedTx {
     id: u64,
     action: StoredTxAction,
-    coins: Coin,
+    coins: StoredCoin,
     memo: Option<String>,
     block_time: u64,
     block_height: u64,
@@ -279,7 +303,7 @@ impl StoredExtendedTx {
         Self {
             id,
             action,
-            coins,
+            coins: coins.into(),
             memo,
             block_time: block.time.seconds(),
             block_height: block.height,
@@ -290,7 +314,7 @@ impl StoredExtendedTx {
         Ok(ExtendedTx {
             id: self.id,
             action: self.action.into_tx_action()?,
-            coins: self.coins,
+            coins: self.coins.into(),
             memo: self.memo,
             block_time: self.block_time,
             block_height: self.block_height,
@@ -369,7 +393,7 @@ pub fn store_transfer(
         from: owner.clone(),
         sender: sender.clone(),
         receiver: receiver.clone(),
-        coins,
+        coins: coins.into(),
         memo,
         block_time: block.time.seconds(),
         block_height: block.height,

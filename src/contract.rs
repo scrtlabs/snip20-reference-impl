@@ -575,17 +575,7 @@ fn try_mint_impl(
 
     let mut account_balance = BalancesStore::load(deps.storage, &recipient);
 
-    if let Some(new_balance) = account_balance.checked_add(raw_amount) {
-        account_balance = new_balance;
-    } else {
-        // This error literally can not happen, since the account's funds are a subset
-        // of the total supply, both are stored as u128, and we check for overflow of
-        // the total supply just a couple lines before.
-        // Still, writing this to cover all overflows.
-        return Err(StdError::generic_err(
-            "This mint attempt would increase the account's balance above the supported maximum",
-        ));
-    }
+    safe_add(&mut account_balance, raw_amount);
 
     BalancesStore::save(deps.storage, &recipient, account_balance)?;
 
@@ -620,20 +610,15 @@ fn try_mint(
     }
 
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
-    if let Some(new_total_supply) = total_supply.checked_add(amount.u128()) {
-        total_supply = new_total_supply;
-    } else {
-        return Err(StdError::generic_err(
-            "This mint attempt would increase the total supply above the supported maximum",
-        ));
-    }
+    let minted_amount = safe_add(&mut total_supply, amount.u128());
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
+    // Note that even when minted_amount is equal to 0 we still want to perform the operations for logic consistency
     try_mint_impl(
         &mut deps,
         info.sender,
         recipient,
-        amount,
+        Uint128::new(minted_amount),
         constants.symbol,
         memo,
         &env.block,
@@ -666,30 +651,22 @@ fn try_batch_mint(
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
 
     // Quick loop to check that the total of amounts is valid
-    for action in &actions {
-        if let Some(new_total_supply) = total_supply.checked_add(action.amount.u128()) {
-            total_supply = new_total_supply;
-        } else {
-            return Err(StdError::generic_err(
-                format!("This mint attempt would increase the total supply above the supported maximum: {:?}", action),
-            ));
-        }
-    }
-
-    TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
-
     for action in actions {
+        let actual_amount = safe_add(&mut total_supply, action.amount.u128());
+
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_mint_impl(
             &mut deps,
             info.sender.clone(),
             recipient,
-            action.amount,
+            Uint128::new(actual_amount),
             constants.symbol.clone(),
             action.memo,
             &env.block,
         )?;
     }
+
+    TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BatchMint { status: Success })?))
 }
@@ -776,7 +753,7 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
         return Err(StdError::generic_err("No funds were sent to be deposited"));
     }
 
-    let raw_amount = amount.u128();
+    let mut raw_amount = amount.u128();
 
     if !constants.deposit_is_enabled {
         return Err(StdError::generic_err(
@@ -784,30 +761,21 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
         ));
     }
 
-    let total_supply = TOTAL_SUPPLY.load(deps.storage)?;
-    if let Some(total_supply) = total_supply.checked_add(raw_amount) {
-        TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
-    } else {
-        return Err(StdError::generic_err(
-            "This deposit would overflow the currency's total supply",
-        ));
-    }
+    let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
+    raw_amount = safe_add(&mut total_supply, raw_amount);
+    TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
     let sender_address = &info.sender;
 
-    let account_balance = BalancesStore::load(deps.storage, sender_address);
-    if let Some(account_balance) = account_balance.checked_add(raw_amount) {
-        BalancesStore::save(deps.storage, sender_address, account_balance)?;
-    } else {
-        return Err(StdError::generic_err(
-            "This deposit would overflow your balance",
-        ));
-    }
+    let mut account_balance = BalancesStore::load(deps.storage, sender_address);
+    // Note that althought raw_amount might be different than the actual added amount it doesn't really metter as we are in a case that someone somehow minted the maximum amount of coins that we can store
+    safe_add(&mut account_balance, raw_amount);
+    BalancesStore::save(deps.storage, sender_address, account_balance)?;
 
     store_deposit(
         deps.storage,
         sender_address,
-        amount,
+        Uint128::new(raw_amount),
         "uscrt".to_string(),
         &env.block,
     )?;
@@ -1640,6 +1608,19 @@ fn try_burn(
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?))
 }
 
+// To avoid balance guessing attacks based on balance overflow we need to perform safe addition and don't expose overflows to the caller.
+// Assuming that max of u128 is probably an unreachable balance, we want the addition to be bounded the max of u128
+// Currently the logic here is very straight forward yet the existence of the function is mendatory for future changes if needed.
+fn safe_add(balance: &mut u128, amount: u128) -> u128 {
+    // Note that new_amount can be equal to base after this operation.
+    // Currently we do nothing maybe on other implementations we will have something to add here
+    let prev_balance: u128 = *balance;
+    *balance = balance.saturating_add(amount);
+
+    // Won't underflow as the minimal value possible is 0
+    *balance - prev_balance
+}
+
 fn perform_transfer(
     store: &mut dyn Storage,
     from: &Addr,
@@ -1659,9 +1640,7 @@ fn perform_transfer(
     BalancesStore::save(store, from, from_balance)?;
 
     let mut to_balance = BalancesStore::load(store, to);
-    to_balance = to_balance.checked_add(amount).ok_or_else(|| {
-        StdError::generic_err("This tx will literally make them too rich. Try transferring less")
-    })?;
+    safe_add(&mut to_balance, amount);
     BalancesStore::save(store, to, to_balance)?;
 
     Ok(())
@@ -1700,7 +1679,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
     len_is_valid
         && symbol
             .bytes()
-            .all(|byte| (b'A'..=b'Z').contains(&byte) || (b'a'..=b'z').contains(&byte))
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_lowercase())
 }
 
 // pub fn migrate(
