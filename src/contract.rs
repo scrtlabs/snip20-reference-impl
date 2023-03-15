@@ -142,19 +142,17 @@ fn get_address_position(
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     let contract_status = CONTRACT_STATUS.load(deps.storage)?;
 
-    let account_random_pos: Option<usize> = {
-        let entropy = match msg.clone().get_entropy() {
-            None => [0u8; SHA256_HASH_SIZE],
-            Some(e) => sha_256(&e.0),
-        };
-
-        let decoys_size = msg.get_minimal_decoys_size();
-        if decoys_size != 0 {
-            Some(get_address_position(deps.storage, decoys_size, &entropy));
-        }
-
-        None
+    let mut account_random_pos: Option<usize> = None;
+    
+    let entropy = match msg.clone().get_entropy() {
+        None => [0u8; SHA256_HASH_SIZE],
+        Some(e) => sha_256(&e.0),
     };
+
+    let decoys_size = msg.get_minimal_decoys_size();
+    if decoys_size != 0 {
+        account_random_pos = Some(get_address_position(deps.storage, decoys_size, &entropy)?);
+    }
 
     match contract_status {
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {

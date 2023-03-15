@@ -289,7 +289,7 @@ impl Decoyable for ExecuteMsg {
                 decoys, ..
             } => {
                 if let Some(user_decoys) = decoys {
-                    user_decoys.len();
+                    return user_decoys.len();
                 }
 
                 0
