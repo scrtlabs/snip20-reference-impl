@@ -127,12 +127,10 @@ impl StoredLegacyTransfer {
 
         // The `and_then` here flattens the `StdResult<StdResult<ExtendedTx>>` to an `StdResult<ExtendedTx>`
         let transfers: StdResult<Vec<Tx>> = transfer_iter
-            .filter(|transfer| 
-                match transfer {
-                    Err(_) => true,
-                    Ok(t) => t.block_height != 0,
-                }
-            )
+            .filter(|transfer| match transfer {
+                Err(_) => true,
+                Ok(t) => t.block_height != 0,
+            })
             .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
             .collect();
         transfers.map(|txs| (txs, len))
@@ -363,12 +361,10 @@ impl StoredExtendedTx {
 
         // The `and_then` here flattens the `StdResult<StdResult<ExtendedTx>>` to an `StdResult<ExtendedTx>`
         let txs: StdResult<Vec<ExtendedTx>> = tx_iter
-            .filter(|tx| 
-                match tx {
-                    Err(_) => true,
-                    Ok(t) => t.action.tx_type != TxCode::Decoy.to_u8(),
-                }
-            )
+            .filter(|tx| match tx {
+                Err(_) => true,
+                Ok(t) => t.action.tx_type != TxCode::Decoy.to_u8(),
+            })
             .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
             .collect();
         txs.map(|txs| (txs, len))
@@ -383,7 +379,7 @@ fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
     Ok(id)
 }
 
-fn store_tx_with_decoys (
+fn store_tx_with_decoys(
     store: &mut dyn Storage,
     tx: &StoredExtendedTx,
     for_address: &Addr,
@@ -391,53 +387,58 @@ fn store_tx_with_decoys (
     decoys: &Option<Vec<Addr>>,
     account_random_pos: &Option<usize>,
 ) -> StdResult<()> {
-    let mut index_changer : Option<usize> = None;
+    let mut index_changer: Option<usize> = None;
     match decoys {
         None => StoredExtendedTx::append_tx(store, tx, for_address)?,
         Some(user_decoys) => {
             // It should always be set when decoys_vec is set
             let account_pos = account_random_pos.unwrap();
-            
+
             for i in 0..user_decoys.len() + 1 {
                 if i == account_pos {
                     StoredExtendedTx::append_tx(store, tx, for_address)?;
                     index_changer = Some(1);
                     continue;
                 }
-        
+
                 let index = i - index_changer.unwrap_or_default();
                 let decoy_action = StoredTxAction::decoy(&user_decoys[index]);
-                let decoy_tx = StoredExtendedTx::new(tx.id, decoy_action, tx.coins.clone(), tx.memo.clone(), block);
+                let decoy_tx = StoredExtendedTx::new(
+                    tx.id,
+                    decoy_action,
+                    tx.coins.clone(),
+                    tx.memo.clone(),
+                    block,
+                );
                 StoredExtendedTx::append_tx(store, &decoy_tx, &user_decoys[index])?;
             }
         }
     }
-    
 
     Ok(())
 }
 
-fn store_transfer_tx_with_decoys (
+fn store_transfer_tx_with_decoys(
     store: &mut dyn Storage,
     transfer: StoredLegacyTransfer,
     receiver: &Addr,
     decoys: &Option<Vec<Addr>>,
     account_random_pos: &Option<usize>,
 ) -> StdResult<()> {
-    let mut index_changer : Option<usize> = None;
+    let mut index_changer: Option<usize> = None;
     match decoys {
         None => StoredLegacyTransfer::append_transfer(store, &transfer, receiver)?,
         Some(user_decoys) => {
             // It should always be set when decoys_vec is set
             let account_pos = account_random_pos.unwrap();
-            
+
             for i in 0..user_decoys.len() + 1 {
                 if i == account_pos {
                     StoredLegacyTransfer::append_transfer(store, &transfer, receiver)?;
                     index_changer = Some(1);
                     continue;
                 }
-        
+
                 let index = i - index_changer.unwrap_or_default();
                 let decoy_transfer = StoredLegacyTransfer {
                     id: transfer.id,
@@ -453,7 +454,6 @@ fn store_transfer_tx_with_decoys (
             }
         }
     }
-    
 
     Ok(())
 }

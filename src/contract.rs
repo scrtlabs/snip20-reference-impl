@@ -136,7 +136,7 @@ fn get_address_position(
 ) -> StdResult<usize> {
     let mut rng = Prng::new(&PrngStore::load(store)?, entropy);
 
-    // decoys_size is also an accepted output which means: set the account balance after you've set decoys' balanace 
+    // decoys_size is also an accepted output which means: set the account balance after you've set decoys' balanace
     Ok(rng.rng.next_u64() as usize % (decoys_size + 1))
 }
 
@@ -145,7 +145,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
     let contract_status = CONTRACT_STATUS.load(deps.storage)?;
 
     let mut account_random_pos: Option<usize> = None;
-    
+
     let entropy = match msg.clone().get_entropy() {
         None => [0u8; SHA256_HASH_SIZE],
         Some(e) => sha_256(&e.0),
@@ -181,9 +181,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
 
     let response = match msg.clone() {
         // Native
-        ExecuteMsg::Deposit {
-            decoys, ..
-        } => try_deposit(deps, env, info, decoys, account_random_pos),
+        ExecuteMsg::Deposit { decoys, .. } => {
+            try_deposit(deps, env, info, decoys, account_random_pos)
+        }
         ExecuteMsg::Redeem {
             amount,
             denom,
@@ -198,7 +198,16 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             memo,
             decoys,
             ..
-        } => try_transfer(deps, env, info, recipient, amount, memo, decoys, account_random_pos),
+        } => try_transfer(
+            deps,
+            env,
+            info,
+            recipient,
+            amount,
+            memo,
+            decoys,
+            account_random_pos,
+        ),
         ExecuteMsg::Send {
             recipient,
             recipient_code_hash,
@@ -219,12 +228,12 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             decoys,
             account_random_pos,
         ),
-        ExecuteMsg::BatchTransfer {
-            actions, ..
-        } => try_batch_transfer(deps, env, info, actions, account_random_pos),
-        ExecuteMsg::BatchSend {
-            actions, ..
-        } => try_batch_send(deps, env, info, actions, account_random_pos),
+        ExecuteMsg::BatchTransfer { actions, .. } => {
+            try_batch_transfer(deps, env, info, actions, account_random_pos)
+        }
+        ExecuteMsg::BatchSend { actions, .. } => {
+            try_batch_send(deps, env, info, actions, account_random_pos)
+        }
         ExecuteMsg::Burn {
             amount,
             memo,
@@ -258,7 +267,15 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             decoys,
             ..
         } => try_transfer_from(
-            deps, &env, info, owner, recipient, amount, memo, decoys, account_random_pos,
+            deps,
+            &env,
+            info,
+            owner,
+            recipient,
+            amount,
+            memo,
+            decoys,
+            account_random_pos,
         ),
         ExecuteMsg::SendFrom {
             owner,
@@ -282,22 +299,31 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             decoys,
             account_random_pos,
         ),
-        ExecuteMsg::BatchTransferFrom {
-            actions, ..
-        } => try_batch_transfer_from(deps, &env, info, actions, account_random_pos),
-        ExecuteMsg::BatchSendFrom {
-            actions, ..
-        } => try_batch_send_from(deps, env, &info, actions, account_random_pos),
+        ExecuteMsg::BatchTransferFrom { actions, .. } => {
+            try_batch_transfer_from(deps, &env, info, actions, account_random_pos)
+        }
+        ExecuteMsg::BatchSendFrom { actions, .. } => {
+            try_batch_send_from(deps, env, &info, actions, account_random_pos)
+        }
         ExecuteMsg::BurnFrom {
             owner,
             amount,
             memo,
             decoys,
             ..
-        } => try_burn_from(deps, &env, info, owner, amount, memo, decoys, account_random_pos),
-        ExecuteMsg::BatchBurnFrom {
-            actions, ..
-        } => try_batch_burn_from(deps, &env, info, actions, account_random_pos),
+        } => try_burn_from(
+            deps,
+            &env,
+            info,
+            owner,
+            amount,
+            memo,
+            decoys,
+            account_random_pos,
+        ),
+        ExecuteMsg::BatchBurnFrom { actions, .. } => {
+            try_batch_burn_from(deps, &env, info, actions, account_random_pos)
+        }
 
         // Mint
         ExecuteMsg::Mint {
@@ -306,10 +332,19 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             memo,
             decoys,
             ..
-        } => try_mint(deps, env, info, recipient, amount, memo, decoys, account_random_pos),
-        ExecuteMsg::BatchMint {
-            actions, ..
-        } => try_batch_mint(deps, env, info, actions, account_random_pos),
+        } => try_mint(
+            deps,
+            env,
+            info,
+            recipient,
+            amount,
+            memo,
+            decoys,
+            account_random_pos,
+        ),
+        ExecuteMsg::BatchMint { actions, .. } => {
+            try_batch_mint(deps, env, info, actions, account_random_pos)
+        }
 
         // Other
         ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, info, address),
@@ -647,9 +682,25 @@ fn try_mint_impl(
 
     safe_add(&mut account_balance, raw_amount);
 
-    BalancesStore::update_balance(deps.storage, &recipient, account_balance, &decoys, &account_random_pos)?;
+    BalancesStore::update_balance(
+        deps.storage,
+        &recipient,
+        account_balance,
+        &decoys,
+        &account_random_pos,
+    )?;
 
-    store_mint(deps.storage, minter, recipient, amount, denom, memo, block, &decoys, &account_random_pos)?;
+    store_mint(
+        deps.storage,
+        minter,
+        recipient,
+        amount,
+        denom,
+        memo,
+        block,
+        &decoys,
+        &account_random_pos,
+    )?;
 
     Ok(())
 }
@@ -869,8 +920,8 @@ fn try_deposit(
         Uint128::new(raw_amount),
         "uscrt".to_string(),
         &env.block,
-        &decoys, 
-        &account_random_pos
+        &decoys,
+        &account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?))
@@ -1258,7 +1309,14 @@ fn try_transfer_from_impl(
 
     use_allowance(deps.storage, env, owner, spender, raw_amount)?;
 
-    perform_transfer(deps.storage, owner, recipient, raw_amount, &decoys, &account_random_pos)?;
+    perform_transfer(
+        deps.storage,
+        owner,
+        recipient,
+        raw_amount,
+        &decoys,
+        &account_random_pos,
+    )?;
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
@@ -1271,7 +1329,7 @@ fn try_transfer_from_impl(
         memo,
         &env.block,
         &decoys,
-        &account_random_pos
+        &account_random_pos,
     )?;
 
     Ok(())
@@ -1483,7 +1541,13 @@ fn try_burn_from(
             account_balance, raw_amount
         )));
     }
-    BalancesStore::update_balance(deps.storage, &owner, account_balance, &decoys, &account_random_pos)?;
+    BalancesStore::update_balance(
+        deps.storage,
+        &owner,
+        account_balance,
+        &decoys,
+        &account_random_pos,
+    )?;
 
     // remove from supply
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
@@ -1505,8 +1569,8 @@ fn try_burn_from(
         constants.symbol,
         memo,
         &env.block,
-        &decoys, 
-        &account_random_pos
+        &decoys,
+        &account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BurnFrom { status: Success })?))
@@ -1572,7 +1636,7 @@ fn try_batch_burn_from(
             action.memo,
             &env.block,
             &action.decoys,
-            &account_random_pos
+            &account_random_pos,
         )?;
     }
 
@@ -1764,7 +1828,13 @@ fn try_burn(
         )));
     }
 
-    BalancesStore::update_balance(deps.storage, &info.sender, account_balance, &decoys, &account_random_pos)?;
+    BalancesStore::update_balance(
+        deps.storage,
+        &info.sender,
+        account_balance,
+        &decoys,
+        &account_random_pos,
+    )?;
 
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
@@ -1784,8 +1854,8 @@ fn try_burn(
         constants.symbol,
         memo,
         &env.block,
-        &decoys, 
-        &account_random_pos
+        &decoys,
+        &account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?))

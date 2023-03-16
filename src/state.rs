@@ -134,7 +134,6 @@ impl BalancesStore {
 
                 let mut accounts_to_be_written: Vec<&Addr> = vec![];
 
-                
                 let (first_part, second_part) = decoys_vec.split_at(account_pos);
                 accounts_to_be_written.extend(first_part);
                 accounts_to_be_written.push(account);
