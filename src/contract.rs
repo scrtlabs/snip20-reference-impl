@@ -88,7 +88,7 @@ pub fn instantiate(
                 Some("Initial Balance".to_string()),
                 &env.block,
                 &None,
-                None,
+                &None,
             )?;
         }
     }
@@ -649,7 +649,7 @@ fn try_mint_impl(
 
     BalancesStore::update_balance(deps.storage, &recipient, account_balance, &decoys, &account_random_pos)?;
 
-    store_mint(deps.storage, minter, recipient, amount, denom, memo, block, &decoys, account_random_pos)?;
+    store_mint(deps.storage, minter, recipient, amount, denom, memo, block, &decoys, &account_random_pos)?;
 
     Ok(())
 }
@@ -870,7 +870,7 @@ fn try_deposit(
         "uscrt".to_string(),
         &env.block,
         &decoys, 
-        account_random_pos
+        &account_random_pos
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?))
@@ -960,7 +960,7 @@ fn try_redeem(
         constants.symbol,
         &env.block,
         &decoys,
-        account_random_pos,
+        &account_random_pos,
     )?;
 
     let message = CosmosMsg::Bank(BankMsg::Send {
@@ -988,8 +988,8 @@ fn try_transfer_impl(
         sender,
         recipient,
         amount.u128(),
-        decoys,
-        account_random_pos,
+        &decoys,
+        &account_random_pos,
     )?;
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
@@ -1002,6 +1002,8 @@ fn try_transfer_impl(
         symbol,
         memo,
         block,
+        &decoys,
+        &account_random_pos,
     )?;
 
     Ok(())
@@ -1256,7 +1258,7 @@ fn try_transfer_from_impl(
 
     use_allowance(deps.storage, env, owner, spender, raw_amount)?;
 
-    perform_transfer(deps.storage, owner, recipient, raw_amount, decoys, account_random_pos)?;
+    perform_transfer(deps.storage, owner, recipient, raw_amount, &decoys, &account_random_pos)?;
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
@@ -1268,6 +1270,8 @@ fn try_transfer_from_impl(
         symbol,
         memo,
         &env.block,
+        &decoys,
+        &account_random_pos
     )?;
 
     Ok(())
@@ -1502,7 +1506,7 @@ fn try_burn_from(
         memo,
         &env.block,
         &decoys, 
-        account_random_pos
+        &account_random_pos
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BurnFrom { status: Success })?))
@@ -1568,7 +1572,7 @@ fn try_batch_burn_from(
             action.memo,
             &env.block,
             &action.decoys,
-            account_random_pos
+            &account_random_pos
         )?;
     }
 
@@ -1781,7 +1785,7 @@ fn try_burn(
         memo,
         &env.block,
         &decoys, 
-        account_random_pos
+        &account_random_pos
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?))
@@ -1805,8 +1809,8 @@ fn perform_transfer(
     from: &Addr,
     to: &Addr,
     amount: u128,
-    decoys: Option<Vec<Addr>>,
-    account_random_pos: Option<usize>,
+    decoys: &Option<Vec<Addr>>,
+    account_random_pos: &Option<usize>,
 ) -> StdResult<()> {
     let mut from_balance = BalancesStore::load(store, from);
 
