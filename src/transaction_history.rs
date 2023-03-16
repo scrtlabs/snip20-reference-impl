@@ -163,8 +163,7 @@ impl TxCode {
             4 => Ok(Redeem),
             255 => Ok(Decoy),
             other => Err(StdError::generic_err(format!(
-                "Unexpected Tx code in transaction history: {} Storage is corrupted.",
-                other
+                "Unexpected Tx code in transaction history: {other} Storage is corrupted.",
             ))),
         }
     }
@@ -500,12 +499,13 @@ pub fn store_transfer(
 
     // Always write to the recipient's history
     // cosmwasm_std::debug_print("saving transaction history for receiver");
-    store_tx_with_decoys(store, &tx, receiver, block, decoys, &account_random_pos)?;
-    store_transfer_tx_with_decoys(store, transfer, receiver, decoys, &account_random_pos)?;
+    store_tx_with_decoys(store, &tx, receiver, block, decoys, account_random_pos)?;
+    store_transfer_tx_with_decoys(store, transfer, receiver, decoys, account_random_pos)?;
 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // We just need them
 pub fn store_mint(
     store: &mut dyn Storage,
     minter: Addr,

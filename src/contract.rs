@@ -791,7 +791,7 @@ fn try_batch_mint(
             action.memo,
             &env.block,
             action.decoys,
-            account_random_pos.clone(),
+            account_random_pos,
         )?;
     }
 
@@ -974,8 +974,7 @@ fn try_redeem(
         )?;
     } else {
         return Err(StdError::generic_err(format!(
-            "insufficient funds to redeem: balance={}, required={}",
-            account_balance, amount_raw
+            "insufficient funds to redeem: balance={account_balance}, required={amount_raw}",
         )));
     }
 
@@ -994,8 +993,7 @@ fn try_redeem(
         .amount;
     if amount > token_reserve {
         return Err(StdError::generic_err(format!(
-            "You are trying to redeem for more {} than the contract has in its reserve",
-            withdraw_denom
+            "You are trying to redeem for more {withdraw_denom} than the contract has in its reserve",
         )));
     }
 
@@ -1104,7 +1102,7 @@ fn try_batch_transfer(
             action.memo,
             &env.block,
             action.decoys,
-            account_random_pos.clone(),
+            account_random_pos,
         )?;
     }
 
@@ -1241,7 +1239,7 @@ fn try_batch_send(
             action.msg,
             &env.block,
             action.decoys,
-            account_random_pos.clone(),
+            account_random_pos,
         )?;
     }
 
@@ -1265,8 +1263,7 @@ fn try_register_receive(
 
 fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
     StdError::generic_err(format!(
-        "insufficient allowance: allowance={}, required={}",
-        allowance, required
+        "insufficient allowance: allowance={allowance}, required={required}",
     ))
 }
 
@@ -1383,7 +1380,7 @@ fn try_batch_transfer_from(
             action.amount,
             action.memo,
             action.decoys,
-            account_random_pos.clone(),
+            account_random_pos,
         )?;
     }
 
@@ -1498,7 +1495,7 @@ fn try_batch_send_from(
             action.memo,
             action.msg,
             action.decoys,
-            account_random_pos.clone(),
+            account_random_pos,
         )?;
     }
 
@@ -1537,8 +1534,7 @@ fn try_burn_from(
         account_balance = new_balance;
     } else {
         return Err(StdError::generic_err(format!(
-            "insufficient funds to burn: balance={}, required={}",
-            account_balance, raw_amount
+            "insufficient funds to burn: balance={account_balance}, required={raw_amount}",
         )));
     }
     BalancesStore::update_balance(
@@ -1605,8 +1601,7 @@ fn try_batch_burn_from(
             account_balance = new_balance;
         } else {
             return Err(StdError::generic_err(format!(
-                "insufficient funds to burn: balance={}, required={}",
-                account_balance, amount
+                "insufficient funds to burn: balance={account_balance}, required={amount}",
             )));
         }
         BalancesStore::update_balance(
@@ -1622,8 +1617,7 @@ fn try_batch_burn_from(
             total_supply = new_total_supply;
         } else {
             return Err(StdError::generic_err(format!(
-                "You're trying to burn more than is available in the total supply: {:?}",
-                action
+                "You're trying to burn more than is available in the total supply: {action:?}",
             )));
         }
 
@@ -1823,8 +1817,7 @@ fn try_burn(
         account_balance = new_account_balance;
     } else {
         return Err(StdError::generic_err(format!(
-            "insufficient funds to burn: balance={}, required={}",
-            account_balance, raw_amount
+            "insufficient funds to burn: balance={account_balance}, required={raw_amount}",
         )));
     }
 
@@ -1888,11 +1881,10 @@ fn perform_transfer(
         from_balance = new_from_balance;
     } else {
         return Err(StdError::generic_err(format!(
-            "insufficient funds: balance={}, required={}",
-            from_balance, amount
+            "insufficient funds: balance={from_balance}, required={amount}",
         )));
     }
-    BalancesStore::update_balance(store, from, from_balance, &decoys, &account_random_pos)?;
+    BalancesStore::update_balance(store, from, from_balance, decoys, account_random_pos)?;
 
     let mut to_balance = BalancesStore::load(store, to);
     safe_add(&mut to_balance, amount);
