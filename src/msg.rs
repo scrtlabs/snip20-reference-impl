@@ -264,39 +264,21 @@ pub trait Decoyable {
 impl Decoyable for ExecuteMsg {
     fn get_minimal_decoys_size(&self) -> usize {
         match self {
-            ExecuteMsg::Deposit {
-                decoys, ..
-            }
-            | ExecuteMsg::Redeem {
-                decoys, ..
-            }
-            | ExecuteMsg::Transfer {
-                decoys, ..
-            }
-            | ExecuteMsg::Send {
-                decoys, ..
-            }
-            | ExecuteMsg::Burn {
-                decoys, ..
-            }
-            | ExecuteMsg::TransferFrom {
-                decoys, ..
-            }
-            | ExecuteMsg::SendFrom {
-                decoys, ..
-            }
-            | ExecuteMsg::BurnFrom {
-                decoys, ..
-            } => {
+            ExecuteMsg::Deposit { decoys, .. }
+            | ExecuteMsg::Redeem { decoys, .. }
+            | ExecuteMsg::Transfer { decoys, .. }
+            | ExecuteMsg::Send { decoys, .. }
+            | ExecuteMsg::Burn { decoys, .. }
+            | ExecuteMsg::TransferFrom { decoys, .. }
+            | ExecuteMsg::SendFrom { decoys, .. }
+            | ExecuteMsg::BurnFrom { decoys, .. } => {
                 if let Some(user_decoys) = decoys {
                     return user_decoys.len();
                 }
 
                 0
             }
-            ExecuteMsg::BatchTransferFrom {
-                actions, ..
-            } => {
+            ExecuteMsg::BatchTransferFrom { actions, .. } => {
                 let mut min_decoys_count = 0;
                 for action in actions {
                     if let Some(user_decoys) = &action.decoys {
@@ -308,9 +290,7 @@ impl Decoyable for ExecuteMsg {
 
                 min_decoys_count
             }
-            ExecuteMsg::BatchSendFrom {
-                actions, ..
-            } => {
+            ExecuteMsg::BatchSendFrom { actions, .. } => {
                 let mut min_decoys_count = 0;
                 for action in actions {
                     if let Some(user_decoys) = &action.decoys {
@@ -322,9 +302,7 @@ impl Decoyable for ExecuteMsg {
 
                 min_decoys_count
             }
-            ExecuteMsg::BatchTransfer {
-                actions, ..
-            } => {
+            ExecuteMsg::BatchTransfer { actions, .. } => {
                 let mut min_decoys_count = 0;
                 for action in actions {
                     if let Some(user_decoys) = &action.decoys {
@@ -336,9 +314,7 @@ impl Decoyable for ExecuteMsg {
 
                 min_decoys_count
             }
-            ExecuteMsg::BatchSend {
-                actions, ..
-            } => {
+            ExecuteMsg::BatchSend { actions, .. } => {
                 let mut min_decoys_count = 0;
                 for action in actions {
                     if let Some(user_decoys) = &action.decoys {
@@ -350,9 +326,7 @@ impl Decoyable for ExecuteMsg {
 
                 min_decoys_count
             }
-            ExecuteMsg::BatchBurnFrom {
-                actions, ..
-            } => {
+            ExecuteMsg::BatchBurnFrom { actions, .. } => {
                 let mut min_decoys_count = 0;
                 for action in actions {
                     if let Some(user_decoys) = &action.decoys {
@@ -364,9 +338,7 @@ impl Decoyable for ExecuteMsg {
 
                 min_decoys_count
             }
-            ExecuteMsg::BatchMint {
-                actions, ..
-            } => {
+            ExecuteMsg::BatchMint { actions, .. } => {
                 let mut min_decoys_count = 0;
                 for action in actions {
                     if let Some(user_decoys) = &action.decoys {
