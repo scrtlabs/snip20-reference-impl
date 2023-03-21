@@ -4,10 +4,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::batch;
+use crate::batch::HasDecoy;
 use crate::transaction_history::{ExtendedTx, Tx};
 use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
-use crate::batch::HasDecoy;
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Serialize, Deserialize, Clone, JsonSchema)]
@@ -279,24 +279,12 @@ impl Decoyable for ExecuteMsg {
 
                 0
             }
-            ExecuteMsg::BatchSendFrom { actions, .. } => {
-                get_min_decoys_count(actions)
-            }
-            ExecuteMsg::BatchTransferFrom { actions, .. } => {
-                get_min_decoys_count(actions)
-            }
-            ExecuteMsg::BatchTransfer { actions, .. } => {
-                get_min_decoys_count(actions)
-            }
-            ExecuteMsg::BatchSend { actions, .. } => {
-                get_min_decoys_count(actions)
-            }
-            ExecuteMsg::BatchBurnFrom { actions, .. } => {
-                get_min_decoys_count(actions)
-            }
-            ExecuteMsg::BatchMint { actions, .. } => {
-                get_min_decoys_count(actions)
-            }
+            ExecuteMsg::BatchSendFrom { actions, .. } => get_min_decoys_count(actions),
+            ExecuteMsg::BatchTransferFrom { actions, .. } => get_min_decoys_count(actions),
+            ExecuteMsg::BatchTransfer { actions, .. } => get_min_decoys_count(actions),
+            ExecuteMsg::BatchSend { actions, .. } => get_min_decoys_count(actions),
+            ExecuteMsg::BatchBurnFrom { actions, .. } => get_min_decoys_count(actions),
+            ExecuteMsg::BatchMint { actions, .. } => get_min_decoys_count(actions),
             _ => 0,
         }
     }
@@ -332,7 +320,11 @@ fn get_min_decoys_count<T: HasDecoy>(actions: &[T]) -> usize {
         }
     }
 
-    if min_decoys_count == usize::MAX { 0 } else { min_decoys_count }
+    if min_decoys_count == usize::MAX {
+        0
+    } else {
+        min_decoys_count
+    }
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
