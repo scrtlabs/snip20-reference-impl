@@ -1,6 +1,6 @@
 # SNIP-20 Reference Implementation
 
-This is an implementation of a [SNIP-20](https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md), [SNIP-21](https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-21.md), [SNIP-22](https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-22.md), [SNIP-23](https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-23.md) and [SNIP-24](https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-24.md) compliant token contract.
+This is an implementation of a [SNIP-20](https://docs.scrt.network/secret-network-documentation/development/snips/snip-20-spec-private-fungible-tokens), [SNIP-21](https://docs.scrt.network/secret-network-documentation/development/snips/snip-21-minor-improvements-to-snip-20), [SNIP-22](https://docs.scrt.network/secret-network-documentation/development/snips/snip-22-batch-operations-for-snip-20-contracts), [SNIP-23](https://docs.scrt.network/secret-network-documentation/development/snips/snip-23-improved-ux-to-snip-20-send-operations) and [SNIP-24](https://docs.scrt.network/secret-network-documentation/development/snips/snip-24-query-permits-for-snip-20-tokens) compliant token contract.
 At the time of token creation you may configure:
 * Public Total Supply:  If you enable this, the token's total supply will be displayed whenever a TokenInfo query is performed.  DEFAULT: false
 * Enable Deposit: If you enable this, you will be able to convert from SCRT to the token.*  DEFAULT: false
