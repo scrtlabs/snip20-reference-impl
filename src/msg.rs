@@ -331,7 +331,8 @@ fn get_min_decoys_count<T: HasDecoy>(actions: &[T]) -> usize {
             }
         }
     }
-    min_decoys_count
+
+    if min_decoys_count == usize::MAX { 0 } else { min_decoys_count }
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
