@@ -7,6 +7,7 @@ use crate::batch;
 use crate::transaction_history::{ExtendedTx, Tx};
 use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
+use crate::batch::HasDecoy;
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Serialize, Deserialize, Clone, JsonSchema)]
@@ -278,77 +279,23 @@ impl Decoyable for ExecuteMsg {
 
                 0
             }
-            ExecuteMsg::BatchTransferFrom { actions, .. } => {
-                let mut min_decoys_count = 0;
-                for action in actions {
-                    if let Some(user_decoys) = &action.decoys {
-                        if user_decoys.len() < min_decoys_count {
-                            min_decoys_count = user_decoys.len();
-                        }
-                    }
-                }
-
-                min_decoys_count
-            }
             ExecuteMsg::BatchSendFrom { actions, .. } => {
-                let mut min_decoys_count = 0;
-                for action in actions {
-                    if let Some(user_decoys) = &action.decoys {
-                        if user_decoys.len() < min_decoys_count {
-                            min_decoys_count = user_decoys.len();
-                        }
-                    }
-                }
-
-                min_decoys_count
+                get_min_decoys_count(actions)
+            }
+            ExecuteMsg::BatchTransferFrom { actions, .. } => {
+                get_min_decoys_count(actions)
             }
             ExecuteMsg::BatchTransfer { actions, .. } => {
-                let mut min_decoys_count = 0;
-                for action in actions {
-                    if let Some(user_decoys) = &action.decoys {
-                        if user_decoys.len() < min_decoys_count {
-                            min_decoys_count = user_decoys.len();
-                        }
-                    }
-                }
-
-                min_decoys_count
+                get_min_decoys_count(actions)
             }
             ExecuteMsg::BatchSend { actions, .. } => {
-                let mut min_decoys_count = 0;
-                for action in actions {
-                    if let Some(user_decoys) = &action.decoys {
-                        if user_decoys.len() < min_decoys_count {
-                            min_decoys_count = user_decoys.len();
-                        }
-                    }
-                }
-
-                min_decoys_count
+                get_min_decoys_count(actions)
             }
             ExecuteMsg::BatchBurnFrom { actions, .. } => {
-                let mut min_decoys_count = 0;
-                for action in actions {
-                    if let Some(user_decoys) = &action.decoys {
-                        if user_decoys.len() < min_decoys_count {
-                            min_decoys_count = user_decoys.len();
-                        }
-                    }
-                }
-
-                min_decoys_count
+                get_min_decoys_count(actions)
             }
             ExecuteMsg::BatchMint { actions, .. } => {
-                let mut min_decoys_count = 0;
-                for action in actions {
-                    if let Some(user_decoys) = &action.decoys {
-                        if user_decoys.len() < min_decoys_count {
-                            min_decoys_count = user_decoys.len();
-                        }
-                    }
-                }
-
-                min_decoys_count
+                get_min_decoys_count(actions)
             }
             _ => 0,
         }
@@ -373,6 +320,19 @@ impl Decoyable for ExecuteMsg {
             _ => None,
         }
     }
+}
+
+fn get_min_decoys_count<T: HasDecoy>(actions: &[T]) -> usize {
+    let mut min_decoys_count = usize::MAX;
+    for action in actions {
+        if let Some(user_decoys) = &action.decoys() {
+            if user_decoys.len() < min_decoys_count {
+                min_decoys_count = user_decoys.len();
+            }
+        }
+    }
+
+    if min_decoys_count == usize::MAX { 0 } else { min_decoys_count }
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]

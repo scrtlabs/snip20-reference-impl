@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Binary, Uint128};
 
+pub trait HasDecoy {
+    fn decoys(&self) -> &Option<Vec<Addr>>;
+}
+
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct TransferAction {
@@ -64,3 +68,20 @@ pub struct BurnFromAction {
     pub memo: Option<String>,
     pub decoys: Option<Vec<Addr>>,
 }
+
+macro_rules! impl_decoyable {
+    ($struct:ty) => {
+        impl HasDecoy for $struct {
+            fn decoys(&self) -> &Option<Vec<Addr>> {
+                &self.decoys
+            }
+        }
+    };
+}
+
+impl_decoyable!(BurnFromAction);
+impl_decoyable!(MintAction);
+impl_decoyable!(SendFromAction);
+impl_decoyable!(TransferFromAction);
+impl_decoyable!(TransferAction);
+impl_decoyable!(SendAction);
