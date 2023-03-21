@@ -4992,6 +4992,190 @@ mod tests {
     }
 
     #[test]
+    fn test_query_transfer_history_with_decoys() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: "bob".to_string(),
+            amount: Uint128::new(5000),
+        },
+        InitialBalance {
+            address: "jhon".to_string(),
+            amount: Uint128::new(7000),
+        },]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "alice_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("alice", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "lior_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("lior", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "banana_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("banana", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let lior_addr = Addr::unchecked("lior".to_string());
+        let jhon_addr = Addr::unchecked("jhon".to_string());
+        let alice_addr = Addr::unchecked("alice".to_string());
+
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "alice".to_string(),
+            amount: Uint128::new(1000),
+            memo: None,
+            decoys: Some(vec![lior_addr.clone(), jhon_addr.clone(), alice_addr.clone()]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "banana".to_string(),
+            amount: Uint128::new(500),
+            memo: None,
+            decoys: None,
+            entropy: None,
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: "bob".to_string(),
+            key: "key".to_string(),
+            page: None,
+            page_size: 10,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs, .. } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 2);
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: "alice".to_string(),
+            key: "alice_key".to_string(),
+            page: None,
+            page_size: 10,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs, .. } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 1);
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: "banana".to_string(),
+            key: "banana_key".to_string(),
+            page: None,
+            page_size: 10,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs, .. } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 1);
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: "lior".to_string(),
+            key: "lior_key".to_string(),
+            page: None,
+            page_size: 10,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs, .. } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 0);
+
+
+        let query_msg = QueryMsg::Balance {
+            address: "bob".to_string(),
+            key: "key".to_string(),
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let balance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(balance, Uint128::new(3500));
+
+        let query_msg = QueryMsg::Balance {
+            address: "alice".to_string(),
+            key: "alice_key".to_string(),
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let balance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(balance, Uint128::new(1000));
+
+        let query_msg = QueryMsg::Balance {
+            address: "banana".to_string(),
+            key: "banana_key".to_string(),
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let balance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(balance, Uint128::new(500));
+
+        let query_msg = QueryMsg::Balance {
+            address: "lior".to_string(),
+            key: "lior_key".to_string(),
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let balance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(balance, Uint128::new(0));
+    }
+
+    #[test]
     fn test_query_transaction_history() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
