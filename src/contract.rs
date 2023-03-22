@@ -4993,14 +4993,16 @@ mod tests {
 
     #[test]
     fn test_query_transfer_history_with_decoys() {
-        let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: "bob".to_string(),
-            amount: Uint128::new(5000),
-        },
-        InitialBalance {
-            address: "jhon".to_string(),
-            amount: Uint128::new(7000),
-        },]);
+        let (init_result, mut deps) = init_helper(vec![
+            InitialBalance {
+                address: "bob".to_string(),
+                amount: Uint128::new(5000),
+            },
+            InitialBalance {
+                address: "jhon".to_string(),
+                amount: Uint128::new(7000),
+            },
+        ]);
         assert!(
             init_result.is_ok(),
             "Init failed: {}",
@@ -5052,7 +5054,12 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: None,
-            decoys: Some(vec![lior_addr.clone(), jhon_addr.clone(), alice_addr.clone()]),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+
             entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
             padding: None,
         };
@@ -5128,7 +5135,6 @@ mod tests {
             _ => panic!("Unexpected"),
         };
         assert_eq!(transfers.len(), 0);
-
 
         let query_msg = QueryMsg::Balance {
             address: "bob".to_string(),
