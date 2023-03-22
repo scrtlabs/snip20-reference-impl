@@ -43,7 +43,7 @@ secret-toolkit-crypto = { version = "0.7.0", features = ["rand", "hash"]}
 
 #secret-toolkit-crypto = { package = "secret-toolkit-crypto", version = "0.7.0", features = ["rand", "hash"] }
 
-schemars = "0.8.11"
+schemars = "0.8.12"
 serde = { version = "1.0.158", default-features = false, features = ["derive"] }
 base64 = "0.13.0"
 
