@@ -270,6 +270,7 @@ impl Decoyable for ExecuteMsg {
             | ExecuteMsg::Transfer { decoys, .. }
             | ExecuteMsg::Send { decoys, .. }
             | ExecuteMsg::Burn { decoys, .. }
+            | ExecuteMsg::Mint { decoys, .. }
             | ExecuteMsg::TransferFrom { decoys, .. }
             | ExecuteMsg::SendFrom { decoys, .. }
             | ExecuteMsg::BurnFrom { decoys, .. } => {
@@ -296,6 +297,7 @@ impl Decoyable for ExecuteMsg {
             | ExecuteMsg::Transfer { entropy, .. }
             | ExecuteMsg::Send { entropy, .. }
             | ExecuteMsg::Burn { entropy, .. }
+            | ExecuteMsg::Mint { entropy, .. }
             | ExecuteMsg::TransferFrom { entropy, .. }
             | ExecuteMsg::SendFrom { entropy, .. }
             | ExecuteMsg::BurnFrom { entropy, .. }

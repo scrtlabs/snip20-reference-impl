@@ -5465,4 +5465,384 @@ mod tests {
 
         assert_eq!(transfers, expected_transfers);
     }
+
+    #[test]
+    fn test_query_transaction_history_with_decoys() {
+        let (init_result, mut deps) = init_helper_with_config(
+            vec![
+                InitialBalance {
+                    address: "bob".to_string(),
+                    amount: Uint128::new(5000),
+                },
+                InitialBalance {
+                    address: "jhon".to_string(),
+                    amount: Uint128::new(7000),
+                },
+            ],
+            true,
+            true,
+            true,
+            true,
+            1000,
+            vec!["uscrt".to_string()],
+        );
+
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "alice_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("alice", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "lior_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("lior", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "jhon_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("jhon", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let lior_addr = Addr::unchecked("lior".to_string());
+        let jhon_addr = Addr::unchecked("jhon".to_string());
+        let alice_addr = Addr::unchecked("alice".to_string());
+
+        let handle_msg = ExecuteMsg::Burn {
+            amount: Uint128::new(1),
+            memo: Some("my burn message".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        assert!(
+            handle_result.is_ok(),
+            "Pause handle failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let handle_msg = ExecuteMsg::Redeem {
+            amount: Uint128::new(1000),
+            denom: Option::from("uscrt".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let handle_msg = ExecuteMsg::Mint {
+            recipient: "bob".to_string(),
+            amount: Uint128::new(100),
+            memo: Some("my mint message".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("admin", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::Deposit {
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info(
+            "bob",
+            &[Coin {
+                denom: "uscrt".to_string(),
+                amount: Uint128::new(1000),
+            }],
+        );
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "alice".to_string(),
+            amount: Uint128::new(1000),
+            memo: Some("my transfer message #1".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "banana".to_string(),
+            amount: Uint128::new(500),
+            memo: Some("my transfer message #2".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "mango".to_string(),
+            amount: Uint128::new(2500),
+            memo: Some("my transfer message #3".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "lior".to_string(),
+            key: "lior_key".to_string(),
+            page: None,
+            page_size: 10,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transactions = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+
+        assert!(transactions.is_empty());
+
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "alice".to_string(),
+            key: "alice_key".to_string(),
+            page: None,
+            page_size: 10,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transactions = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+
+        assert_eq!(transactions.len(), 1); // Transfer from bob
+
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "jhon".to_string(),
+            key: "jhon_key".to_string(),
+            page: None,
+            page_size: 10,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transactions = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+
+        assert_eq!(transactions.len(), 1); // Mint on init
+
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "bob".to_string(),
+            key: "key".to_string(),
+            page: None,
+            page_size: 10,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transactions = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+
+        use crate::transaction_history::{ExtendedTx, TxAction};
+        let expected_transactions = [
+            ExtendedTx {
+                id: 9,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob".to_string()),
+                    sender: Addr::unchecked("bob".to_string()),
+                    recipient: Addr::unchecked("mango".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(2500),
+                },
+                memo: Some("my transfer message #3".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 8,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob".to_string()),
+                    sender: Addr::unchecked("bob".to_string()),
+                    recipient: Addr::unchecked("banana".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(500),
+                },
+                memo: Some("my transfer message #2".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 7,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob".to_string()),
+                    sender: Addr::unchecked("bob".to_string()),
+                    recipient: Addr::unchecked("alice".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(1000),
+                },
+                memo: Some("my transfer message #1".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 6,
+                action: TxAction::Deposit {},
+                coins: Coin {
+                    denom: "uscrt".to_string(),
+                    amount: Uint128::new(1000),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 5,
+                action: TxAction::Mint {
+                    minter: Addr::unchecked("admin".to_string()),
+                    recipient: Addr::unchecked("bob".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(100),
+                },
+                memo: Some("my mint message".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 4,
+                action: TxAction::Redeem {},
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(1000),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 3,
+                action: TxAction::Burn {
+                    burner: Addr::unchecked("bob".to_string()),
+                    owner: Addr::unchecked("bob".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(1),
+                },
+                memo: Some("my burn message".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 1,
+                action: TxAction::Mint {
+                    minter: Addr::unchecked("admin".to_string()),
+                    recipient: Addr::unchecked("bob".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(5000),
+                },
+
+                memo: Some("Initial Balance".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+        ];
+
+        assert_eq!(transactions, expected_transactions);
+    }
 }
