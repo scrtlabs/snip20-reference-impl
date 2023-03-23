@@ -47,6 +47,9 @@ pub enum TxAction {
     },
     Deposit {},
     Redeem {},
+    Decoy {
+        address: Addr,
+    },
 }
 
 // Note that id is a globally incrementing counter.
@@ -111,6 +114,7 @@ impl StoredLegacyTransfer {
         for_address: Addr,
         page: u32,
         page_size: u32,
+        should_filter_decoys: bool,
     ) -> StdResult<(Vec<Tx>, u64)> {
         let current_addr_store = TRANSFERS.add_suffix(for_address.as_bytes());
         let len = current_addr_store.get_len(storage)? as u64;
@@ -123,9 +127,20 @@ impl StoredLegacyTransfer {
             .take(page_size as _);
 
         // The `and_then` here flattens the `StdResult<StdResult<ExtendedTx>>` to an `StdResult<ExtendedTx>`
-        let transfers: StdResult<Vec<Tx>> = transfer_iter
-            .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
-            .collect();
+        let transfers: StdResult<Vec<Tx>> = if should_filter_decoys {
+            transfer_iter
+                .filter(|transfer| match transfer {
+                    Err(_) => true,
+                    Ok(t) => t.block_height != 0,
+                })
+                .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
+                .collect()
+        } else {
+            transfer_iter
+                .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
+                .collect()
+        };
+
         transfers.map(|txs| (txs, len))
     }
 }
@@ -138,6 +153,7 @@ enum TxCode {
     Burn = 2,
     Deposit = 3,
     Redeem = 4,
+    Decoy = 255,
 }
 
 impl TxCode {
@@ -153,9 +169,9 @@ impl TxCode {
             2 => Ok(Burn),
             3 => Ok(Deposit),
             4 => Ok(Redeem),
+            255 => Ok(Decoy),
             other => Err(StdError::generic_err(format!(
-                "Unexpected Tx code in transaction history: {} Storage is corrupted.",
-                other
+                "Unexpected Tx code in transaction history: {other} Storage is corrupted.",
             ))),
         }
     }
@@ -211,6 +227,14 @@ impl StoredTxAction {
             address3: None,
         }
     }
+    fn decoy(recipient: &Addr) -> Self {
+        Self {
+            tx_type: TxCode::Decoy.to_u8(),
+            address1: Some(recipient.clone()),
+            address2: None,
+            address3: None,
+        }
+    }
 
     fn into_tx_action(self) -> StdResult<TxAction> {
         let transfer_addr_err = || {
@@ -223,6 +247,9 @@ impl StoredTxAction {
         };
         let burn_addr_err = || {
             StdError::generic_err("Missing address in stored Burn transaction. Storage is corrupt")
+        };
+        let decoy_addr_err = || {
+            StdError::generic_err("Missing address in stored decoy transaction. Storage is corrupt")
         };
 
         // In all of these, we ignore fields that we don't expect to find populated
@@ -249,6 +276,10 @@ impl StoredTxAction {
             }
             TxCode::Deposit => TxAction::Deposit {},
             TxCode::Redeem => TxAction::Redeem {},
+            TxCode::Decoy => {
+                let address = self.address1.ok_or_else(decoy_addr_err)?;
+                TxAction::Decoy { address }
+            }
         };
 
         Ok(action)
@@ -323,6 +354,7 @@ impl StoredExtendedTx {
         for_address: Addr,
         page: u32,
         page_size: u32,
+        should_filter_decoys: bool,
     ) -> StdResult<(Vec<ExtendedTx>, u64)> {
         let current_addr_store = TRANSACTIONS.add_suffix(for_address.as_bytes());
         let len = current_addr_store.get_len(storage)? as u64;
@@ -336,9 +368,20 @@ impl StoredExtendedTx {
             .take(page_size as _);
 
         // The `and_then` here flattens the `StdResult<StdResult<ExtendedTx>>` to an `StdResult<ExtendedTx>`
-        let txs: StdResult<Vec<ExtendedTx>> = tx_iter
-            .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
-            .collect();
+        let txs: StdResult<Vec<ExtendedTx>> = if should_filter_decoys {
+            tx_iter
+                .filter(|tx| match tx {
+                    Err(_) => true,
+                    Ok(t) => t.action.tx_type != TxCode::Decoy.to_u8(),
+                })
+                .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
+                .collect()
+        } else {
+            tx_iter
+                .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
+                .collect()
+        };
+
         txs.map(|txs| (txs, len))
     }
 }
@@ -351,6 +394,85 @@ fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
     Ok(id)
 }
 
+fn store_tx_with_decoys(
+    store: &mut dyn Storage,
+    tx: &StoredExtendedTx,
+    for_address: &Addr,
+    block: &cosmwasm_std::BlockInfo,
+    decoys: &Option<Vec<Addr>>,
+    account_random_pos: &Option<usize>,
+) -> StdResult<()> {
+    let mut index_changer: Option<usize> = None;
+    match decoys {
+        None => StoredExtendedTx::append_tx(store, tx, for_address)?,
+        Some(user_decoys) => {
+            // It should always be set when decoys_vec is set
+            let account_pos = account_random_pos.unwrap();
+
+            for i in 0..user_decoys.len() + 1 {
+                if i == account_pos {
+                    StoredExtendedTx::append_tx(store, tx, for_address)?;
+                    index_changer = Some(1);
+                    continue;
+                }
+
+                let index = i - index_changer.unwrap_or_default();
+                let decoy_action = StoredTxAction::decoy(&user_decoys[index]);
+                let decoy_tx = StoredExtendedTx::new(
+                    tx.id,
+                    decoy_action,
+                    tx.coins.clone(),
+                    tx.memo.clone(),
+                    block,
+                );
+                StoredExtendedTx::append_tx(store, &decoy_tx, &user_decoys[index])?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn store_transfer_tx_with_decoys(
+    store: &mut dyn Storage,
+    transfer: StoredLegacyTransfer,
+    receiver: &Addr,
+    decoys: &Option<Vec<Addr>>,
+    account_random_pos: &Option<usize>,
+) -> StdResult<()> {
+    let mut index_changer: Option<usize> = None;
+    match decoys {
+        None => StoredLegacyTransfer::append_transfer(store, &transfer, receiver)?,
+        Some(user_decoys) => {
+            // It should always be set when decoys_vec is set
+            let account_pos = account_random_pos.unwrap();
+
+            for i in 0..user_decoys.len() + 1 {
+                if i == account_pos {
+                    StoredLegacyTransfer::append_transfer(store, &transfer, receiver)?;
+                    index_changer = Some(1);
+                    continue;
+                }
+
+                let index = i - index_changer.unwrap_or_default();
+                let decoy_transfer = StoredLegacyTransfer {
+                    id: transfer.id,
+                    from: transfer.from.clone(),
+                    sender: transfer.sender.clone(),
+                    receiver: user_decoys[index].clone(),
+                    coins: transfer.coins.clone(),
+                    memo: transfer.memo.clone(),
+                    block_time: transfer.block_time,
+                    block_height: 0, // To identify the decoy
+                };
+                StoredLegacyTransfer::append_transfer(store, &decoy_transfer, &user_decoys[index])?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)] // We just need them
 pub fn store_transfer(
     store: &mut dyn Storage,
@@ -361,6 +483,8 @@ pub fn store_transfer(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
+    decoys: &Option<Vec<Addr>>,
+    account_random_pos: &Option<usize>,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
@@ -388,14 +512,16 @@ pub fn store_transfer(
         StoredExtendedTx::append_tx(store, &tx, sender)?;
         StoredLegacyTransfer::append_transfer(store, &transfer, sender)?;
     }
+
     // Always write to the recipient's history
     // cosmwasm_std::debug_print("saving transaction history for receiver");
-    StoredExtendedTx::append_tx(store, &tx, receiver)?;
-    StoredLegacyTransfer::append_transfer(store, &transfer, receiver)?;
+    store_tx_with_decoys(store, &tx, receiver, block, decoys, account_random_pos)?;
+    store_transfer_tx_with_decoys(store, transfer, receiver, decoys, account_random_pos)?;
 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // We just need them
 pub fn store_mint(
     store: &mut dyn Storage,
     minter: Addr,
@@ -404,6 +530,8 @@ pub fn store_mint(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
+    decoys: &Option<Vec<Addr>>,
+    account_random_pos: &Option<usize>,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
@@ -411,7 +539,7 @@ pub fn store_mint(
     let tx = StoredExtendedTx::new(id, action, coins, memo, block);
 
     if minter != recipient {
-        StoredExtendedTx::append_tx(store, &tx, &recipient)?;
+        store_tx_with_decoys(store, &tx, &recipient, block, decoys, account_random_pos)?;
     }
 
     StoredExtendedTx::append_tx(store, &tx, &minter)?;
@@ -428,6 +556,8 @@ pub fn store_burn(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
+    decoys: &Option<Vec<Addr>>,
+    account_random_pos: &Option<usize>,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
@@ -435,11 +565,10 @@ pub fn store_burn(
     let tx = StoredExtendedTx::new(id, action, coins, memo, block);
 
     if burner != owner {
-        StoredExtendedTx::append_tx(store, &tx, &owner)?;
+        store_tx_with_decoys(store, &tx, &owner, block, decoys, account_random_pos)?;
     }
 
     StoredExtendedTx::append_tx(store, &tx, &burner)?;
-
     Ok(())
 }
 
@@ -449,15 +578,15 @@ pub fn store_deposit(
     amount: Uint128,
     denom: String,
     block: &cosmwasm_std::BlockInfo,
+    decoys: &Option<Vec<Addr>>,
+    account_random_pos: &Option<usize>,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
     let action = StoredTxAction::deposit();
     let tx = StoredExtendedTx::new(id, action, coins, None, block);
 
-    StoredExtendedTx::append_tx(store, &tx, recipient)?;
-
-    Ok(())
+    store_tx_with_decoys(store, &tx, recipient, block, decoys, account_random_pos)
 }
 
 pub fn store_redeem(
@@ -466,13 +595,13 @@ pub fn store_redeem(
     amount: Uint128,
     denom: String,
     block: &cosmwasm_std::BlockInfo,
+    decoys: &Option<Vec<Addr>>,
+    account_random_pos: &Option<usize>,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
     let action = StoredTxAction::redeem();
     let tx = StoredExtendedTx::new(id, action, coins, None, block);
 
-    StoredExtendedTx::append_tx(store, &tx, redeemer)?;
-
-    Ok(())
+    store_tx_with_decoys(store, &tx, redeemer, block, decoys, account_random_pos)
 }

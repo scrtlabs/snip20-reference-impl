@@ -649,12 +649,12 @@ function test_permit() {
         log "permit querying history for \"$key\" without the right permission"
         permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$permit_conf"') --from '$key'")
 
-        permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
+        permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10, "should_filter_decoys":false}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_error="Error: query result: Generic error: No permission to query history, got permissions [Balance]"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_error"
 
-        permit_query='{"with_permit":{"query":{"transaction_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
+        permit_query='{"with_permit":{"query":{"transaction_history":{"page_size":10, "should_filter_decoys":false}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["balance"]},"signature":'"$permit"'}}}'
         expected_error="Error: query result: Generic error: No permission to query history, got permissions [Balance]"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_error"
@@ -712,12 +712,12 @@ function test_permit() {
         log "permit querying history for \"$key\""
         permit=$(docker exec secretdev bash -c "/usr/bin/secretd tx sign-doc <(echo '"$good_permit"') --from '$key'")
 
-        permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
+        permit_query='{"with_permit":{"query":{"transfer_history":{"page_size":10, "should_filter_decoys":false}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
         expected_output="{\"transfer_history\":{\"txs\":[],\"total\":0}}"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_output"
 
-        permit_query='{"with_permit":{"query":{"transaction_history":{"page_size":10}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
+        permit_query='{"with_permit":{"query":{"transaction_history":{"page_size":10, "should_filter_decoys":false}},"permit":{"params":{"permit_name":"test","chain_id":"blabla","allowed_tokens":["'"$contract_addr"'"],"permissions":["history"]},"signature":'"$permit"'}}}'
         expected_output="{\"transaction_history\":{\"txs\":[],\"total\":0}}"
         result="$(compute_query "$contract_addr" "$permit_query" 2>&1 | sed 's/\\//g' || true)"
         assert_eq "$result" "$expected_output"
@@ -819,7 +819,7 @@ function get_transfer_history() {
 
     local transfer_history_query
     local transfer_history_response
-    transfer_history_query='{"transfer_history":{"address":"'"$account"'","key":"'"$viewing_key"'","page_size":'"$page_size"',"page":'"$page"'}}'
+    transfer_history_query='{"transfer_history":{"address":"'"$account"'","key":"'"$viewing_key"'","page_size":'"$page_size"',"page":'"$page"',"should_filter_decoys":false}}'
     transfer_history_response="$(compute_query "$contract_addr" "$transfer_history_query")"
     log "$transfer_history_response"
     # There's no good way of tracking the exact expected value,
@@ -870,7 +870,7 @@ function get_transaction_history() {
 
     local transaction_history_query
     local transaction_history_response
-    transaction_history_query='{"transaction_history":{"address":"'"$account"'","key":"'"$viewing_key"'","page_size":'"$page_size"',"page":'"$page"'}}'
+    transaction_history_query='{"transaction_history":{"address":"'"$account"'","key":"'"$viewing_key"'","page_size":'"$page_size"',"page":'"$page"', "should_filter_decoys":false}}'
     transaction_history_response="$(compute_query "$contract_addr" "$transaction_history_query")"
     log "$transaction_history_response"
     # There's no good way of tracking the exact expected value,
@@ -1033,7 +1033,7 @@ function test_transfer() {
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     log "trying to overdraft from \"a\" to transfer to \"b\" was rejected"
-    assert_eq "$(extract_exec_error "$transfer_response" "error: ")" "insufficient funds: balance=1000000, required=1000001"
+    assert_eq "$(extract_exec_error "$transfer_response" "error: ")" "insufficient funds to transfer: balance=1000000, required=1000001"
 
     # Check both a and b, that their last transaction is not for 1000001 uscrt
     local txs
@@ -1198,7 +1198,7 @@ function test_send() {
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
     log "trying to overdraft from \"a\" to send to \"b\" was rejected"
 
-    assert_eq "$(extract_exec_error "$send_response" "error: ")" "insufficient funds: balance=1000000, required=1000001"
+    assert_eq "$(extract_exec_error "$send_response" "error: ")" "insufficient funds to transfer: balance=1000000, required=1000001"
 
     # Check both a and b, that their last transaction is not for 1000001 uscrt
     local txs
