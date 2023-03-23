@@ -148,7 +148,7 @@ impl BalancesStore {
                     true => {
                         safe_add(&mut balance, amount_to_be_updated as u128);
                         balance
-                    },
+                    }
                     false => {
                         if let Some(balance) = balance.checked_sub(amount_to_be_updated) {
                             balance
@@ -188,9 +188,10 @@ impl BalancesStore {
                             true => {
                                 safe_add(&mut acc_balance, amount_to_be_updated as u128);
                                 acc_balance
-                            },
+                            }
                             false => {
-                                if let Some(balance) = acc_balance.checked_sub(amount_to_be_updated) {
+                                if let Some(balance) = acc_balance.checked_sub(amount_to_be_updated)
+                                {
                                     balance
                                 } else {
                                     return Err(StdError::generic_err(format!(
