@@ -129,18 +129,18 @@ impl StoredLegacyTransfer {
         // The `and_then` here flattens the `StdResult<StdResult<ExtendedTx>>` to an `StdResult<ExtendedTx>`
         let transfers: StdResult<Vec<Tx>> = if should_filter_decoys {
             transfer_iter
-            .filter(|transfer| match transfer {
-                Err(_) => true,
-                Ok(t) => t.block_height != 0,
-            })
-            .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
-            .collect()
+                .filter(|transfer| match transfer {
+                    Err(_) => true,
+                    Ok(t) => t.block_height != 0,
+                })
+                .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
+                .collect()
         } else {
             transfer_iter
-            .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
-            .collect()
+                .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
+                .collect()
         };
-        
+
         transfers.map(|txs| (txs, len))
     }
 }
@@ -354,7 +354,7 @@ impl StoredExtendedTx {
         for_address: Addr,
         page: u32,
         page_size: u32,
-        should_filter_decoys: bool
+        should_filter_decoys: bool,
     ) -> StdResult<(Vec<ExtendedTx>, u64)> {
         let current_addr_store = TRANSACTIONS.add_suffix(for_address.as_bytes());
         let len = current_addr_store.get_len(storage)? as u64;
@@ -370,16 +370,16 @@ impl StoredExtendedTx {
         // The `and_then` here flattens the `StdResult<StdResult<ExtendedTx>>` to an `StdResult<ExtendedTx>`
         let txs: StdResult<Vec<ExtendedTx>> = if should_filter_decoys {
             tx_iter
-            .filter(|tx| match tx {
-                Err(_) => true,
-                Ok(t) => t.action.tx_type != TxCode::Decoy.to_u8(),
-            })
-            .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
-            .collect() 
+                .filter(|tx| match tx {
+                    Err(_) => true,
+                    Ok(t) => t.action.tx_type != TxCode::Decoy.to_u8(),
+                })
+                .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
+                .collect()
         } else {
             tx_iter
-            .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
-            .collect() 
+                .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
+                .collect()
         };
 
         txs.map(|txs| (txs, len))

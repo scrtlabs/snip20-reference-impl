@@ -506,10 +506,21 @@ impl QueryMsg {
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[serde(rename_all = "snake_case")]
 pub enum QueryWithPermit {
-    Allowance { owner: String, spender: String },
+    Allowance {
+        owner: String,
+        spender: String,
+    },
     Balance {},
-    TransferHistory { page: Option<u32>, page_size: u32, should_filter_decoys: bool },
-    TransactionHistory { page: Option<u32>, page_size: u32, should_filter_decoys: bool },
+    TransferHistory {
+        page: Option<u32>,
+        page_size: u32,
+        should_filter_decoys: bool,
+    },
+    TransactionHistory {
+        page: Option<u32>,
+        page_size: u32,
+        should_filter_decoys: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]

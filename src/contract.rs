@@ -18,8 +18,8 @@ use crate::msg::{
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG,
-    CONTRACT_STATUS, TOTAL_SUPPLY, safe_add
+    safe_add, AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore,
+    CONFIG, CONTRACT_STATUS, TOTAL_SUPPLY,
 };
 use crate::transaction_history::{
     store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredExtendedTx,
@@ -70,7 +70,15 @@ pub fn instantiate(
             let amount = balance.amount.u128();
             let balance_address = deps.api.addr_validate(balance.address.as_str())?;
             // Here amount is also the amount to be added because the account has no prior balance
-            BalancesStore::update_balance(deps.storage, &balance_address, amount, true, "", &None, &None)?;
+            BalancesStore::update_balance(
+                deps.storage,
+                &balance_address,
+                amount,
+                true,
+                "",
+                &None,
+                &None,
+            )?;
 
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
                 total_supply = new_total_supply;
@@ -138,7 +146,7 @@ fn get_address_position(
     let mut rng = Prng::new(&PrngStore::load(store)?, entropy);
 
     let mut new_contract_entropy = [0u8; 20];
-    rng.rng.fill_bytes( &mut new_contract_entropy);
+    rng.rng.fill_bytes(&mut new_contract_entropy);
 
     let new_prng_seed = sha_256(&new_contract_entropy);
     PrngStore::save(store, new_prng_seed)?;
@@ -409,7 +417,11 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
 
             query_balance(deps, account)
         }
-        QueryWithPermit::TransferHistory { page, page_size, should_filter_decoys } => {
+        QueryWithPermit::TransferHistory {
+            page,
+            page_size,
+            should_filter_decoys,
+        } => {
             if !permit.check_permission(&TokenPermissions::History) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query history, got permissions {:?}",
@@ -417,9 +429,19 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
                 )));
             }
 
-            query_transfers(deps, account, page.unwrap_or(0), page_size, should_filter_decoys)
+            query_transfers(
+                deps,
+                account,
+                page.unwrap_or(0),
+                page_size,
+                should_filter_decoys,
+            )
         }
-        QueryWithPermit::TransactionHistory { page, page_size , should_filter_decoys} => {
+        QueryWithPermit::TransactionHistory {
+            page,
+            page_size,
+            should_filter_decoys,
+        } => {
             if !permit.check_permission(&TokenPermissions::History) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query history, got permissions {:?}",
@@ -427,7 +449,13 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
                 )));
             }
 
-            query_transactions(deps, account, page.unwrap_or(0), page_size, should_filter_decoys)
+            query_transactions(
+                deps,
+                account,
+                page.unwrap_or(0),
+                page_size,
+                should_filter_decoys,
+            )
         }
         QueryWithPermit::Allowance { owner, spender } => {
             if !permit.check_permission(&TokenPermissions::Allowance) {
@@ -464,14 +492,26 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
                     page_size,
                     should_filter_decoys,
                     ..
-                } => query_transfers(deps, address, page.unwrap_or(0), page_size, should_filter_decoys),
+                } => query_transfers(
+                    deps,
+                    address,
+                    page.unwrap_or(0),
+                    page_size,
+                    should_filter_decoys,
+                ),
                 QueryMsg::TransactionHistory {
                     address,
                     page,
                     page_size,
                     should_filter_decoys,
                     ..
-                } => query_transactions(deps, address, page.unwrap_or(0), page_size, should_filter_decoys),
+                } => query_transactions(
+                    deps,
+                    address,
+                    page.unwrap_or(0),
+                    page_size,
+                    should_filter_decoys,
+                ),
                 QueryMsg::Allowance { owner, spender, .. } => query_allowance(deps, owner, spender),
                 _ => panic!("This query type does not require authentication"),
             };
@@ -549,7 +589,7 @@ pub fn query_transfers(
     account: String,
     page: u32,
     page_size: u32,
-    should_filter_decoys: bool
+    should_filter_decoys: bool,
 ) -> StdResult<Binary> {
     // Notice that if query_transfers() was called by a viewking-key call, the address of 'account'
     // has already been validated.
@@ -557,7 +597,13 @@ pub fn query_transfers(
     // call, for compatibility with non-Secret addresses.
     let account = Addr::unchecked(account);
 
-    let (txs, total) = StoredLegacyTransfer::get_transfers(deps.storage, account, page, page_size, should_filter_decoys)?;
+    let (txs, total) = StoredLegacyTransfer::get_transfers(
+        deps.storage,
+        account,
+        page,
+        page_size,
+        should_filter_decoys,
+    )?;
 
     let result = QueryAnswer::TransferHistory {
         txs,
@@ -571,7 +617,7 @@ pub fn query_transactions(
     account: String,
     page: u32,
     page_size: u32,
-    should_filter_decoys: bool
+    should_filter_decoys: bool,
 ) -> StdResult<Binary> {
     // Notice that if query_transactions() was called by a viewking-key call, the address of
     // 'account' has already been validated.
@@ -579,7 +625,8 @@ pub fn query_transactions(
     // permit call, for compatibility with non-Secret addresses.
     let account = Addr::unchecked(account);
 
-    let (txs, total) = StoredExtendedTx::get_txs(deps.storage, account, page, page_size, should_filter_decoys)?;
+    let (txs, total) =
+        StoredExtendedTx::get_txs(deps.storage, account, page, page_size, should_filter_decoys)?;
 
     let result = QueryAnswer::TransactionHistory {
         txs,
@@ -1842,7 +1889,15 @@ fn perform_transfer(
     account_random_pos: &Option<usize>,
 ) -> StdResult<()> {
     BalancesStore::update_balance(store, from, amount, false, "transfer", &None, &None)?;
-    BalancesStore::update_balance(store, to, amount, true, "transfer", decoys, account_random_pos)?;
+    BalancesStore::update_balance(
+        store,
+        to,
+        amount,
+        true,
+        "transfer",
+        decoys,
+        account_random_pos,
+    )?;
 
     Ok(())
 }

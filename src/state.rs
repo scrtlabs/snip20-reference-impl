@@ -106,7 +106,6 @@ impl MintersStore {
     }
 }
 
-
 // To avoid balance guessing attacks based on balance overflow we need to perform safe addition and don't expose overflows to the caller.
 // Assuming that max of u128 is probably an unreachable balance, we want the addition to be bounded the max of u128
 // Currently the logic here is very straight forward yet the existence of the function is mendatory for future changes if needed.
@@ -158,8 +157,7 @@ impl BalancesStore {
                 }
 
                 Self::save(store, account, balance)
-                
-            },
+            }
             Some(decoys_vec) => {
                 // It should always be set when decoys_vec is set
                 let account_pos = account_random_pos.unwrap();
@@ -179,8 +177,8 @@ impl BalancesStore {
                     // Please note that decoys are not always present in the DB. In this case it is ok beacuse load will return 0.
                     let mut acc_balance = Self::load(store, acc);
                     let mut new_balance = acc_balance;
-                    
-                    if *acc == account && !was_account_updated { 
+
+                    if *acc == account && !was_account_updated {
                         was_account_updated = true;
                         if should_add {
                             safe_add(&mut acc_balance, amount_to_be_updated as u128);
@@ -194,7 +192,7 @@ impl BalancesStore {
                                 )));
                             }
                         }
-                    } 
+                    }
                     Self::save(store, acc, new_balance)?;
                 }
 
