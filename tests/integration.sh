@@ -1033,7 +1033,7 @@ function test_transfer() {
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     log "trying to overdraft from \"a\" to transfer to \"b\" was rejected"
-    assert_eq "$(extract_exec_error "$transfer_response" "error: ")" "insufficient funds: balance=1000000, required=1000001"
+    assert_eq "$(extract_exec_error "$transfer_response" "error: ")" "insufficient funds to transfer: balance=1000000, required=1000001"
 
     # Check both a and b, that their last transaction is not for 1000001 uscrt
     local txs
@@ -1198,7 +1198,7 @@ function test_send() {
     ! send_response="$(wait_for_compute_tx "$tx_hash" 'waiting for send from "a" to "b" to process')"
     log "trying to overdraft from \"a\" to send to \"b\" was rejected"
 
-    assert_eq "$(extract_exec_error "$send_response" "error: ")" "insufficient funds: balance=1000000, required=1000001"
+    assert_eq "$(extract_exec_error "$send_response" "error: ")" "insufficient funds to transfer: balance=1000000, required=1000001"
 
     # Check both a and b, that their last transaction is not for 1000001 uscrt
     local txs
