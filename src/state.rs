@@ -146,7 +146,7 @@ impl BalancesStore {
                 let mut balance = Self::load(store, account);
                 balance = match should_add {
                     true => {
-                        safe_add(&mut balance, amount_to_be_updated as u128);
+                        safe_add(&mut balance, amount_to_be_updated);
                         balance
                     }
                     false => {
@@ -186,7 +186,7 @@ impl BalancesStore {
                         was_account_updated = true;
                         new_balance = match should_add {
                             true => {
-                                safe_add(&mut acc_balance, amount_to_be_updated as u128);
+                                safe_add(&mut acc_balance, amount_to_be_updated);
                                 acc_balance
                             }
                             false => {
