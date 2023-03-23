@@ -19,7 +19,7 @@ use crate::msg::{
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG,
-    CONTRACT_STATUS, TOTAL_SUPPLY,
+    CONTRACT_STATUS, TOTAL_SUPPLY, safe_add
 };
 use crate::transaction_history::{
     store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredExtendedTx,
@@ -69,7 +69,8 @@ pub fn instantiate(
         for balance in initial_balances {
             let amount = balance.amount.u128();
             let balance_address = deps.api.addr_validate(balance.address.as_str())?;
-            BalancesStore::update_balance(deps.storage, &balance_address, amount, &None, &None)?;
+            // Here amount is also the amount to be added because the account has no prior balance
+            BalancesStore::update_balance(deps.storage, &balance_address, amount, true, "", &None, &None)?;
 
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
                 total_supply = new_total_supply;
@@ -130,11 +131,17 @@ pub fn instantiate(
 }
 
 fn get_address_position(
-    store: &dyn Storage,
+    store: &mut dyn Storage,
     decoys_size: usize,
     entropy: &[u8; SHA256_HASH_SIZE],
 ) -> StdResult<usize> {
     let mut rng = Prng::new(&PrngStore::load(store)?, entropy);
+
+    let mut new_contract_entropy = [0u8; 20];
+    rng.rng.fill_bytes( &mut new_contract_entropy);
+
+    let new_prng_seed = sha_256(&new_contract_entropy);
+    PrngStore::save(store, new_prng_seed)?;
 
     // decoys_size is also an accepted output which means: set the account balance after you've set decoys' balanace
     Ok(rng.rng.next_u64() as usize % (decoys_size + 1))
@@ -402,7 +409,7 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
 
             query_balance(deps, account)
         }
-        QueryWithPermit::TransferHistory { page, page_size } => {
+        QueryWithPermit::TransferHistory { page, page_size, should_filter_decoys } => {
             if !permit.check_permission(&TokenPermissions::History) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query history, got permissions {:?}",
@@ -410,9 +417,9 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
                 )));
             }
 
-            query_transfers(deps, account, page.unwrap_or(0), page_size)
+            query_transfers(deps, account, page.unwrap_or(0), page_size, should_filter_decoys)
         }
-        QueryWithPermit::TransactionHistory { page, page_size } => {
+        QueryWithPermit::TransactionHistory { page, page_size , should_filter_decoys} => {
             if !permit.check_permission(&TokenPermissions::History) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query history, got permissions {:?}",
@@ -420,7 +427,7 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
                 )));
             }
 
-            query_transactions(deps, account, page.unwrap_or(0), page_size)
+            query_transactions(deps, account, page.unwrap_or(0), page_size, should_filter_decoys)
         }
         QueryWithPermit::Allowance { owner, spender } => {
             if !permit.check_permission(&TokenPermissions::Allowance) {
@@ -455,14 +462,16 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
                     address,
                     page,
                     page_size,
+                    should_filter_decoys,
                     ..
-                } => query_transfers(deps, address, page.unwrap_or(0), page_size),
+                } => query_transfers(deps, address, page.unwrap_or(0), page_size, should_filter_decoys),
                 QueryMsg::TransactionHistory {
                     address,
                     page,
                     page_size,
+                    should_filter_decoys,
                     ..
-                } => query_transactions(deps, address, page.unwrap_or(0), page_size),
+                } => query_transactions(deps, address, page.unwrap_or(0), page_size, should_filter_decoys),
                 QueryMsg::Allowance { owner, spender, .. } => query_allowance(deps, owner, spender),
                 _ => panic!("This query type does not require authentication"),
             };
@@ -540,6 +549,7 @@ pub fn query_transfers(
     account: String,
     page: u32,
     page_size: u32,
+    should_filter_decoys: bool
 ) -> StdResult<Binary> {
     // Notice that if query_transfers() was called by a viewking-key call, the address of 'account'
     // has already been validated.
@@ -547,7 +557,7 @@ pub fn query_transfers(
     // call, for compatibility with non-Secret addresses.
     let account = Addr::unchecked(account);
 
-    let (txs, total) = StoredLegacyTransfer::get_transfers(deps.storage, account, page, page_size)?;
+    let (txs, total) = StoredLegacyTransfer::get_transfers(deps.storage, account, page, page_size, should_filter_decoys)?;
 
     let result = QueryAnswer::TransferHistory {
         txs,
@@ -561,6 +571,7 @@ pub fn query_transactions(
     account: String,
     page: u32,
     page_size: u32,
+    should_filter_decoys: bool
 ) -> StdResult<Binary> {
     // Notice that if query_transactions() was called by a viewking-key call, the address of
     // 'account' has already been validated.
@@ -568,7 +579,7 @@ pub fn query_transactions(
     // permit call, for compatibility with non-Secret addresses.
     let account = Addr::unchecked(account);
 
-    let (txs, total) = StoredExtendedTx::get_txs(deps.storage, account, page, page_size)?;
+    let (txs, total) = StoredExtendedTx::get_txs(deps.storage, account, page, page_size, should_filter_decoys)?;
 
     let result = QueryAnswer::TransactionHistory {
         txs,
@@ -678,14 +689,12 @@ fn try_mint_impl(
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
 
-    let mut account_balance = BalancesStore::load(deps.storage, &recipient);
-
-    safe_add(&mut account_balance, raw_amount);
-
     BalancesStore::update_balance(
         deps.storage,
         &recipient,
-        account_balance,
+        raw_amount,
+        true,
+        "",
         &decoys,
         &account_random_pos,
     )?;
@@ -902,14 +911,12 @@ fn try_deposit(
 
     let sender_address = &info.sender;
 
-    let mut account_balance = BalancesStore::load(deps.storage, sender_address);
-    // Note that althought raw_amount might be different than the actual added amount it doesn't really matter as we are in a case that someone somehow minted the maximum amount of coins that we can store
-    safe_add(&mut account_balance, raw_amount);
-
     BalancesStore::update_balance(
         deps.storage,
         sender_address,
-        account_balance,
+        raw_amount,
+        true,
+        "",
         &decoys,
         &account_random_pos,
     )?;
@@ -963,20 +970,15 @@ fn try_redeem(
     let sender_address = &info.sender;
     let amount_raw = amount.u128();
 
-    let account_balance = BalancesStore::load(deps.storage, sender_address);
-    if let Some(account_balance) = account_balance.checked_sub(amount_raw) {
-        BalancesStore::update_balance(
-            deps.storage,
-            sender_address,
-            account_balance,
-            &decoys,
-            &account_random_pos,
-        )?;
-    } else {
-        return Err(StdError::generic_err(format!(
-            "insufficient funds to redeem: balance={account_balance}, required={amount_raw}",
-        )));
-    }
+    BalancesStore::update_balance(
+        deps.storage,
+        sender_address,
+        amount_raw,
+        false,
+        "redeem",
+        &decoys,
+        &account_random_pos,
+    )?;
 
     let total_supply = TOTAL_SUPPLY.load(deps.storage)?;
     if let Some(total_supply) = total_supply.checked_sub(amount_raw) {
@@ -1528,19 +1530,12 @@ fn try_burn_from(
     let raw_amount = amount.u128();
     use_allowance(deps.storage, env, &owner, &info.sender, raw_amount)?;
 
-    // subtract from owner account
-    let mut account_balance = BalancesStore::load(deps.storage, &owner);
-    if let Some(new_balance) = account_balance.checked_sub(raw_amount) {
-        account_balance = new_balance;
-    } else {
-        return Err(StdError::generic_err(format!(
-            "insufficient funds to burn: balance={account_balance}, required={raw_amount}",
-        )));
-    }
     BalancesStore::update_balance(
         deps.storage,
         &owner,
-        account_balance,
+        raw_amount,
+        false,
+        "burn",
         &decoys,
         &account_random_pos,
     )?;
@@ -1594,20 +1589,12 @@ fn try_batch_burn_from(
         let amount = action.amount.u128();
         use_allowance(deps.storage, env, &owner, &spender, amount)?;
 
-        // subtract from owner account
-        let mut account_balance = BalancesStore::load(deps.storage, &owner);
-
-        if let Some(new_balance) = account_balance.checked_sub(amount) {
-            account_balance = new_balance;
-        } else {
-            return Err(StdError::generic_err(format!(
-                "insufficient funds to burn: balance={account_balance}, required={amount}",
-            )));
-        }
         BalancesStore::update_balance(
             deps.storage,
             &owner,
-            account_balance,
+            amount,
+            false,
+            "burn",
             &action.decoys,
             &account_random_pos,
         )?;
@@ -1811,20 +1798,12 @@ fn try_burn(
 
     let raw_amount = amount.u128();
 
-    let mut account_balance = BalancesStore::load(deps.storage, &info.sender);
-
-    if let Some(new_account_balance) = account_balance.checked_sub(raw_amount) {
-        account_balance = new_account_balance;
-    } else {
-        return Err(StdError::generic_err(format!(
-            "insufficient funds to burn: balance={account_balance}, required={raw_amount}",
-        )));
-    }
-
     BalancesStore::update_balance(
         deps.storage,
         &info.sender,
-        account_balance,
+        raw_amount,
+        false,
+        "burn",
         &decoys,
         &account_random_pos,
     )?;
@@ -1854,19 +1833,6 @@ fn try_burn(
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?))
 }
 
-// To avoid balance guessing attacks based on balance overflow we need to perform safe addition and don't expose overflows to the caller.
-// Assuming that max of u128 is probably an unreachable balance, we want the addition to be bounded the max of u128
-// Currently the logic here is very straight forward yet the existence of the function is mendatory for future changes if needed.
-fn safe_add(balance: &mut u128, amount: u128) -> u128 {
-    // Note that new_amount can be equal to base after this operation.
-    // Currently we do nothing maybe on other implementations we will have something to add here
-    let prev_balance: u128 = *balance;
-    *balance = balance.saturating_add(amount);
-
-    // Won't underflow as the minimal value possible is 0
-    *balance - prev_balance
-}
-
 fn perform_transfer(
     store: &mut dyn Storage,
     from: &Addr,
@@ -1875,21 +1841,8 @@ fn perform_transfer(
     decoys: &Option<Vec<Addr>>,
     account_random_pos: &Option<usize>,
 ) -> StdResult<()> {
-    let mut from_balance = BalancesStore::load(store, from);
-
-    if let Some(new_from_balance) = from_balance.checked_sub(amount) {
-        from_balance = new_from_balance;
-    } else {
-        return Err(StdError::generic_err(format!(
-            "insufficient funds: balance={from_balance}, required={amount}",
-        )));
-    }
-    BalancesStore::update_balance(store, from, from_balance, decoys, account_random_pos)?;
-
-    let mut to_balance = BalancesStore::load(store, to);
-    safe_add(&mut to_balance, amount);
-
-    BalancesStore::update_balance(store, to, to_balance, &None, &None)?;
+    BalancesStore::update_balance(store, from, amount, false, "transfer", &None, &None)?;
+    BalancesStore::update_balance(store, to, amount, true, "transfer", decoys, account_random_pos)?;
 
     Ok(())
 }
@@ -4941,6 +4894,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 0,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         // let a: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
@@ -4956,6 +4910,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -4969,6 +4924,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 2,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -4982,6 +4938,7 @@ mod tests {
             key: "key".to_string(),
             page: Some(1),
             page_size: 2,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -5089,6 +5046,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: true,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -5102,6 +5060,21 @@ mod tests {
             key: "alice_key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: false,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs, .. } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 2);
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: "alice".to_string(),
+            key: "alice_key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: true,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -5115,6 +5088,7 @@ mod tests {
             key: "banana_key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: true,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -5128,6 +5102,7 @@ mod tests {
             key: "lior_key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: true,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -5329,6 +5304,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -5342,6 +5318,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -5680,6 +5657,7 @@ mod tests {
             key: "lior_key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: true,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transactions = match from_binary(&query_result.unwrap()).unwrap() {
@@ -5694,6 +5672,22 @@ mod tests {
             key: "alice_key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: false,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transactions = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+
+        assert_eq!(transactions.len(), 7); // Transfer from bob
+
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "alice".to_string(),
+            key: "alice_key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: true,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transactions = match from_binary(&query_result.unwrap()).unwrap() {
@@ -5708,6 +5702,7 @@ mod tests {
             key: "jhon_key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: true,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transactions = match from_binary(&query_result.unwrap()).unwrap() {
@@ -5722,6 +5717,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: true,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transactions = match from_binary(&query_result.unwrap()).unwrap() {

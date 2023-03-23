@@ -455,12 +455,14 @@ pub enum QueryMsg {
         key: String,
         page: Option<u32>,
         page_size: u32,
+        should_filter_decoys: bool,
     },
     TransactionHistory {
         address: String,
         key: String,
         page: Option<u32>,
         page_size: u32,
+        should_filter_decoys: bool,
     },
     Minters {},
     WithPermit {
@@ -506,8 +508,8 @@ impl QueryMsg {
 pub enum QueryWithPermit {
     Allowance { owner: String, spender: String },
     Balance {},
-    TransferHistory { page: Option<u32>, page_size: u32 },
-    TransactionHistory { page: Option<u32>, page_size: u32 },
+    TransferHistory { page: Option<u32>, page_size: u32, should_filter_decoys: bool },
+    TransactionHistory { page: Option<u32>, page_size: u32, should_filter_decoys: bool },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
