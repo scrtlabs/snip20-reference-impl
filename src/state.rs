@@ -144,17 +144,21 @@ impl BalancesStore {
         match decoys {
             None => {
                 let mut balance = Self::load(store, account);
-                if should_add {
-                    safe_add(&mut balance, amount_to_be_updated);
-                } else {
-                    if let Some(new_balance) = balance.checked_sub(amount_to_be_updated) {
-                        balance = new_balance;
-                    } else {
-                        return Err(StdError::generic_err(format!(
-                            "insufficient funds to {operation_name}: balance={balance}, required={amount_to_be_updated}",
-                        )));
+                balance = match should_add {
+                    true => {
+                        safe_add(&mut balance, amount_to_be_updated as u128);
+                        balance
+                    },
+                    false => {
+                        if let Some(balance) = balance.checked_sub(amount_to_be_updated) {
+                            balance
+                        } else {
+                            return Err(StdError::generic_err(format!(
+                                "insufficient funds to {operation_name}: balance={balance}, required={amount_to_be_updated}",
+                            )));
+                        }
                     }
-                }
+                };
 
                 Self::save(store, account, balance)
             }
@@ -180,18 +184,21 @@ impl BalancesStore {
 
                     if *acc == account && !was_account_updated {
                         was_account_updated = true;
-                        if should_add {
-                            safe_add(&mut acc_balance, amount_to_be_updated as u128);
-                            new_balance = acc_balance;
-                        } else {
-                            if let Some(balance) = acc_balance.checked_sub(amount_to_be_updated) {
-                                new_balance = balance;
-                            } else {
-                                return Err(StdError::generic_err(format!(
-                                    "insufficient funds to {operation_name}: balance={acc_balance}, required={amount_to_be_updated}",
-                                )));
+                        new_balance = match should_add {
+                            true => {
+                                safe_add(&mut acc_balance, amount_to_be_updated as u128);
+                                acc_balance
+                            },
+                            false => {
+                                if let Some(balance) = acc_balance.checked_sub(amount_to_be_updated) {
+                                    balance
+                                } else {
+                                    return Err(StdError::generic_err(format!(
+                                        "insufficient funds to {operation_name}: balance={acc_balance}, required={amount_to_be_updated}",
+                                    )));
+                                }
                             }
-                        }
+                        };
                     }
                     Self::save(store, acc, new_balance)?;
                 }
