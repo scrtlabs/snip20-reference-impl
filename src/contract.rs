@@ -4,21 +4,22 @@ use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
     MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
+use rand::RngCore;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
-use secret_toolkit_crypto::sha_256;
+use secret_toolkit_crypto::{sha_256, Prng, SHA256_HASH_SIZE};
 
 use crate::batch;
 use crate::msg::QueryWithPermit;
 use crate::msg::{
-    ContractStatusLevel, ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg,
-    ResponseStatus::Success,
+    ContractStatusLevel, Decoyable, ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer,
+    QueryMsg, ResponseStatus::Success,
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    AllowancesStore, BalancesStore, Config, MintersStore, ReceiverHashStore, CONFIG,
-    CONTRACT_STATUS, TOTAL_SUPPLY,
+    safe_add, AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore,
+    CONFIG, CONTRACT_STATUS, TOTAL_SUPPLY,
 };
 use crate::transaction_history::{
     store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredExtendedTx,
@@ -59,12 +60,26 @@ pub fn instantiate(
     };
 
     let mut total_supply: u128 = 0;
+
+    let prng_seed_hashed = sha_256(&msg.prng_seed.0);
+    PrngStore::save(deps.storage, prng_seed_hashed)?;
+
     {
         let initial_balances = msg.initial_balances.unwrap_or_default();
         for balance in initial_balances {
             let amount = balance.amount.u128();
             let balance_address = deps.api.addr_validate(balance.address.as_str())?;
-            BalancesStore::save(deps.storage, &balance_address, amount)?;
+            // Here amount is also the amount to be added because the account has no prior balance
+            BalancesStore::update_balance(
+                deps.storage,
+                &balance_address,
+                amount,
+                true,
+                "",
+                &None,
+                &None,
+            )?;
+
             if let Some(new_total_supply) = total_supply.checked_add(amount) {
                 total_supply = new_total_supply;
             } else {
@@ -81,6 +96,8 @@ pub fn instantiate(
                 msg.symbol.clone(),
                 Some("Initial Balance".to_string()),
                 &env.block,
+                &None,
+                &None,
             )?;
         }
     }
@@ -116,15 +133,43 @@ pub fn instantiate(
     };
     MintersStore::save(deps.storage, minters)?;
 
-    let prng_seed_hashed = sha_256(&msg.prng_seed.0);
     ViewingKey::set_seed(deps.storage, &prng_seed_hashed);
 
     Ok(Response::default())
 }
 
+fn get_address_position(
+    store: &mut dyn Storage,
+    decoys_size: usize,
+    entropy: &[u8; SHA256_HASH_SIZE],
+) -> StdResult<usize> {
+    let mut rng = Prng::new(&PrngStore::load(store)?, entropy);
+
+    let mut new_contract_entropy = [0u8; 20];
+    rng.rng.fill_bytes(&mut new_contract_entropy);
+
+    let new_prng_seed = sha_256(&new_contract_entropy);
+    PrngStore::save(store, new_prng_seed)?;
+
+    // decoys_size is also an accepted output which means: set the account balance after you've set decoys' balanace
+    Ok(rng.rng.next_u64() as usize % (decoys_size + 1))
+}
+
 #[entry_point]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     let contract_status = CONTRACT_STATUS.load(deps.storage)?;
+
+    let mut account_random_pos: Option<usize> = None;
+
+    let entropy = match msg.clone().get_entropy() {
+        None => [0u8; SHA256_HASH_SIZE],
+        Some(e) => sha_256(&e.0),
+    };
+
+    let decoys_size = msg.get_minimal_decoys_size();
+    if decoys_size != 0 {
+        account_random_pos = Some(get_address_position(deps.storage, decoys_size, &entropy)?);
+    }
 
     match contract_status {
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
@@ -132,10 +177,13 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
                 ExecuteMsg::SetContractStatus { level, .. } => {
                     set_contract_status(deps, info, level)
                 }
-                ExecuteMsg::Redeem { amount, denom, .. }
-                    if contract_status == ContractStatusLevel::StopAllButRedeems =>
-                {
-                    try_redeem(deps, env, info, amount, denom)
+                ExecuteMsg::Redeem {
+                    amount,
+                    denom,
+                    decoys,
+                    ..
+                } if contract_status == ContractStatusLevel::StopAllButRedeems => {
+                    try_redeem(deps, env, info, amount, denom, decoys, account_random_pos)
                 }
                 _ => Err(StdError::generic_err(
                     "This contract is stopped and this action is not allowed",
@@ -146,24 +194,42 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ContractStatusLevel::NormalRun => {} // If it's a normal run just continue
     }
 
-    let response = match msg {
+    let response = match msg.clone() {
         // Native
-        ExecuteMsg::Deposit { .. } => try_deposit(deps, env, info),
-        ExecuteMsg::Redeem { amount, denom, .. } => try_redeem(deps, env, info, amount, denom),
+        ExecuteMsg::Deposit { decoys, .. } => {
+            try_deposit(deps, env, info, decoys, account_random_pos)
+        }
+        ExecuteMsg::Redeem {
+            amount,
+            denom,
+            decoys,
+            ..
+        } => try_redeem(deps, env, info, amount, denom, decoys, account_random_pos),
 
         // Base
         ExecuteMsg::Transfer {
             recipient,
             amount,
             memo,
+            decoys,
             ..
-        } => try_transfer(deps, env, info, recipient, amount, memo),
+        } => try_transfer(
+            deps,
+            env,
+            info,
+            recipient,
+            amount,
+            memo,
+            decoys,
+            account_random_pos,
+        ),
         ExecuteMsg::Send {
             recipient,
             recipient_code_hash,
             amount,
             msg,
             memo,
+            decoys,
             ..
         } => try_send(
             deps,
@@ -174,10 +240,21 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             msg,
+            decoys,
+            account_random_pos,
         ),
-        ExecuteMsg::BatchTransfer { actions, .. } => try_batch_transfer(deps, env, info, actions),
-        ExecuteMsg::BatchSend { actions, .. } => try_batch_send(deps, env, info, actions),
-        ExecuteMsg::Burn { amount, memo, .. } => try_burn(deps, env, info, amount, memo),
+        ExecuteMsg::BatchTransfer { actions, .. } => {
+            try_batch_transfer(deps, env, info, actions, account_random_pos)
+        }
+        ExecuteMsg::BatchSend { actions, .. } => {
+            try_batch_send(deps, env, info, actions, account_random_pos)
+        }
+        ExecuteMsg::Burn {
+            amount,
+            memo,
+            decoys,
+            ..
+        } => try_burn(deps, env, info, amount, memo, decoys, account_random_pos),
         ExecuteMsg::RegisterReceive { code_hash, .. } => {
             try_register_receive(deps, info, code_hash)
         }
@@ -202,8 +279,19 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             recipient,
             amount,
             memo,
+            decoys,
             ..
-        } => try_transfer_from(deps, &env, info, owner, recipient, amount, memo),
+        } => try_transfer_from(
+            deps,
+            &env,
+            info,
+            owner,
+            recipient,
+            amount,
+            memo,
+            decoys,
+            account_random_pos,
+        ),
         ExecuteMsg::SendFrom {
             owner,
             recipient,
@@ -211,6 +299,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             msg,
             memo,
+            decoys,
             ..
         } => try_send_from(
             deps,
@@ -222,27 +311,55 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             msg,
+            decoys,
+            account_random_pos,
         ),
         ExecuteMsg::BatchTransferFrom { actions, .. } => {
-            try_batch_transfer_from(deps, &env, info, actions)
+            try_batch_transfer_from(deps, &env, info, actions, account_random_pos)
         }
-        ExecuteMsg::BatchSendFrom { actions, .. } => try_batch_send_from(deps, env, &info, actions),
+        ExecuteMsg::BatchSendFrom { actions, .. } => {
+            try_batch_send_from(deps, env, &info, actions, account_random_pos)
+        }
         ExecuteMsg::BurnFrom {
             owner,
             amount,
             memo,
+            decoys,
             ..
-        } => try_burn_from(deps, &env, info, owner, amount, memo),
-        ExecuteMsg::BatchBurnFrom { actions, .. } => try_batch_burn_from(deps, &env, info, actions),
+        } => try_burn_from(
+            deps,
+            &env,
+            info,
+            owner,
+            amount,
+            memo,
+            decoys,
+            account_random_pos,
+        ),
+        ExecuteMsg::BatchBurnFrom { actions, .. } => {
+            try_batch_burn_from(deps, &env, info, actions, account_random_pos)
+        }
 
         // Mint
         ExecuteMsg::Mint {
             recipient,
             amount,
             memo,
+            decoys,
             ..
-        } => try_mint(deps, env, info, recipient, amount, memo),
-        ExecuteMsg::BatchMint { actions, .. } => try_batch_mint(deps, env, info, actions),
+        } => try_mint(
+            deps,
+            env,
+            info,
+            recipient,
+            amount,
+            memo,
+            decoys,
+            account_random_pos,
+        ),
+        ExecuteMsg::BatchMint { actions, .. } => {
+            try_batch_mint(deps, env, info, actions, account_random_pos)
+        }
 
         // Other
         ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, info, address),
@@ -300,7 +417,11 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
 
             query_balance(deps, account)
         }
-        QueryWithPermit::TransferHistory { page, page_size } => {
+        QueryWithPermit::TransferHistory {
+            page,
+            page_size,
+            should_filter_decoys,
+        } => {
             if !permit.check_permission(&TokenPermissions::History) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query history, got permissions {:?}",
@@ -308,9 +429,19 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
                 )));
             }
 
-            query_transfers(deps, account, page.unwrap_or(0), page_size)
+            query_transfers(
+                deps,
+                account,
+                page.unwrap_or(0),
+                page_size,
+                should_filter_decoys,
+            )
         }
-        QueryWithPermit::TransactionHistory { page, page_size } => {
+        QueryWithPermit::TransactionHistory {
+            page,
+            page_size,
+            should_filter_decoys,
+        } => {
             if !permit.check_permission(&TokenPermissions::History) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query history, got permissions {:?}",
@@ -318,7 +449,13 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
                 )));
             }
 
-            query_transactions(deps, account, page.unwrap_or(0), page_size)
+            query_transactions(
+                deps,
+                account,
+                page.unwrap_or(0),
+                page_size,
+                should_filter_decoys,
+            )
         }
         QueryWithPermit::Allowance { owner, spender } => {
             if !permit.check_permission(&TokenPermissions::Allowance) {
@@ -353,14 +490,28 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
                     address,
                     page,
                     page_size,
+                    should_filter_decoys,
                     ..
-                } => query_transfers(deps, address, page.unwrap_or(0), page_size),
+                } => query_transfers(
+                    deps,
+                    address,
+                    page.unwrap_or(0),
+                    page_size,
+                    should_filter_decoys,
+                ),
                 QueryMsg::TransactionHistory {
                     address,
                     page,
                     page_size,
+                    should_filter_decoys,
                     ..
-                } => query_transactions(deps, address, page.unwrap_or(0), page_size),
+                } => query_transactions(
+                    deps,
+                    address,
+                    page.unwrap_or(0),
+                    page_size,
+                    should_filter_decoys,
+                ),
                 QueryMsg::Allowance { owner, spender, .. } => query_allowance(deps, owner, spender),
                 _ => panic!("This query type does not require authentication"),
             };
@@ -438,6 +589,7 @@ pub fn query_transfers(
     account: String,
     page: u32,
     page_size: u32,
+    should_filter_decoys: bool,
 ) -> StdResult<Binary> {
     // Notice that if query_transfers() was called by a viewking-key call, the address of 'account'
     // has already been validated.
@@ -445,7 +597,13 @@ pub fn query_transfers(
     // call, for compatibility with non-Secret addresses.
     let account = Addr::unchecked(account);
 
-    let (txs, total) = StoredLegacyTransfer::get_transfers(deps.storage, account, page, page_size)?;
+    let (txs, total) = StoredLegacyTransfer::get_transfers(
+        deps.storage,
+        account,
+        page,
+        page_size,
+        should_filter_decoys,
+    )?;
 
     let result = QueryAnswer::TransferHistory {
         txs,
@@ -459,6 +617,7 @@ pub fn query_transactions(
     account: String,
     page: u32,
     page_size: u32,
+    should_filter_decoys: bool,
 ) -> StdResult<Binary> {
     // Notice that if query_transactions() was called by a viewking-key call, the address of
     // 'account' has already been validated.
@@ -466,7 +625,8 @@ pub fn query_transactions(
     // permit call, for compatibility with non-Secret addresses.
     let account = Addr::unchecked(account);
 
-    let (txs, total) = StoredExtendedTx::get_txs(deps.storage, account, page, page_size)?;
+    let (txs, total) =
+        StoredExtendedTx::get_txs(deps.storage, account, page, page_size, should_filter_decoys)?;
 
     let result = QueryAnswer::TransactionHistory {
         txs,
@@ -562,6 +722,7 @@ fn remove_supported_denoms(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_mint_impl(
     deps: &mut DepsMut,
     minter: Addr,
@@ -570,20 +731,37 @@ fn try_mint_impl(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
 
-    let mut account_balance = BalancesStore::load(deps.storage, &recipient);
+    BalancesStore::update_balance(
+        deps.storage,
+        &recipient,
+        raw_amount,
+        true,
+        "",
+        &decoys,
+        &account_random_pos,
+    )?;
 
-    safe_add(&mut account_balance, raw_amount);
-
-    BalancesStore::save(deps.storage, &recipient, account_balance)?;
-
-    store_mint(deps.storage, minter, recipient, amount, denom, memo, block)?;
+    store_mint(
+        deps.storage,
+        minter,
+        recipient,
+        amount,
+        denom,
+        memo,
+        block,
+        &decoys,
+        &account_random_pos,
+    )?;
 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_mint(
     mut deps: DepsMut,
     env: Env,
@@ -591,6 +769,8 @@ fn try_mint(
     recipient: String,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
@@ -622,6 +802,8 @@ fn try_mint(
         constants.symbol,
         memo,
         &env.block,
+        decoys,
+        account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?))
@@ -632,6 +814,7 @@ fn try_batch_mint(
     env: Env,
     info: MessageInfo,
     actions: Vec<batch::MintAction>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
 
@@ -663,6 +846,8 @@ fn try_batch_mint(
             constants.symbol.clone(),
             action.memo,
             &env.block,
+            action.decoys,
+            account_random_pos,
         )?;
     }
 
@@ -733,7 +918,13 @@ pub fn query_allowance(deps: Deps, owner: String, spender: String) -> StdResult<
     to_binary(&response)
 }
 
-fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response> {
+fn try_deposit(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
+) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
 
     let mut amount = Uint128::zero();
@@ -767,10 +958,15 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
 
     let sender_address = &info.sender;
 
-    let mut account_balance = BalancesStore::load(deps.storage, sender_address);
-    // Note that althought raw_amount might be different than the actual added amount it doesn't really metter as we are in a case that someone somehow minted the maximum amount of coins that we can store
-    safe_add(&mut account_balance, raw_amount);
-    BalancesStore::save(deps.storage, sender_address, account_balance)?;
+    BalancesStore::update_balance(
+        deps.storage,
+        sender_address,
+        raw_amount,
+        true,
+        "",
+        &decoys,
+        &account_random_pos,
+    )?;
 
     store_deposit(
         deps.storage,
@@ -778,6 +974,8 @@ fn try_deposit(deps: DepsMut, env: Env, info: MessageInfo) -> StdResult<Response
         Uint128::new(raw_amount),
         "uscrt".to_string(),
         &env.block,
+        &decoys,
+        &account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?))
@@ -789,6 +987,8 @@ fn try_redeem(
     info: MessageInfo,
     amount: Uint128,
     denom: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.redeem_is_enabled {
@@ -817,15 +1017,15 @@ fn try_redeem(
     let sender_address = &info.sender;
     let amount_raw = amount.u128();
 
-    let account_balance = BalancesStore::load(deps.storage, sender_address);
-    if let Some(account_balance) = account_balance.checked_sub(amount_raw) {
-        BalancesStore::save(deps.storage, sender_address, account_balance)?;
-    } else {
-        return Err(StdError::generic_err(format!(
-            "insufficient funds to redeem: balance={}, required={}",
-            account_balance, amount_raw
-        )));
-    }
+    BalancesStore::update_balance(
+        deps.storage,
+        sender_address,
+        amount_raw,
+        false,
+        "redeem",
+        &decoys,
+        &account_random_pos,
+    )?;
 
     let total_supply = TOTAL_SUPPLY.load(deps.storage)?;
     if let Some(total_supply) = total_supply.checked_sub(amount_raw) {
@@ -842,8 +1042,7 @@ fn try_redeem(
         .amount;
     if amount > token_reserve {
         return Err(StdError::generic_err(format!(
-            "You are trying to redeem for more {} than the contract has in its reserve",
-            withdraw_denom
+            "You are trying to redeem for more {withdraw_denom} than the contract has in its reserve",
         )));
     }
 
@@ -858,6 +1057,8 @@ fn try_redeem(
         amount,
         constants.symbol,
         &env.block,
+        &decoys,
+        &account_random_pos,
     )?;
 
     let message = CosmosMsg::Bank(BankMsg::Send {
@@ -869,6 +1070,7 @@ fn try_redeem(
     Ok(res)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_transfer_impl(
     deps: &mut DepsMut,
     sender: &Addr,
@@ -876,8 +1078,17 @@ fn try_transfer_impl(
     amount: Uint128,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<()> {
-    perform_transfer(deps.storage, sender, recipient, amount.u128())?;
+    perform_transfer(
+        deps.storage,
+        sender,
+        recipient,
+        amount.u128(),
+        &decoys,
+        &account_random_pos,
+    )?;
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
@@ -889,11 +1100,14 @@ fn try_transfer_impl(
         symbol,
         memo,
         block,
+        &decoys,
+        &account_random_pos,
     )?;
 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_transfer(
     mut deps: DepsMut,
     env: Env,
@@ -901,6 +1115,8 @@ fn try_transfer(
     recipient: String,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
@@ -911,6 +1127,8 @@ fn try_transfer(
         amount,
         memo,
         &env.block,
+        decoys,
+        account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?))
@@ -921,6 +1139,7 @@ fn try_batch_transfer(
     env: Env,
     info: MessageInfo,
     actions: Vec<batch::TransferAction>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
@@ -931,6 +1150,8 @@ fn try_batch_transfer(
             action.amount,
             action.memo,
             &env.block,
+            action.decoys,
+            account_random_pos,
         )?;
     }
 
@@ -982,8 +1203,19 @@ fn try_send_impl(
     memo: Option<String>,
     msg: Option<Binary>,
     block: &cosmwasm_std::BlockInfo,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<()> {
-    try_transfer_impl(deps, &sender, &recipient, amount, memo.clone(), block)?;
+    try_transfer_impl(
+        deps,
+        &sender,
+        &recipient,
+        amount,
+        memo.clone(),
+        block,
+        decoys,
+        account_random_pos,
+    )?;
 
     try_add_receiver_api_callback(
         deps.storage,
@@ -1010,6 +1242,8 @@ fn try_send(
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
@@ -1024,6 +1258,8 @@ fn try_send(
         memo,
         msg,
         &env.block,
+        decoys,
+        account_random_pos,
     )?;
 
     Ok(Response::new()
@@ -1036,6 +1272,7 @@ fn try_batch_send(
     env: Env,
     info: MessageInfo,
     actions: Vec<batch::SendAction>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
     for action in actions {
@@ -1050,6 +1287,8 @@ fn try_batch_send(
             action.memo,
             action.msg,
             &env.block,
+            action.decoys,
+            account_random_pos,
         )?;
     }
 
@@ -1073,8 +1312,7 @@ fn try_register_receive(
 
 fn insufficient_allowance(allowance: u128, required: u128) -> StdError {
     StdError::generic_err(format!(
-        "insufficient allowance: allowance={}, required={}",
-        allowance, required
+        "insufficient allowance: allowance={allowance}, required={required}",
     ))
 }
 
@@ -1101,6 +1339,7 @@ fn use_allowance(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_transfer_from_impl(
     deps: &mut DepsMut,
     env: &Env,
@@ -1109,12 +1348,21 @@ fn try_transfer_from_impl(
     recipient: &Addr,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
 
     use_allowance(deps.storage, env, owner, spender, raw_amount)?;
 
-    perform_transfer(deps.storage, owner, recipient, raw_amount)?;
+    perform_transfer(
+        deps.storage,
+        owner,
+        recipient,
+        raw_amount,
+        &decoys,
+        &account_random_pos,
+    )?;
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
@@ -1126,11 +1374,14 @@ fn try_transfer_from_impl(
         symbol,
         memo,
         &env.block,
+        &decoys,
+        &account_random_pos,
     )?;
 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_transfer_from(
     mut deps: DepsMut,
     env: &Env,
@@ -1139,6 +1390,8 @@ fn try_transfer_from(
     recipient: String,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
@@ -1150,6 +1403,8 @@ fn try_transfer_from(
         &recipient,
         amount,
         memo,
+        decoys,
+        account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?))
@@ -1160,6 +1415,7 @@ fn try_batch_transfer_from(
     env: &Env,
     info: MessageInfo,
     actions: Vec<batch::TransferFromAction>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     for action in actions {
         let owner = deps.api.addr_validate(action.owner.as_str())?;
@@ -1172,6 +1428,8 @@ fn try_batch_transfer_from(
             &recipient,
             action.amount,
             action.memo,
+            action.decoys,
+            account_random_pos,
         )?;
     }
 
@@ -1194,6 +1452,8 @@ fn try_send_from_impl(
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<()> {
     let spender = info.sender.clone();
     try_transfer_from_impl(
@@ -1204,6 +1464,8 @@ fn try_send_from_impl(
         &recipient,
         amount,
         memo.clone(),
+        decoys,
+        account_random_pos,
     )?;
 
     try_add_receiver_api_callback(
@@ -1232,6 +1494,8 @@ fn try_send_from(
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
@@ -1247,6 +1511,8 @@ fn try_send_from(
         amount,
         memo,
         msg,
+        decoys,
+        account_random_pos,
     )?;
 
     Ok(Response::new()
@@ -1259,6 +1525,7 @@ fn try_batch_send_from(
     env: Env,
     info: &MessageInfo,
     actions: Vec<batch::SendFromAction>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
 
@@ -1276,6 +1543,8 @@ fn try_batch_send_from(
             action.amount,
             action.memo,
             action.msg,
+            action.decoys,
+            account_random_pos,
         )?;
     }
 
@@ -1286,6 +1555,7 @@ fn try_batch_send_from(
         })?))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_burn_from(
     deps: DepsMut,
     env: &Env,
@@ -1293,6 +1563,8 @@ fn try_burn_from(
     owner: String,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
     let constants = CONFIG.load(deps.storage)?;
@@ -1305,17 +1577,15 @@ fn try_burn_from(
     let raw_amount = amount.u128();
     use_allowance(deps.storage, env, &owner, &info.sender, raw_amount)?;
 
-    // subtract from owner account
-    let mut account_balance = BalancesStore::load(deps.storage, &owner);
-    if let Some(new_balance) = account_balance.checked_sub(raw_amount) {
-        account_balance = new_balance;
-    } else {
-        return Err(StdError::generic_err(format!(
-            "insufficient funds to burn: balance={}, required={}",
-            account_balance, raw_amount
-        )));
-    }
-    BalancesStore::save(deps.storage, &owner, account_balance)?;
+    BalancesStore::update_balance(
+        deps.storage,
+        &owner,
+        raw_amount,
+        false,
+        "burn",
+        &decoys,
+        &account_random_pos,
+    )?;
 
     // remove from supply
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
@@ -1337,6 +1607,8 @@ fn try_burn_from(
         constants.symbol,
         memo,
         &env.block,
+        &decoys,
+        &account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BurnFrom { status: Success })?))
@@ -1347,6 +1619,7 @@ fn try_batch_burn_from(
     env: &Env,
     info: MessageInfo,
     actions: Vec<batch::BurnFromAction>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
@@ -1363,26 +1636,22 @@ fn try_batch_burn_from(
         let amount = action.amount.u128();
         use_allowance(deps.storage, env, &owner, &spender, amount)?;
 
-        // subtract from owner account
-        let mut account_balance = BalancesStore::load(deps.storage, &owner);
-
-        if let Some(new_balance) = account_balance.checked_sub(amount) {
-            account_balance = new_balance;
-        } else {
-            return Err(StdError::generic_err(format!(
-                "insufficient funds to burn: balance={}, required={}",
-                account_balance, amount
-            )));
-        }
-        BalancesStore::save(deps.storage, &owner, account_balance)?;
+        BalancesStore::update_balance(
+            deps.storage,
+            &owner,
+            amount,
+            false,
+            "burn",
+            &action.decoys,
+            &account_random_pos,
+        )?;
 
         // remove from supply
         if let Some(new_total_supply) = total_supply.checked_sub(amount) {
             total_supply = new_total_supply;
         } else {
             return Err(StdError::generic_err(format!(
-                "You're trying to burn more than is available in the total supply: {:?}",
-                action
+                "You're trying to burn more than is available in the total supply: {action:?}",
             )));
         }
 
@@ -1394,6 +1663,8 @@ fn try_batch_burn_from(
             constants.symbol.clone(),
             action.memo,
             &env.block,
+            &action.decoys,
+            &account_random_pos,
         )?;
     }
 
@@ -1562,6 +1833,8 @@ fn try_burn(
     info: MessageInfo,
     amount: Uint128,
     memo: Option<String>,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
@@ -1572,18 +1845,15 @@ fn try_burn(
 
     let raw_amount = amount.u128();
 
-    let mut account_balance = BalancesStore::load(deps.storage, &info.sender);
-
-    if let Some(new_account_balance) = account_balance.checked_sub(raw_amount) {
-        account_balance = new_account_balance;
-    } else {
-        return Err(StdError::generic_err(format!(
-            "insufficient funds to burn: balance={}, required={}",
-            account_balance, raw_amount
-        )));
-    }
-
-    BalancesStore::save(deps.storage, &info.sender, account_balance)?;
+    BalancesStore::update_balance(
+        deps.storage,
+        &info.sender,
+        raw_amount,
+        false,
+        "burn",
+        &decoys,
+        &account_random_pos,
+    )?;
 
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
@@ -1603,22 +1873,11 @@ fn try_burn(
         constants.symbol,
         memo,
         &env.block,
+        &decoys,
+        &account_random_pos,
     )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?))
-}
-
-// To avoid balance guessing attacks based on balance overflow we need to perform safe addition and don't expose overflows to the caller.
-// Assuming that max of u128 is probably an unreachable balance, we want the addition to be bounded the max of u128
-// Currently the logic here is very straight forward yet the existence of the function is mendatory for future changes if needed.
-fn safe_add(balance: &mut u128, amount: u128) -> u128 {
-    // Note that new_amount can be equal to base after this operation.
-    // Currently we do nothing maybe on other implementations we will have something to add here
-    let prev_balance: u128 = *balance;
-    *balance = balance.saturating_add(amount);
-
-    // Won't underflow as the minimal value possible is 0
-    *balance - prev_balance
 }
 
 fn perform_transfer(
@@ -1626,22 +1885,19 @@ fn perform_transfer(
     from: &Addr,
     to: &Addr,
     amount: u128,
+    decoys: &Option<Vec<Addr>>,
+    account_random_pos: &Option<usize>,
 ) -> StdResult<()> {
-    let mut from_balance = BalancesStore::load(store, from);
-
-    if let Some(new_from_balance) = from_balance.checked_sub(amount) {
-        from_balance = new_from_balance;
-    } else {
-        return Err(StdError::generic_err(format!(
-            "insufficient funds: balance={}, required={}",
-            from_balance, amount
-        )));
-    }
-    BalancesStore::save(store, from, from_balance)?;
-
-    let mut to_balance = BalancesStore::load(store, to);
-    safe_add(&mut to_balance, amount);
-    BalancesStore::save(store, to, to_balance)?;
+    BalancesStore::update_balance(store, from, amount, false, "transfer", &None, &None)?;
+    BalancesStore::update_balance(
+        store,
+        to,
+        amount,
+        true,
+        "transfer",
+        decoys,
+        account_random_pos,
+    )?;
 
     Ok(())
 }
@@ -1676,10 +1932,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
     let len = symbol.len();
     let len_is_valid = (3..=20).contains(&len);
 
-    len_is_valid
-        && symbol
-            .bytes()
-            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_lowercase())
+    len_is_valid && symbol.bytes().all(|byte| byte.is_ascii_alphabetic())
 }
 
 // pub fn migrate(
@@ -1975,6 +2228,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -1993,6 +2248,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(10000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -2001,6 +2258,63 @@ mod tests {
 
         let error = extract_error_msg(handle_result);
         assert!(error.contains("insufficient funds"));
+    }
+
+    #[test]
+    fn test_decoys_balance_stays_on_transfer() {
+        let (init_result, mut deps) = init_helper(vec![
+            InitialBalance {
+                address: "bob".to_string(),
+                amount: Uint128::new(5000),
+            },
+            InitialBalance {
+                address: "lior".to_string(),
+                amount: Uint128::new(7000),
+            },
+        ]);
+
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let bob_addr = Addr::unchecked("bob".to_string());
+        let alice_addr = Addr::unchecked("alice".to_string());
+        let lior_addr = Addr::unchecked("lior".to_string());
+        let jhon_addr = Addr::unchecked("jhon".to_string());
+
+        let bob_balance = BalancesStore::load(&deps.storage, &bob_addr);
+        let alice_balance = BalancesStore::load(&deps.storage, &alice_addr);
+        let lior_balance = BalancesStore::load(&deps.storage, &lior_addr);
+        let jhon_balance = BalancesStore::load(&deps.storage, &jhon_addr);
+
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "alice".to_string(),
+            amount: Uint128::new(1000),
+            memo: None,
+            decoys: Some(vec![lior_addr.clone(), jhon_addr.clone()]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        assert_eq!(
+            bob_balance - 1000,
+            BalancesStore::load(&deps.storage, &bob_addr)
+        );
+        assert_eq!(
+            alice_balance + 1000,
+            BalancesStore::load(&deps.storage, &alice_addr)
+        );
+        assert_eq!(lior_balance, BalancesStore::load(&deps.storage, &lior_addr));
+        assert_eq!(jhon_balance, BalancesStore::load(&deps.storage, &jhon_addr));
     }
 
     #[test]
@@ -2033,6 +2347,8 @@ mod tests {
             memo: Some("my memo".to_string()),
             padding: None,
             msg: Some(to_binary("hey hey you you").unwrap()),
+            decoys: None,
+            entropy: None,
         };
         let info = mock_info("bob", &[]);
 
@@ -2315,6 +2631,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2345,6 +2663,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2360,6 +2680,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
 
@@ -2394,6 +2716,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2421,6 +2745,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2451,6 +2777,8 @@ mod tests {
             amount: Uint128::new(2500),
             memo: None,
             msg: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2483,6 +2811,8 @@ mod tests {
             amount: Uint128::new(2500),
             memo: None,
             msg: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2521,6 +2851,8 @@ mod tests {
             amount: Uint128::new(2000),
             memo: Some("my memo".to_string()),
             msg: Some(send_msg),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2558,6 +2890,8 @@ mod tests {
             amount: Uint128::new(1),
             memo: None,
             msg: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2602,6 +2936,8 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2616,6 +2952,8 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2645,6 +2983,8 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2659,6 +2999,8 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2681,6 +3023,8 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(1),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2737,10 +3081,12 @@ mod tests {
                 owner: name.to_string(),
                 amount: Uint128::new(2500),
                 memo: None,
+                decoys: None,
             })
             .collect();
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2782,6 +3128,8 @@ mod tests {
                 owner: "name".to_string(),
                 amount: Uint128::new(2500),
                 memo: None,
+                decoys: None,
+                entropy: None,
                 padding: None,
             };
             let info = mock_info("alice", &[]);
@@ -2799,11 +3147,13 @@ mod tests {
                 owner: name.to_string(),
                 amount: Uint128::new(*amount),
                 memo: None,
+                decoys: None,
             })
             .collect();
 
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2830,11 +3180,13 @@ mod tests {
                 owner: name.to_string(),
                 amount: Uint128::new(allowance_size - *amount),
                 memo: None,
+                decoys: None,
             })
             .collect();
 
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2861,10 +3213,12 @@ mod tests {
                 owner: name.to_string(),
                 amount: Uint128::new(1),
                 memo: None,
+                decoys: None,
             })
             .collect();
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3137,6 +3491,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3150,6 +3506,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3166,6 +3524,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3182,6 +3542,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: Option::from("uscrt".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3228,7 +3590,11 @@ mod tests {
             init_result_for_failure.err().unwrap()
         );
         // test when deposit disabled
-        let handle_msg = ExecuteMsg::Deposit { padding: None };
+        let handle_msg = ExecuteMsg::Deposit {
+            decoys: None,
+            entropy: None,
+            padding: None,
+        };
         let info = mock_info(
             "lebron",
             &[Coin {
@@ -3241,7 +3607,11 @@ mod tests {
         let error = extract_error_msg(handle_result);
         assert!(error.contains("Tried to deposit an unsupported coin uscrt"));
 
-        let handle_msg = ExecuteMsg::Deposit { padding: None };
+        let handle_msg = ExecuteMsg::Deposit {
+            decoys: None,
+            entropy: None,
+            padding: None,
+        };
 
         let info = mock_info(
             "lebron",
@@ -3295,6 +3665,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3309,6 +3681,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(burn_amount),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3359,6 +3733,8 @@ mod tests {
             recipient: "lebron".to_string(),
             amount: Uint128::new(mint_amount),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3374,6 +3750,8 @@ mod tests {
             recipient: "lebron".to_string(),
             amount: Uint128::new(mint_amount),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3506,6 +3884,8 @@ mod tests {
             recipient: "account".to_string(),
             amount: Uint128::new(123),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3521,6 +3901,8 @@ mod tests {
         let withdraw_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(5000),
             denom: Option::from("uscrt".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3565,6 +3947,8 @@ mod tests {
             recipient: "account".to_string(),
             amount: Uint128::new(123),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3580,6 +3964,8 @@ mod tests {
         let withdraw_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(5000),
             denom: Option::from("uscrt".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3658,6 +4044,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -3670,6 +4058,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3745,6 +4135,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -3757,6 +4149,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3831,6 +4225,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -3844,6 +4240,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3868,6 +4266,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -3881,6 +4281,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4503,6 +4905,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4515,6 +4919,8 @@ mod tests {
             recipient: "banana".to_string(),
             amount: Uint128::new(500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4527,6 +4933,8 @@ mod tests {
             recipient: "mango".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4541,6 +4949,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 0,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         // let a: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
@@ -4556,6 +4965,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -4569,6 +4979,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 2,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -4582,6 +4993,7 @@ mod tests {
             key: "key".to_string(),
             page: Some(1),
             page_size: 2,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -4589,6 +5001,214 @@ mod tests {
             _ => panic!("Unexpected"),
         };
         assert_eq!(transfers.len(), 1);
+    }
+
+    #[test]
+    fn test_query_transfer_history_with_decoys() {
+        let (init_result, mut deps) = init_helper(vec![
+            InitialBalance {
+                address: "bob".to_string(),
+                amount: Uint128::new(5000),
+            },
+            InitialBalance {
+                address: "jhon".to_string(),
+                amount: Uint128::new(7000),
+            },
+        ]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "alice_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("alice", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "lior_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("lior", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "banana_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("banana", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let lior_addr = Addr::unchecked("lior".to_string());
+        let jhon_addr = Addr::unchecked("jhon".to_string());
+        let alice_addr = Addr::unchecked("alice".to_string());
+
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "alice".to_string(),
+            amount: Uint128::new(1000),
+            memo: None,
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "banana".to_string(),
+            amount: Uint128::new(500),
+            memo: None,
+            decoys: None,
+            entropy: None,
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: "bob".to_string(),
+            key: "key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: true,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs, .. } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 2);
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: "alice".to_string(),
+            key: "alice_key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: false,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs, .. } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 2);
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: "alice".to_string(),
+            key: "alice_key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: true,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs, .. } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 1);
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: "banana".to_string(),
+            key: "banana_key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: true,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs, .. } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 1);
+
+        let query_msg = QueryMsg::TransferHistory {
+            address: "lior".to_string(),
+            key: "lior_key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: true,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransferHistory { txs, .. } => txs,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(transfers.len(), 0);
+
+        let query_msg = QueryMsg::Balance {
+            address: "bob".to_string(),
+            key: "key".to_string(),
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let balance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(balance, Uint128::new(3500));
+
+        let query_msg = QueryMsg::Balance {
+            address: "alice".to_string(),
+            key: "alice_key".to_string(),
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let balance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(balance, Uint128::new(1000));
+
+        let query_msg = QueryMsg::Balance {
+            address: "banana".to_string(),
+            key: "banana_key".to_string(),
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let balance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(balance, Uint128::new(500));
+
+        let query_msg = QueryMsg::Balance {
+            address: "lior".to_string(),
+            key: "lior_key".to_string(),
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let balance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(balance, Uint128::new(0));
     }
 
     #[test]
@@ -4624,6 +5244,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(1),
             memo: Some("my burn message".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4639,6 +5261,8 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: Option::from("uscrt".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4655,6 +5279,8 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: Some("my mint message".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4663,7 +5289,11 @@ mod tests {
 
         assert!(ensure_success(handle_result.unwrap()));
 
-        let handle_msg = ExecuteMsg::Deposit { padding: None };
+        let handle_msg = ExecuteMsg::Deposit {
+            decoys: None,
+            entropy: None,
+            padding: None,
+        };
         let info = mock_info(
             "bob",
             &[Coin {
@@ -4683,6 +5313,8 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: Some("my transfer message #1".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4696,6 +5328,8 @@ mod tests {
             recipient: "banana".to_string(),
             amount: Uint128::new(500),
             memo: Some("my transfer message #2".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4709,6 +5343,8 @@ mod tests {
             recipient: "mango".to_string(),
             amount: Uint128::new(2500),
             memo: Some("my transfer message #3".to_string()),
+            decoys: None,
+            entropy: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4723,6 +5359,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -4736,6 +5373,7 @@ mod tests {
             key: "key".to_string(),
             page: None,
             page_size: 10,
+            should_filter_decoys: false,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         let transfers = match from_binary(&query_result.unwrap()).unwrap() {
@@ -4858,5 +5496,404 @@ mod tests {
         ];
 
         assert_eq!(transfers, expected_transfers);
+    }
+
+    #[test]
+    fn test_query_transaction_history_with_decoys() {
+        let (init_result, mut deps) = init_helper_with_config(
+            vec![
+                InitialBalance {
+                    address: "bob".to_string(),
+                    amount: Uint128::new(5000),
+                },
+                InitialBalance {
+                    address: "jhon".to_string(),
+                    amount: Uint128::new(7000),
+                },
+            ],
+            true,
+            true,
+            true,
+            true,
+            1000,
+            vec!["uscrt".to_string()],
+        );
+
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "alice_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("alice", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "lior_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("lior", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "jhon_key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("jhon", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let lior_addr = Addr::unchecked("lior".to_string());
+        let jhon_addr = Addr::unchecked("jhon".to_string());
+        let alice_addr = Addr::unchecked("alice".to_string());
+
+        let handle_msg = ExecuteMsg::Burn {
+            amount: Uint128::new(1),
+            memo: Some("my burn message".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        assert!(
+            handle_result.is_ok(),
+            "Pause handle failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let handle_msg = ExecuteMsg::Redeem {
+            amount: Uint128::new(1000),
+            denom: Option::from("uscrt".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let handle_msg = ExecuteMsg::Mint {
+            recipient: "bob".to_string(),
+            amount: Uint128::new(100),
+            memo: Some("my mint message".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("admin", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        assert!(ensure_success(handle_result.unwrap()));
+
+        let handle_msg = ExecuteMsg::Deposit {
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info(
+            "bob",
+            &[Coin {
+                denom: "uscrt".to_string(),
+                amount: Uint128::new(1000),
+            }],
+        );
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        assert!(
+            handle_result.is_ok(),
+            "handle() failed: {}",
+            handle_result.err().unwrap()
+        );
+
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "alice".to_string(),
+            amount: Uint128::new(1000),
+            memo: Some("my transfer message #1".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "banana".to_string(),
+            amount: Uint128::new(500),
+            memo: Some("my transfer message #2".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "mango".to_string(),
+            amount: Uint128::new(2500),
+            memo: Some("my transfer message #3".to_string()),
+            decoys: Some(vec![
+                lior_addr.clone(),
+                jhon_addr.clone(),
+                alice_addr.clone(),
+            ]),
+            entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "lior".to_string(),
+            key: "lior_key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: true,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transactions = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+
+        assert!(transactions.is_empty());
+
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "alice".to_string(),
+            key: "alice_key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: false,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transactions = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+
+        assert_eq!(transactions.len(), 7); // Transfer from bob
+
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "alice".to_string(),
+            key: "alice_key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: true,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transactions = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+
+        assert_eq!(transactions.len(), 1); // Transfer from bob
+
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "jhon".to_string(),
+            key: "jhon_key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: true,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transactions = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+
+        assert_eq!(transactions.len(), 1); // Mint on init
+
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "bob".to_string(),
+            key: "key".to_string(),
+            page: None,
+            page_size: 10,
+            should_filter_decoys: true,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transactions = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+
+        use crate::transaction_history::{ExtendedTx, TxAction};
+        let expected_transactions = [
+            ExtendedTx {
+                id: 9,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob".to_string()),
+                    sender: Addr::unchecked("bob".to_string()),
+                    recipient: Addr::unchecked("mango".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(2500),
+                },
+                memo: Some("my transfer message #3".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 8,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob".to_string()),
+                    sender: Addr::unchecked("bob".to_string()),
+                    recipient: Addr::unchecked("banana".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(500),
+                },
+                memo: Some("my transfer message #2".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 7,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob".to_string()),
+                    sender: Addr::unchecked("bob".to_string()),
+                    recipient: Addr::unchecked("alice".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(1000),
+                },
+                memo: Some("my transfer message #1".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 6,
+                action: TxAction::Deposit {},
+                coins: Coin {
+                    denom: "uscrt".to_string(),
+                    amount: Uint128::new(1000),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 5,
+                action: TxAction::Mint {
+                    minter: Addr::unchecked("admin".to_string()),
+                    recipient: Addr::unchecked("bob".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(100),
+                },
+                memo: Some("my mint message".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 4,
+                action: TxAction::Redeem {},
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(1000),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 3,
+                action: TxAction::Burn {
+                    burner: Addr::unchecked("bob".to_string()),
+                    owner: Addr::unchecked("bob".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(1),
+                },
+                memo: Some("my burn message".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            ExtendedTx {
+                id: 1,
+                action: TxAction::Mint {
+                    minter: Addr::unchecked("admin".to_string()),
+                    recipient: Addr::unchecked("bob".to_string()),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::new(5000),
+                },
+
+                memo: Some("Initial Balance".to_string()),
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+        ];
+
+        assert_eq!(transactions, expected_transactions);
     }
 }
