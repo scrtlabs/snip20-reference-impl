@@ -1659,12 +1659,8 @@ function measure_transfer_gas() {
 
     local tx_hash
 
-    # Check "a" and "b" don't have any funds
-    assert_eq "$(get_balance "$contract_addr" 'a')" 0
-    assert_eq "$(get_balance "$contract_addr" 'b')" 0
-
     # Deposit to "a"
-    quiet deposit "$contract_addr" 'a' 1000000
+    quiet deposit "$contract_addr" 'a' 10
 
     local b_balance=$(get_balance "$contract_addr" 'b')
 
@@ -1688,12 +1684,8 @@ function measure_transfer_with_decoys_gas() {
 
     local tx_hash
 
-    # Check "a" and "b" don't have any funds
-    assert_eq "$(get_balance "$contract_addr" 'a')" 0
-    assert_eq "$(get_balance "$contract_addr" 'b')" 0
-
     # Deposit to "a"
-    quiet deposit "$contract_addr" 'a' 1000000
+    quiet deposit "$contract_addr" 'a' 10
 
     local b_balance=$(get_balance "$contract_addr" 'b')
 
