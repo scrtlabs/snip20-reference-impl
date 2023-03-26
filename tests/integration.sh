@@ -1669,10 +1669,11 @@ function measure_transfer_gas() {
     tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
+     ! transfer_response_not_compute="$(wait_for_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     
     assert_ne "$(get_balance "$contract_addr" 'b')" $b_balance
 
-    echo $transfer_response
+    echo $transfer_response_not_compute
     # echo "$(extract_gas "$transfer_response")"
 }
 
@@ -1689,15 +1690,16 @@ function measure_transfer_with_decoys_gas() {
 
     local b_balance=$(get_balance "$contract_addr" 'b')
 
-    local transfer_message='{"transfer":{"recipient":"'"${ADDRESS[b]}"'","amount":"5", "entropy":"MyPassword123", "decoys":["secret1kmgdagt5efcz2kku0ak9ezfgntg29g2vr88q0e","secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg","secret1qqq8g6cjht0qfemed6nmrgjp8gajhnw3panxcf","secret1qqg9z5473z4f842c9nddc2942mj82lw8h7n5uf","secret1qqjmkf275wwaeevkkmqdk5xw2j7k5u5c8j7e9y"]}}'
+    local transfer_message='{"transfer":{"recipient":"'"${ADDRESS[b]}"'","amount":"5", "entropy":"TXlQYXN3b3JkMTIz", "decoys":["secret1kmgdagt5efcz2kku0ak9ezfgntg29g2vr88q0e","secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg","secret1qqq8g6cjht0qfemed6nmrgjp8gajhnw3panxcf","secret1qqg9z5473z4f842c9nddc2942mj82lw8h7n5uf","secret1qqjmkf275wwaeevkkmqdk5xw2j7k5u5c8j7e9y"]}}'
     local transfer_response
     tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
     # Notice the `!` before the command - it is EXPECTED to fail.
     ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
+    ! transfer_response_not_compute="$(wait_for_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
     
     assert_ne "$(get_balance "$contract_addr" 'b')" $b_balance
 
-    echo $transfer_response
+    echo $transfer_response_not_compute
     # echo "$(extract_gas "$transfer_response")"
 }
 
