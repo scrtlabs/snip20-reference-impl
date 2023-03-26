@@ -1696,4 +1696,64 @@ function main() {
     return 0
 }
 
+function measure_transfer_gas() {
+    set -e
+    local contract_addr="$1"
+
+    log_test_header
+
+    local tx_hash
+
+    # Check "a" and "b" don't have any funds
+    assert_eq "$(get_balance "$contract_addr" 'a')" 0
+    assert_eq "$(get_balance "$contract_addr" 'b')" 0
+
+    # Deposit to "a"
+    quiet deposit "$contract_addr" 'a' 1000000
+
+    # Try to transfer more than "a" has
+    log 'transferring funds from "a" to "b", but more than "a" has'
+    local transfer_message='{"transfer":{"recipient":"'"${ADDRESS[b]}"'","amount":"5"}}'
+    local transfer_response
+    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
+    # Notice the `!` before the command - it is EXPECTED to fail.
+    ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
+    assert_eq "$(get_balance "$contract_addr" 'b')" 5
+
+    # Send the funds back
+    quiet secretcli tx bank send c "${ADDRESS[a]}" 5uscrt -y -b block
+    echo $transfer_response
+    # echo "$(extract_gas "$transfer_response")"
+}
+
+function measure_transfer_with_decoys_gas() {
+    set -e
+    local contract_addr="$1"
+
+    log_test_header
+
+    local tx_hash
+
+    # Check "a" and "b" don't have any funds
+    assert_eq "$(get_balance "$contract_addr" 'a')" 0
+    assert_eq "$(get_balance "$contract_addr" 'b')" 0
+
+    # Deposit to "a"
+    quiet deposit "$contract_addr" 'a' 1000000
+
+    # Try to transfer more than "a" has
+    log 'transferring funds from "a" to "b", but more than "a" has'
+    local transfer_message='{"transfer":{"recipient":"'"${ADDRESS[b]}"'","amount":"5", "entropy":"MyPassword123", "decoys":["secret1kmgdagt5efcz2kku0ak9ezfgntg29g2vr88q0e","secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg","secret1qqq8g6cjht0qfemed6nmrgjp8gajhnw3panxcf","secret1qqg9z5473z4f842c9nddc2942mj82lw8h7n5uf","secret1qqjmkf275wwaeevkkmqdk5xw2j7k5u5c8j7e9y"]}}'
+    local transfer_response
+    tx_hash="$(compute_execute "$contract_addr" "$transfer_message" ${FROM[a]} --gas 150000)"
+    # Notice the `!` before the command - it is EXPECTED to fail.
+    ! transfer_response="$(wait_for_compute_tx "$tx_hash" 'waiting for transfer from "a" to "b" to process')"
+    assert_eq "$(get_balance "$contract_addr" 'b')" 5
+
+    # Send the funds back
+    quiet secretcli tx bank send c "${ADDRESS[a]}" 5uscrt -y -b block
+    echo $transfer_response
+    # echo "$(extract_gas "$transfer_response")"
+}
+
 main "$@"
