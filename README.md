@@ -35,9 +35,13 @@ To check your balance:
 
 ```secretcli q compute query <contract-address> '{"balance": {"address":"<your_address>", "key":"your_viewing_key"}}'```
 
+To view your transfer history:
+
+```secretcli q compute query <contract-address> '{"transfer_history": {"address": "<your_address>", "key": "<your_viewing_key>", "page": <optional_page_number>, "page_size": <number_of_transactions_to_return>, "should_filter_decoys":<should_filter_out_decoys_and_break_paging_or_not>}}'```
+
 To view your transaction history:
 
-```secretcli q compute query <contract-address> '{"transfer_history": {"address": "<your_address>", "key": "<your_viewing_key>", "page": <optional_page_number>, "page_size": <number_of_transactions_to_return>}}'```
+```secretcli q compute query <contract-address> '{"transaction_history": {"address": "<your_address>", "key": "<your_viewing_key>", "page": <optional_page_number>, "page_size": <number_of_transactions_to_return>, "should_filter_decoys":<should_filter_out_decoys_and_break_paging_or_not>}}'```
 
 To withdraw: ***(This is public)***
 
@@ -57,3 +61,37 @@ To view the deposit/redeem exchange rate:
 All transactions are encrypted, so if you want to see the error returned by a failed transaction, you need to use the command
 
 `secretcli q compute tx <TX_HASH>`
+
+# SNIP 25 Security Update
+
+## Security Changes
+1. Implemented the ability to have decoy addresses for every operation that access account's balance
+2. Converted every add operation related to account's balance and total supply
+3. Started using u128 instead of Uint128
+
+## Decoys
+### Transaction That Support Decoys
+1. Redeem
+2. Deposit
+3. Transfer
+4. TransferFrom
+5. Send
+6. SendFrom
+7. Burn
+8. BurnFrom
+9. Mint
+10. BatchTransfer - For every action (The strength of the decoys will be the minimal strength of all of the actions)
+11. BatchSend - For every action (The strength of the decoys will be the minimal strength of all of the actions)
+12. BatchTransferFrom - For every action (The strength of the decoys will be the minimal strength of all of the actions)
+13. BatchSendFrom - For every action (The strength of the decoys will be the minimal strength of all of the actions)
+14. BatchMint - For every action (The strength of the decoys will be the minimal strength of all of the actions)
+15. BatchBurnFrom - For every action (The strength of the decoys will be the minimal strength of all of the actions)
+
+### Example
+```secretcli tx compute execute <contract-address> '{"transfer":{"recipient":"<address>","amount":"<amount>", "entropy":"<base64_encoded_entropy>", "decoys":<[addresses_list]>}}' --from <account>```
+
+## Future Work
+| Topic | Immidiate-term solution | Medium-term solution | Long-term solution |
+| --- | --- | --- | --- |
+| Receiver privacy | Decoys - offer limited privacy, since it depends a lot on how you choose decoys. There’s probably no way to select decoys effectively enough, and thus it only makes it a bit harder but effectively doesn’t provide receiver privacy to a sophisticated long-term attacker | Some sort of bucketing? - still no clear path forward| ORAM? - still no clear path forward |
+| Transfer amount privacy - subtractions (Transfer/Send/Burn) | None | None | Merkle proofs for storage reads - will make it very difficult to simulate transactions and play with storage. |
