@@ -13,7 +13,7 @@ use secret_toolkit_crypto::{sha_256, Prng, SHA256_HASH_SIZE};
 use crate::batch;
 use crate::msg::QueryWithPermit;
 use crate::msg::{
-    ContractStatusLevel, Decoyable, ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer,
+    ContractStatusLevel, Decoyable, Evaporator, ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer,
     QueryMsg, ResponseStatus::Success,
 };
 use crate::receiver::Snip20ReceiveMsg;
@@ -374,7 +374,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         }
     };
 
-    pad_handle_result(response, RESPONSE_BLOCK_SIZE)
+    let padded_result = pad_handle_result(response, RESPONSE_BLOCK_SIZE);
+    msg.evaporate_to_target(deps.api)?;
+    padded_result
 }
 
 #[entry_point]
