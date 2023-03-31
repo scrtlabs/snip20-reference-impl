@@ -5042,13 +5042,13 @@ mod tests {
             owner: "owner1".to_string(),
             key: vk.clone(),
             page: Some(2),
-            page_size: 7,
+            page_size: 8,
         };
         let query_result = query(deps.as_ref(), mock_env(), query_msg);
         match from_binary(&query_result.unwrap()).unwrap() {
             QueryAnswer::AllowancesGiven { owner, allowances, count } => {
                 assert_eq!(owner, "owner1".to_string());
-                assert_eq!(allowances.len(), 2);
+                assert_eq!(allowances.len(), 4);
                 assert_eq!(count, num_spenders);
             },
             _ => panic!("Unexpected"),
