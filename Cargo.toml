@@ -38,11 +38,11 @@ rand = { version = "0.8.5", default-features = false }
 secret-toolkit = { git = "https://github.com/scrtlabs/secret-toolkit", features = [
   "permit",
   "viewing-key",
-] }
+], rev = "9b74bdac71c2fedcc12246f18cdfdd94b8991282" }
 secret-toolkit-crypto = { git = "https://github.com/scrtlabs/secret-toolkit", features = [
   "rand",
   "hash",
-] }
+], rev = "9b74bdac71c2fedcc12246f18cdfdd94b8991282" }
 
 schemars = "0.8.12"
 serde = { version = "1.0.158", default-features = false, features = ["derive"] }

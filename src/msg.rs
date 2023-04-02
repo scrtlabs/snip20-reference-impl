@@ -446,6 +446,18 @@ pub enum QueryMsg {
         spender: String,
         key: String,
     },
+    AllowancesGiven {
+        owner: String,
+        key: String,
+        page: Option<u32>,
+        page_size: u32,
+    },
+    AllowancesReceived {
+        spender: String,
+        key: String,
+        page: Option<u32>,
+        page_size: u32,
+    },
     Balance {
         address: String,
         key: String,
@@ -497,6 +509,14 @@ impl QueryMsg {
 
                 Ok((vec![owner, spender], key.clone()))
             }
+            Self::AllowancesGiven { owner, key, .. } => {
+                let owner = api.addr_validate(owner.as_str())?;
+                Ok((vec![owner], key.clone()))
+            }
+            Self::AllowancesReceived { spender, key, .. } => {
+                let spender = api.addr_validate(spender.as_str())?;
+                Ok((vec![spender], key.clone()))
+            }
             _ => panic!("This query type does not require authentication"),
         }
     }
@@ -509,6 +529,16 @@ pub enum QueryWithPermit {
     Allowance {
         owner: String,
         spender: String,
+    },
+    AllowancesGiven {
+        owner: String,
+        page: Option<u32>,
+        page_size: u32,
+    },
+    AllowancesReceived {
+        spender: String,
+        page: Option<u32>,
+        page_size: u32,
     },
     Balance {},
     TransferHistory {
@@ -553,6 +583,16 @@ pub enum QueryAnswer {
         allowance: Uint128,
         expiration: Option<u64>,
     },
+    AllowancesGiven {
+        owner: Addr,
+        allowances: Vec<AllowanceGivenResult>,
+        count: u32,
+    },
+    AllowancesReceived {
+        spender: Addr,
+        allowances: Vec<AllowanceReceivedResult>,
+        count: u32,
+    },
     Balance {
         amount: Uint128,
     },
@@ -570,6 +610,20 @@ pub enum QueryAnswer {
     Minters {
         minters: Vec<Addr>,
     },
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+pub struct AllowanceGivenResult {
+    pub spender: Addr,
+    pub allowance: Uint128,
+    pub expiration: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+pub struct AllowanceReceivedResult {
+    pub owner: Addr,
+    pub allowance: Uint128,
+    pub expiration: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, JsonSchema, Debug)]

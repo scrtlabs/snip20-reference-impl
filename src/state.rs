@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, StdError, StdResult, Storage};
 use secret_toolkit::serialization::Json;
-use secret_toolkit::storage::{Item, Keymap};
+use secret_toolkit::storage::{Item, Keymap, Keyset};
 use secret_toolkit_crypto::SHA256_HASH_SIZE;
 
 use crate::msg::ContractStatusLevel;
@@ -18,6 +18,7 @@ pub const KEY_TX_COUNT: &[u8] = b"tx-count";
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
+pub const PREFIX_ALLOWED: &[u8] = b"allowed";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
 
@@ -227,12 +228,14 @@ impl Allowance {
     }
 }
 
-pub static ALLOWANCES: Keymap<(Addr, Addr), Allowance> = Keymap::new(PREFIX_ALLOWANCES);
+pub static ALLOWANCES: Keymap<Addr, Allowance> = Keymap::new(PREFIX_ALLOWANCES);
+pub static ALLOWED: Keyset<Addr> = Keyset::new(PREFIX_ALLOWED);
 pub struct AllowancesStore {}
 impl AllowancesStore {
     pub fn load(store: &dyn Storage, owner: &Addr, spender: &Addr) -> Allowance {
         ALLOWANCES
-            .get(store, &(owner.clone(), spender.clone()))
+            .add_suffix(owner.as_bytes())
+            .get(store, &spender.clone())
             .unwrap_or_default()
     }
 
@@ -242,7 +245,59 @@ impl AllowancesStore {
         spender: &Addr,
         allowance: &Allowance,
     ) -> StdResult<()> {
-        ALLOWANCES.insert(store, &(owner.clone(), spender.clone()), allowance)
+        ALLOWED
+            .add_suffix(spender.as_bytes())
+            .insert(store, owner)?;
+        ALLOWANCES
+            .add_suffix(owner.as_bytes())
+            .insert(store, spender, allowance)
+    }
+
+    pub fn all_allowances(
+        store: &dyn Storage,
+        owner: &Addr,
+        page: u32,
+        page_size: u32,
+    ) -> StdResult<Vec<(Addr, Allowance)>> {
+        ALLOWANCES
+            .add_suffix(owner.as_bytes())
+            .paging(store, page, page_size)
+    }
+
+    pub fn num_allowances(store: &dyn Storage, owner: &Addr) -> u32 {
+        ALLOWANCES
+            .add_suffix(owner.as_bytes())
+            .get_len(store)
+            .unwrap_or(0)
+    }
+
+    pub fn all_allowed(
+        store: &dyn Storage,
+        spender: &Addr,
+        page: u32,
+        page_size: u32,
+    ) -> StdResult<Vec<(Addr, Allowance)>> {
+        let owners = ALLOWED
+            .add_suffix(spender.as_bytes())
+            .paging(store, page, page_size)?;
+        let owners_allowances = owners
+            .into_iter()
+            .map(|owner| (owner.clone(), AllowancesStore::load(store, &owner, spender)))
+            .collect();
+        Ok(owners_allowances)
+    }
+
+    pub fn num_allowed(store: &dyn Storage, spender: &Addr) -> u32 {
+        ALLOWED
+            .add_suffix(spender.as_bytes())
+            .get_len(store)
+            .unwrap_or(0)
+    }
+
+    pub fn is_allowed(store: &dyn Storage, owner: &Addr, spender: &Addr) -> bool {
+        ALLOWED
+            .add_suffix(spender.as_bytes())
+            .contains(store, owner)
     }
 }
 
