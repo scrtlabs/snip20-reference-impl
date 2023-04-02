@@ -530,15 +530,15 @@ pub enum QueryWithPermit {
         owner: String,
         spender: String,
     },
-    AllowancesGiven { 
-        owner: String, 
-        page: Option<u32>, 
-        page_size: u32 
+    AllowancesGiven {
+        owner: String,
+        page: Option<u32>,
+        page_size: u32,
     },
-    AllowancesReceived { 
-        spender: String, 
-        page: Option<u32>, 
-        page_size: u32 
+    AllowancesReceived {
+        spender: String,
+        page: Option<u32>,
+        page_size: u32,
     },
     Balance {},
     TransferHistory {
@@ -625,7 +625,6 @@ pub struct AllowanceReceivedResult {
     pub allowance: Uint128,
     pub expiration: Option<u64>,
 }
-
 
 #[derive(Serialize, Deserialize, Clone, JsonSchema, Debug)]
 #[cfg_attr(test, derive(Eq, PartialEq))]

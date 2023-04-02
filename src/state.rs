@@ -233,7 +233,8 @@ pub static ALLOWED: Keyset<Addr> = Keyset::new(PREFIX_ALLOWED);
 pub struct AllowancesStore {}
 impl AllowancesStore {
     pub fn load(store: &dyn Storage, owner: &Addr, spender: &Addr) -> Allowance {
-        ALLOWANCES.add_suffix(owner.as_bytes())
+        ALLOWANCES
+            .add_suffix(owner.as_bytes())
             .get(store, &spender.clone())
             .unwrap_or_default()
     }
@@ -244,21 +245,40 @@ impl AllowancesStore {
         spender: &Addr,
         allowance: &Allowance,
     ) -> StdResult<()> {
-        ALLOWED.add_suffix(spender.as_bytes()).insert(store, owner)?;
-        ALLOWANCES.add_suffix(owner.as_bytes()).insert(store, spender, allowance)
+        ALLOWED
+            .add_suffix(spender.as_bytes())
+            .insert(store, owner)?;
+        ALLOWANCES
+            .add_suffix(owner.as_bytes())
+            .insert(store, spender, allowance)
     }
 
-    pub fn all_allowances(store: &dyn Storage, owner: &Addr, page: u32, page_size: u32) -> StdResult<Vec<(Addr, Allowance)>> {
-        ALLOWANCES.add_suffix(owner.as_bytes())
+    pub fn all_allowances(
+        store: &dyn Storage,
+        owner: &Addr,
+        page: u32,
+        page_size: u32,
+    ) -> StdResult<Vec<(Addr, Allowance)>> {
+        ALLOWANCES
+            .add_suffix(owner.as_bytes())
             .paging(store, page, page_size)
     }
 
     pub fn num_allowances(store: &dyn Storage, owner: &Addr) -> u32 {
-        ALLOWANCES.add_suffix(owner.as_bytes()).get_len(store).unwrap_or(0)
+        ALLOWANCES
+            .add_suffix(owner.as_bytes())
+            .get_len(store)
+            .unwrap_or(0)
     }
 
-    pub fn all_allowed(store: &dyn Storage, spender: &Addr, page: u32, page_size: u32) -> StdResult<Vec<(Addr, Allowance)>> {
-        let owners = ALLOWED.add_suffix(spender.as_bytes())
+    pub fn all_allowed(
+        store: &dyn Storage,
+        spender: &Addr,
+        page: u32,
+        page_size: u32,
+    ) -> StdResult<Vec<(Addr, Allowance)>> {
+        let owners = ALLOWED
+            .add_suffix(spender.as_bytes())
             .paging(store, page, page_size)?;
         let owners_allowances = owners
             .into_iter()
@@ -268,13 +288,17 @@ impl AllowancesStore {
     }
 
     pub fn num_allowed(store: &dyn Storage, spender: &Addr) -> u32 {
-        ALLOWED.add_suffix(spender.as_bytes()).get_len(store).unwrap_or(0)
+        ALLOWED
+            .add_suffix(spender.as_bytes())
+            .get_len(store)
+            .unwrap_or(0)
     }
 
     pub fn is_allowed(store: &dyn Storage, owner: &Addr, spender: &Addr) -> bool {
-        ALLOWED.add_suffix(spender.as_bytes()).contains(store, owner)
+        ALLOWED
+            .add_suffix(spender.as_bytes())
+            .contains(store, owner)
     }
-
 }
 
 // Receiver Interface
