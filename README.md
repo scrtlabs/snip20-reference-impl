@@ -114,6 +114,7 @@ Results SHOULD be paginated. Results MUST be sorted in reverse chronological ord
 #### Request
 
 | Name | Type | Description | optional |
+| ---- | ---- | ----------- | -------- |
 | [with_permit].query.allowances_given.owner | string | Account from which tokens are allowed to be taken | no |
 | [with_permit].query.allowances_given.page_size | number | Number of allowances to return, starting from the latest. i.e. n=1 will return only the latest allowance | no |
 | [with_permit].query.allowances_given.page | number | Defaults to 0. Specifying a positive number will skip page * page_size txs from the start. | yes |
