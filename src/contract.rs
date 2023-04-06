@@ -1,17 +1,21 @@
+use std::fmt::format;
+use std::ops::RangeBounds;
+
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
-    MessageInfo, Response, StdError, StdResult, Storage, Uint128,
+    MessageInfo, Response, StdError, StdResult, Storage, Uint128, from_binary, CanonicalAddr, VerificationError,
 };
 use rand::RngCore;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
+use secret_toolkit::snip20;
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, Prng, SHA256_HASH_SIZE};
 
 use crate::batch;
-use crate::msg::QueryWithPermit;
+use crate::msg::{QueryWithPermit, SNIP20HookMsg, ResponseStatus};
 use crate::msg::{
     ContractStatusLevel, Decoyable, ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer,
     QueryMsg, ResponseStatus::Success,
@@ -19,7 +23,7 @@ use crate::msg::{
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     safe_add, AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore,
-    CONFIG, CONTRACT_STATUS, TOTAL_SUPPLY,
+    CONFIG, CONTRACT_STATUS, TOTAL_SUPPLY, AcceptedTokensStore, TokenConfigStore, TokenConfig, BLOCK_SIZE,
 };
 use crate::transaction_history::{
     store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredExtendedTx,
@@ -122,6 +126,8 @@ pub fn instantiate(
             contract_address: env.contract.address,
             supported_denoms,
             can_modify_denoms: init_config.can_modify_denoms(),
+            max_supply: msg.max_supply.u128(),
+            owner: deps.api.addr_canonicalize(info.sender.as_str())?
         },
     )?;
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
@@ -205,6 +211,33 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             decoys,
             ..
         } => try_redeem(deps, env, info, amount, denom, decoys, account_random_pos),
+
+        ExecuteMsg::Receive { 
+            from, 
+            amount, 
+            msg ,
+            decoys,
+            ..
+        } => try_receive(deps, env, info, from, amount, msg, decoys, account_random_pos),
+
+        ExecuteMsg::RegisterToken { 
+            token_address,
+            token_code_hash, 
+            ratio, 
+            max_deposits 
+        } => try_register_token(deps, env, info, token_address, token_code_hash, ratio, max_deposits),
+
+        ExecuteMsg::UpdateRatio { token, ratio } => try_update_ratio(deps, env, info, token, ratio ),
+
+        ExecuteMsg::UpdateMaxDeposits { token, max_deposits } => try_update_max_deposit(deps, env, info, token, max_deposits ),
+
+        ExecuteMsg::Withdraw { token, amount, to } => try_withdraw(deps, env, info, token, amount, to),
+
+        ExecuteMsg::AddAdmins { admins } => try_add_admins(deps, env, info, admins),
+
+        ExecuteMsg::RemoveAdmins { admins } => try_remove_admins(deps, env, info, admins),
+
+        ExecuteMsg::UpdateOwner { owner } => try_update_owner(deps, env, info, owner),
 
         // Base
         ExecuteMsg::Transfer {
@@ -722,6 +755,260 @@ fn remove_supported_denoms(
     )
 }
 
+fn try_register_token(
+    deps: DepsMut, 
+    env: Env,
+    info: MessageInfo,
+    token_address: String,
+    token_code_hash: String,
+    max_deposits: Uint128,
+    ratio: Uint128
+) -> StdResult<Response> {
+    only_owner(&deps, &info)?;
+
+    let mut accepted_tokens = AcceptedTokensStore::load(deps.storage)?;
+    deps.api.addr_validate(&token_address)?;
+    let canonical_addr = deps.api.addr_canonicalize(token_address.as_str())?;
+    if accepted_tokens.contains(&canonical_addr) {
+        return Err(StdError::generic_err(
+            "Token is already registered"
+        ));
+    }
+
+    accepted_tokens.push(canonical_addr);
+    AcceptedTokensStore::save(deps.storage, accepted_tokens);
+
+    let token_config = TokenConfig {
+        ratio: ratio.u128(),
+        max_deposit_threshold: max_deposits.u128(),
+        total_deposits: 0,
+        code_hash: token_code_hash
+    };
+
+    TokenConfigStore::save(deps.storage, &token_config);
+
+    let mut messages = vec![];
+    messages.push(snip20::register_receive_msg(
+        env.contract.code_hash,
+        None,
+        BLOCK_SIZE,
+        token_code_hash.clone(),
+        token_address.clone().to_string(),
+    )?);
+
+    Ok(Response::new()
+        .add_messages(messages)
+        .set_data(to_binary(&ExecuteAnswer::RegisterToken { status: ResponseStatus::Success })?)
+    )
+}
+
+fn try_update_ratio(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    token_address: String,
+    ratio: Uint128 
+) -> StdResult<Response> {
+    only_owner(&deps, &info)?;
+    deps.api.addr_validate(token_address.as_str())?;
+    let canonical_address = deps.api.addr_canonicalize(token_address.as_str())?;
+
+    let token_config = TokenConfigStore::may_load(deps.storage, &canonical_address)?;
+    if token_config.is_none() {
+        return Err(StdError::generic_err(
+            format!("Token config was not found for token {}", token_address)
+        ));
+    }
+
+    let mut config = token_config.unwrap();
+    config.ratio = ratio.u128();
+
+    TokenConfigStore::save(deps.storage, &config);
+
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::UpdateRatio { status: ResponseStatus::Success })?))
+}
+
+fn try_update_max_deposit (
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    token_address: String,
+    max_deposits: Uint128
+) -> StdResult<Response> {
+    only_owner(&deps, &info)?;
+    deps.api.addr_validate(&token_address)?;
+    let canonical_addr = deps.api.addr_canonicalize(&token_address)?;
+
+    let token_config = TokenConfigStore::may_load(deps.storage, &canonical_addr)?;
+    if token_config.is_none() {
+        return Err(StdError::generic_err(
+            format!("Token config was not found for token {}", token_address)
+        ));
+    }
+
+    let mut config = token_config.unwrap();
+    config.max_deposit_threshold = max_deposits.u128();
+
+    TokenConfigStore::save(deps.storage, &config);
+
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::UpdateMaxDeposits { status: ResponseStatus::Success })?))
+}
+
+fn try_add_admins(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    admins: Vec<String>
+) -> StdResult<Response> {
+    only_owner(&deps, &info);
+
+}
+
+fn try_remove_admins(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    admins: Vec<String>
+) -> StdResult<Response> {
+    only_owner(&deps, &info);
+}
+
+fn try_update_owner (
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    owner: String
+) -> StdResult<Response> {
+    only_owner(&deps, &info);
+    deps.api.addr_validate(owner.as_str());
+    let new_owner = deps.api.addr_canonicalize(owner.as_str())?;
+
+    let mut config = CONFIG.load(deps.storage)?;
+    config.owner = new_owner;
+    CONFIG.save(deps.storage, &config);
+    
+    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::UpdateOwner { status: ResponseStatus::Success })?))
+}
+
+fn try_withdraw(
+    deps: DepsMut,
+    env: Env, 
+    info: MessageInfo,
+    token_address: String,
+    amount: Uint128,
+    to: Option<String>
+) -> StdResult<Response> {
+    only_owner(&deps, &info)?;
+
+    let canonical_addr = deps.api.addr_canonicalize(&token_address.as_str())?;
+    let accepted_tokens = AcceptedTokensStore::load(deps.storage)?;
+    if !accepted_tokens.contains(&canonical_addr) {
+        return Err(StdError::generic_err(
+            format!("Token {} is not an accepted token denom", token_address)
+        ));
+    }
+
+    let config = TokenConfigStore::may_load(deps.storage, &canonical_addr)?;
+    let code_hash = config.unwrap().code_hash;
+
+    let mut recipient = info.sender.clone().to_string();
+    if !to.is_none() {
+        recipient = to.unwrap();
+    }
+
+    let mut messages = vec![];
+    messages.push(snip20::send_msg(
+        recipient, 
+        amount, 
+        None, 
+        None, 
+        None,
+        BLOCK_SIZE,
+        code_hash, 
+        token_address
+    )?);
+
+    Ok(Response::new()
+        .add_messages(messages)
+        .set_data(to_binary(&ExecuteAnswer::Withdraw { status: ResponseStatus::Success })?
+    ))
+}
+
+fn try_receive_impl(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    from: Addr,
+    amount: Uint128,
+    asset: Addr,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>
+) -> StdResult<()> {
+    let accepted_tokens = AcceptedTokensStore::load(deps.storage)?;
+
+    let canonical_addr = deps.api.addr_canonicalize(asset.to_string().as_str())?;
+    if !accepted_tokens.contains(&canonical_addr) {
+        return Err(StdError::generic_err("Token is not accepted for deposit"));
+    }
+
+    let token_config = TokenConfigStore::may_load(deps.storage, &canonical_addr)?;
+
+    if token_config.is_none() {
+        return Err(StdError::generic_err("Token config for asset was not found"));
+    }
+
+    let mut config = token_config.unwrap();
+    let raw_amount = amount.u128();
+    let total_deposits = safe_add(&mut config.total_deposits, raw_amount);
+
+    if config.total_deposits > config.max_deposit_threshold {
+        return Err(StdError::generic_err(
+            format!("Max deposits exceeded for token {}", asset.to_string())
+        ));
+    }
+
+    TokenConfigStore::save(deps.storage, &config);
+
+    let mint_amount = match raw_amount.checked_mul(config.ratio) {
+        Some(amount) => amount,
+        None => 0
+    };
+
+    try_mint(
+        deps, 
+        env, 
+        info, 
+        from.to_string(),
+        Uint128::new(mint_amount),
+        None, 
+        decoys, 
+        account_random_pos
+    )?;
+
+    Ok(())
+}
+
+fn try_receive(
+    deps: DepsMut,
+    env: Env, 
+    info: MessageInfo,
+    from: Addr, 
+    amount: Uint128,
+    msg: Option<Binary>,
+    decoys: Option<Vec<Addr>>,
+    account_random_pos: Option<usize>
+) -> StdResult<Response> {
+    match from_binary(&msg.unwrap())? {
+        SNIP20HookMsg::Deposit { asset } => {
+            if(asset != info.sender) {
+                return Err(StdError::generic_err("unauthorized"))
+            }
+            try_receive_impl(deps, env, info, from, amount, asset, decoys, account_random_pos)?;
+            Ok(Response::new())
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn try_mint_impl(
     deps: &mut DepsMut,
@@ -783,14 +1070,20 @@ fn try_mint(
     }
 
     let minters = MintersStore::load(deps.storage)?;
-    if !minters.contains(&info.sender) {
+    if !minters.contains(&info.sender) || info.sender != env.contract.address {
         return Err(StdError::generic_err(
             "Minting is allowed to minter accounts only",
         ));
     }
 
+    let max_supply = constants.max_supply;
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
     let minted_amount = safe_add(&mut total_supply, amount.u128());
+    if(total_supply > max_supply) {
+        return Err(StdError::generic_err(
+            "Max supply exceeded"
+        ));
+    }
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
     // Note that even when minted_amount is equal to 0 we still want to perform the operations for logic consistency
@@ -1921,6 +2214,43 @@ fn check_if_admin(config_admin: &Addr, account: &Addr) -> StdResult<()> {
     }
 
     Ok(())
+}
+
+pub fn only_owner(
+    deps: &DepsMut,
+    info: &MessageInfo
+) -> Result<(), StdError> {
+    let config = CONFIG.load(deps.storage)?;
+    // Check if config is locked
+    // if config.locked_auth {
+    //     return Err(StdError::generic_err("Authorization has been locked. Owner-only functions can no longer be called."));
+    // }
+
+    if deps.api.addr_canonicalize(&info.sender.to_string())? != config.owner {
+        let source = VerificationError::GenericErr;
+        return Err(StdError::verification_err(source));
+    }
+    Ok(())
+}
+
+/// Only allow authorized users (or the contract owner). Causes the contract to fail if 
+/// the auth setup has been locked.
+pub fn only_authorized(
+    deps: &DepsMut,
+    env: &Env,
+    info: &MessageInfo
+) -> Result<(), StdError> {
+    let config = CONFIG.load(deps.storage)?;
+    let sender_canonical = deps.api.addr_canonicalize(&info.sender.to_string())?;
+
+    let is_owner = sender_canonical == config.owner;
+    let is_authorized = config.authorized_users.iter().find(|&u| u == &sender_canonical).is_some();
+    if is_owner || is_authorized {
+        return Ok(());
+    }
+
+    let source = VerificationError::GenericErr;
+    Err(StdError::verification_err(source))
 }
 
 fn is_valid_name(name: &str) -> bool {

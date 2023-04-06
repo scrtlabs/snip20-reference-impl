@@ -26,6 +26,7 @@ pub struct InstantiateMsg {
     pub prng_seed: Binary,
     pub config: Option<InitConfig>,
     pub supported_denoms: Option<Vec<String>>,
+    pub max_supply: Uint128
 }
 
 impl InstantiateMsg {
@@ -102,6 +103,54 @@ pub enum ExecuteMsg {
         entropy: Option<Binary>,
         padding: Option<String>,
     },
+
+    //Recieve for allowing deposits in SNIP2X denominations
+
+    Receive {
+        from: Addr,
+        amount: Uint128,
+        msg: Option<Binary>,
+        decoys: Option<Vec<Addr>>,
+        entropy: Option<Binary>,
+        padding: Option<String>,
+    },
+
+    //Admin interactions
+
+    Withdraw {
+        token: String,
+        amount: Uint128,
+        to: Option<String>
+    },
+
+    RegisterToken {
+        token_address: String, 
+        token_code_hash: String,
+        ratio: Uint128,
+        max_deposits: Uint128,
+    },
+
+    UpdateRatio {
+        token: String,
+        ratio: Uint128
+    },
+
+    UpdateMaxDeposits {
+        token: String,
+        max_deposits: Uint128
+    },
+
+    AddAdmins {
+        admins: Vec<String>
+    },
+
+    RemoveAdmins {
+        admins: Vec<String>
+    },
+
+    UpdateOwner {
+        owner: String
+    }, 
 
     // Base ERC-20 stuff
     Transfer {
@@ -426,6 +475,21 @@ pub enum ExecuteAnswer {
     RemoveSupportedDenoms {
         status: ResponseStatus,
     },
+    RegisterToken {
+        status: ResponseStatus
+    },
+    Withdraw {
+        status: ResponseStatus
+    },
+    UpdateMaxDeposits {
+        status: ResponseStatus
+    },
+    UpdateRatio {
+        status: ResponseStatus
+    },
+    UpdateOwner {
+        status: ResponseStatus
+    },
 
     // Permit
     RevokePermit {
@@ -602,6 +666,14 @@ pub fn u8_to_status_level(status_level: u8) -> StdResult<ContractStatusLevel> {
         1 => Ok(ContractStatusLevel::StopAllButRedeems),
         2 => Ok(ContractStatusLevel::StopAll),
         _ => Err(StdError::generic_err("Invalid state level")),
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SNIP20HookMsg {
+    Deposit {
+        asset: Addr
     }
 }
 

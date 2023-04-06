@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, StdError, StdResult, Storage};
+use cosmwasm_std::{Addr, StdError, StdResult, Storage, CanonicalAddr};
 use secret_toolkit::serialization::Json;
 use secret_toolkit::storage::{Item, Keymap};
 use secret_toolkit_crypto::SHA256_HASH_SIZE;
@@ -14,12 +14,16 @@ pub const KEY_CONTRACT_STATUS: &[u8] = b"contract_status";
 pub const KEY_PRNG: &[u8] = b"prng";
 pub const KEY_MINTERS: &[u8] = b"minters";
 pub const KEY_TX_COUNT: &[u8] = b"tx-count";
+pub const KEY_ACCEPTED_TOKENS: &[u8] = b"accepted_tokens";
+pub const KEY_ACCEPTED_TOKEN_CONFIGS: &[u8] = b"token_configs";
 
 pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_VIEW_KEY: &[u8] = b"viewingkey";
 pub const PREFIX_RECEIVERS: &[u8] = b"receivers";
+
+pub const BLOCK_SIZE: usize = 256;
 
 // Config
 
@@ -46,6 +50,20 @@ pub struct Config {
     pub supported_denoms: Vec<String>,
     // can admin add or remove supported denoms
     pub can_modify_denoms: bool,
+    // max supply of token
+    pub max_supply: u128,
+    // owner of the contract
+    pub owner: CanonicalAddr,
+    pub authorized_users: Vec<CanonicalAddr>
+}
+
+#[derive(Serialize, Debug, Deserialize, Clone, JsonSchema)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+pub struct TokenConfig {
+    pub ratio: u128,
+    pub max_deposit_threshold: u128,
+    pub total_deposits: u128,
+    pub code_hash: String
 }
 
 pub static CONFIG: Item<Config> = Item::new(KEY_CONFIG);
@@ -60,6 +78,10 @@ pub static MINTERS: Item<Vec<Addr>> = Item::new(KEY_MINTERS);
 
 pub static TX_COUNT: Item<u64> = Item::new(KEY_TX_COUNT);
 
+pub static ACCEPTED_TOKENS: Item<Vec<CanonicalAddr>> = Item::new(KEY_ACCEPTED_TOKENS);
+
+pub static ACCEPTED_TOKEN_CONFIGS: Item<TokenConfig> = Item::new(KEY_ACCEPTED_TOKEN_CONFIGS);
+
 pub struct PrngStore {}
 impl PrngStore {
     pub fn load(store: &dyn Storage) -> StdResult<[u8; SHA256_HASH_SIZE]> {
@@ -70,6 +92,47 @@ impl PrngStore {
         PRNG.save(store, &prng_seed)
     }
 }
+
+pub struct AcceptedTokensStore {}
+impl AcceptedTokensStore {
+    pub fn load(store: &dyn Storage) -> StdResult<Vec<CanonicalAddr>> {
+        ACCEPTED_TOKENS
+            .load(store)
+            .map_err(|_err| StdError::generic_err(""))
+    }
+
+    pub fn save(store: &mut dyn Storage, tokens_to_save: Vec<CanonicalAddr>) -> StdResult<()> {
+        ACCEPTED_TOKENS.save(store, &tokens_to_save)
+    }
+}
+
+pub struct TokenConfigStore {}
+impl TokenConfigStore {
+    pub fn may_load(store: &dyn Storage, asset: &CanonicalAddr) -> StdResult<Option<TokenConfig>> {
+        let token_config = ACCEPTED_TOKEN_CONFIGS.add_suffix(asset.as_slice());
+        token_config
+            .may_load(store)
+            .map_err(|_err| StdError::generic_err(""))
+    }
+
+    pub fn save(store: &mut dyn Storage, token_config: &TokenConfig) -> StdResult<()> {
+        ACCEPTED_TOKEN_CONFIGS.save(store, token_config)
+    }
+
+    pub fn get_ratio(store: &dyn Storage, asset: &CanonicalAddr) -> StdResult<u128> {
+        let _token_config = ACCEPTED_TOKEN_CONFIGS.add_suffix(asset.as_slice());
+        let token_config = _token_config
+            .may_load(store)
+            .map_err(|_err| StdError::generic_err("Couldn't find ratio at position"))?;
+
+        if token_config.is_none() {
+            return Err(StdError::generic_err("Token config for asset was not found"));
+        }
+
+        Ok(token_config.unwrap().ratio)
+    }
+}
+
 
 pub struct MintersStore {}
 impl MintersStore {
