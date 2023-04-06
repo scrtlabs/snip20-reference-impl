@@ -11,7 +11,7 @@ secretcli tx compute execute $CONTRACT_ADDRESS @- << 'EOF'
         "address": "<token_address>", 
         "code_hash": "<token_code_hash",
         "ratio": "<exchange_ratio_token_for_1_sno",
-        "max_deposit": "<total_maximum_deposit_amount>"  
+        "max_deposits": "<total_maximum_deposit_amount>"  
     }
 }
 EOF
@@ -31,7 +31,7 @@ secretcli tx compute execute $CONTRACT_ADDRESS @- << 'EOF'
 { 
     "update_max_deposit": {
         "token": "<token_address>", 
-        "max_deposit": "<new_total_maximum_deposit_amount" 
+        "max_deposits": "<new_total_maximum_deposit_amount" 
     }
 }
 EOF
@@ -39,8 +39,16 @@ EOF
 #This command will update the approved admins.
 secretcli tx compute execute $CONTRACT_ADDRESS @- << 'EOF'
 { 
-    "update_admins": {
-        "action": "<remove_or_add>"
+    "add_admins": {
+        "admins": "[<admin1_address>, <admin2_address>]" 
+    } 
+}
+EOF
+
+#This command will update the approved admins.
+secretcli tx compute execute $CONTRACT_ADDRESS @- << 'EOF'
+{ 
+    "remove_admins": {
         "admins": "[<admin1_address>, <admin2_address>]" 
     } 
 }
