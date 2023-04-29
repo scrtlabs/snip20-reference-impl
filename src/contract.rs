@@ -478,26 +478,44 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
             page,
             page_size,
         } => {
-            if !permit.check_permission(&TokenPermissions::Allowance) {
+            if account != owner {
+                return Err(StdError::generic_err(
+                    "Cannot query allowance. Requires permit for owner",
+                ));
+            }
+
+            // we really should add a check_permission(s) function.. an owner permit should
+            // just give you permissions to do everything
+            if !permit.check_permission(&TokenPermissions::Allowance)
+                && !permit.check_permission(&TokenPermissions::Owner)
+            {
                 return Err(StdError::generic_err(format!(
                     "No permission to query all allowances, got permissions {:?}",
                     permit.params.permissions
                 )));
             }
-            query_allowances_given(deps, owner, page.unwrap_or(0), page_size)
+            query_allowances_given(deps, account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::AllowancesReceived {
             spender,
             page,
             page_size,
         } => {
-            if !permit.check_permission(&TokenPermissions::Allowance) {
+            if account != spender {
+                return Err(StdError::generic_err(
+                    "Cannot query allowance. Requires permit for spender",
+                ));
+            }
+
+            if !permit.check_permission(&TokenPermissions::Allowance)
+                && !permit.check_permission(&TokenPermissions::Owner)
+            {
                 return Err(StdError::generic_err(format!(
                     "No permission to query all allowed, got permissions {:?}",
                     permit.params.permissions
                 )));
             }
-            query_allowances_received(deps, spender, page.unwrap_or(0), page_size)
+            query_allowances_received(deps, account, page.unwrap_or(0), page_size)
         }
     }
 }
@@ -2662,6 +2680,93 @@ mod tests {
             },
         };
         permit
+    }
+
+    fn get_allowances_given_permit(
+        permit_name: &str,
+        chain_id: &str,
+        pub_key_value: &str,
+        signature: &str,
+        spender: String,
+    ) -> QueryMsg {
+        let permit = gen_permit_obj(
+            permit_name,
+            chain_id,
+            pub_key_value,
+            signature,
+            TokenPermissions::Owner,
+        );
+
+        QueryMsg::WithPermit {
+            permit,
+            query: QueryWithPermit::AllowancesReceived {
+                spender,
+                page: None,
+                page_size: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn test_permit_query_allowances_given_should_fail() {
+        let user_address = "secret18mdrja40gfuftt5yx6tgj0fn5lurplezyp894y";
+        let permit_name = "default";
+        let chain_id = "secretdev-1";
+        let pub_key = "AkZqxdKMtPq2w0kGDGwWGejTAed0H7azPMHtrCX0XYZG";
+        let signature = "ZXyFMlAy6guMG9Gj05rFvcMi5/JGfClRtJpVTHiDtQY3GtSfBHncY70kmYiTXkKIxSxdnh/kS8oXa+GSX5su6Q==";
+
+        // Init the contract
+        let (init_result, deps) = init_helper(vec![InitialBalance {
+            address: user_address.to_string(),
+            amount: Uint128::new(50000000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let msg = get_allowances_given_permit(
+            permit_name,
+            chain_id,
+            pub_key,
+            signature,
+            "secret1kmgdagt5efcz2kku0ak9ezfgntg29g2vr88q0e".to_string(),
+        );
+        let query_result = query(deps.as_ref(), mock_env(), msg);
+
+        assert_eq!(query_result.is_err(), true);
+    }
+
+    #[test]
+    fn test_permit_query_allowances_given() {
+        let user_address = "secret18mdrja40gfuftt5yx6tgj0fn5lurplezyp894y";
+        let permit_name = "default";
+        let chain_id = "secretdev-1";
+        let pub_key = "AkZqxdKMtPq2w0kGDGwWGejTAed0H7azPMHtrCX0XYZG";
+        let signature = "ZXyFMlAy6guMG9Gj05rFvcMi5/JGfClRtJpVTHiDtQY3GtSfBHncY70kmYiTXkKIxSxdnh/kS8oXa+GSX5su6Q==";
+
+        // Init the contract
+        let (init_result, deps) = init_helper(vec![InitialBalance {
+            address: user_address.to_string(),
+            amount: Uint128::new(50000000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+
+        let msg = get_allowances_given_permit(
+            permit_name,
+            chain_id,
+            pub_key,
+            signature,
+            "secret18mdrja40gfuftt5yx6tgj0fn5lurplezyp894y".to_string(),
+        );
+        let query_result = query(deps.as_ref(), mock_env(), msg);
+
+        assert_eq!(query_result.is_ok(), true);
     }
 
     #[test]
