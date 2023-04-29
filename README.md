@@ -95,7 +95,83 @@ All transactions are encrypted, so if you want to see the error returned by a fa
 ```secretcli tx compute execute <contract-address> '{"transfer":{"recipient":"<address>","amount":"<amount>", "entropy":"<base64_encoded_entropy>", "decoys":<[addresses_list]>}}' --from <account>```
 
 ## Future Work
-| Topic | Immidiate-term solution | Medium-term solution | Long-term solution |
+| Topic | Immediate-term solution | Medium-term solution | Long-term solution |
 | --- | --- | --- | --- |
 | Receiver privacy | Decoys - offer limited privacy, since it depends a lot on how you choose decoys. There’s probably no way to select decoys effectively enough, and thus it only makes it a bit harder but effectively doesn’t provide receiver privacy to a sophisticated long-term attacker | Some sort of bucketing? - still no clear path forward| ORAM? - still no clear path forward |
 | Transfer amount privacy - subtractions (Transfer/Send/Burn) | None | None | Merkle proofs for storage reads - will make it very difficult to simulate transactions and play with storage. |
+
+# SNIP 25 Other Updates
+
+## All Allowances
+Adds the ability for an owner to query for all allowances they have given out, as well as for a spender to query for all allowances they have received.
+
+## Queries
+
+### AllowancesGiven
+
+This query MUST be authenticated.
+
+Returns the list of allowances given out by the current account as an owner, as well as the total count of allowances given out.
+
+Results SHOULD be paginated. Results MUST be sorted in reverse chronological order by the datetime at which the allowance was first created (i.e., order is not determined by expiration, nor by last modified).
+
+#### Request
+
+| Name | Type | Description | optional |
+| ---- | ---- | ----------- | -------- |
+| [with_permit].query.allowances_given.owner | string | Account from which tokens are allowed to be taken | no |
+| [with_permit].query.allowances_given.page_size | number | Number of allowances to return, starting from the latest. i.e. n=1 will return only the latest allowance | no |
+| [with_permit].query.allowances_given.page | number | Defaults to 0. Specifying a positive number will skip page * page_size txs from the start. | yes |
+
+#### Response
+```json
+{
+  "allowances_given": {
+    "owner": "<address>",
+    "allowances": [
+      {
+        "spender": "<address>",
+        "allowance": "Uint128",
+        "expiration": 1234,
+      },
+      { "...": "..." }
+    ],
+    "count": 200
+  }
+}
+```
+
+### AllowancesReceived
+
+This query MUST be authenticated.
+
+Returns the list of allowances given to the current account as a spender, as well as the total count of allowances received.
+
+Results SHOULD be paginated. Results MUST be sorted in reverse chronological order by the datetime at which the allowance was first created (i.e., order is not determined by expiration).
+
+#### Request
+
+| Name | Type | Description | optional |
+| ---- | ---- | ----------- | -------- |
+| [with_permit.]query.allowances_received.spender | string | Account which is allowed to spend tokens on behalf of the owner | no |
+| [with_permit.]query.allowances_received.page_size	| number | Number of allowances to return, starting from the latest. i.e. n=1 will return only the latest allowance | no |
+| [with_permit.]query.allowances_received.page | number | Defaults to 0. Specifying a positive number will skip page * page_size txs from the start. | yes |
+
+#### Response
+
+```json
+{
+  "allowances_received": {
+    "spender": "<address>",
+    "allowances": [
+      {
+        "owner": "<address>",
+        "allowance": "Uint128",
+        "expiration": 1234,
+      },
+      { "...": "..." }
+    ],
+    "count": 200
+  }
+}
+```
