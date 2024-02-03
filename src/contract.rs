@@ -8,7 +8,7 @@ use rand::RngCore;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
-use secret_toolkit_crypto::{sha_256, Prng, SHA256_HASH_SIZE};
+use secret_toolkit_crypto::{sha_256, ContractPrng, SHA256_HASH_SIZE};
 
 use crate::batch;
 use crate::msg::{
@@ -142,7 +142,7 @@ fn get_address_position(
     decoys_size: usize,
     entropy: &[u8; SHA256_HASH_SIZE],
 ) -> StdResult<usize> {
-    let mut rng = Prng::new(&PrngStore::load(store)?, entropy);
+    let mut rng = ContractPrng::new(&PrngStore::load(store)?, entropy);
 
     let mut new_contract_entropy = [0u8; 20];
     rng.rng.fill_bytes(&mut new_contract_entropy);
@@ -170,6 +170,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         account_random_pos = Some(get_address_position(deps.storage, decoys_size, &entropy)?);
     }
 
+    let api = deps.api;
     match contract_status {
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
             let response = match msg {
@@ -374,7 +375,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
     };
 
     let padded_result = pad_handle_result(response, RESPONSE_BLOCK_SIZE);
-    msg.evaporate_to_target(deps.api)?;
+    msg.evaporate_to_target(api)?;
     padded_result
 }
 
@@ -2919,8 +2920,9 @@ mod tests {
                     height: 12_345,
                     time: Timestamp::from_seconds(1_571_797_420),
                     chain_id: "cosmos-testnet-14002".to_string(),
+                    random: None,
                 },
-                transaction: Some(TransactionInfo { index: 3 }),
+                transaction: Some(TransactionInfo { index: 3, hash: "".to_string() }),
                 contract: ContractInfo {
                     address: Addr::unchecked(MOCK_CONTRACT_ADDR.to_string()),
                     code_hash: "".to_string(),
