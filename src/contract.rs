@@ -990,7 +990,7 @@ pub fn query_allowances_given(
     let owner = Addr::unchecked(owner);
 
     let all_allowances =
-        AllowancesStore::all_allowances(deps.storage, &owner, page, page_size).unwrap_or(vec![]);
+        AllowancesStore::all_allowances(deps.storage, &owner, page, page_size).unwrap_or_default();
 
     let allowances_result = all_allowances
         .into_iter()
@@ -1022,7 +1022,7 @@ pub fn query_allowances_received(
     let spender = Addr::unchecked(spender);
 
     let all_allowed =
-        AllowancesStore::all_allowed(deps.storage, &spender, page, page_size).unwrap_or(vec![]);
+        AllowancesStore::all_allowed(deps.storage, &spender, page, page_size).unwrap_or_default();
 
     let allowances = all_allowed
         .into_iter()
