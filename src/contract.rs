@@ -8,12 +8,13 @@ use rand::RngCore;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
-use secret_toolkit_crypto::{sha_256, Prng, SHA256_HASH_SIZE};
+use secret_toolkit_crypto::{sha_256, ContractPrng, SHA256_HASH_SIZE};
 
 use crate::batch;
 use crate::msg::{
-    AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, Decoyable, ExecuteAnswer,
-    ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
+    AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, Decoyable, Evaporator,
+    ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit,
+    ResponseStatus::Success,
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
@@ -142,7 +143,7 @@ fn get_address_position(
     decoys_size: usize,
     entropy: &[u8; SHA256_HASH_SIZE],
 ) -> StdResult<usize> {
-    let mut rng = Prng::new(&PrngStore::load(store)?, entropy);
+    let mut rng = ContractPrng::new(&PrngStore::load(store)?, entropy);
 
     let mut new_contract_entropy = [0u8; 20];
     rng.rng.fill_bytes(&mut new_contract_entropy);
@@ -170,6 +171,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         account_random_pos = Some(get_address_position(deps.storage, decoys_size, &entropy)?);
     }
 
+    let api = deps.api;
     match contract_status {
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
             let response = match msg {
@@ -373,7 +375,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         }
     };
 
-    pad_handle_result(response, RESPONSE_BLOCK_SIZE)
+    let padded_result = pad_handle_result(response, RESPONSE_BLOCK_SIZE);
+    msg.evaporate_to_target(api)?;
+    padded_result
 }
 
 #[entry_point]
@@ -986,7 +990,7 @@ pub fn query_allowances_given(
     let owner = Addr::unchecked(owner);
 
     let all_allowances =
-        AllowancesStore::all_allowances(deps.storage, &owner, page, page_size).unwrap_or(vec![]);
+        AllowancesStore::all_allowances(deps.storage, &owner, page, page_size).unwrap_or_default();
 
     let allowances_result = all_allowances
         .into_iter()
@@ -1018,7 +1022,7 @@ pub fn query_allowances_received(
     let spender = Addr::unchecked(spender);
 
     let all_allowed =
-        AllowancesStore::all_allowed(deps.storage, &spender, page, page_size).unwrap_or(vec![]);
+        AllowancesStore::all_allowed(deps.storage, &spender, page, page_size).unwrap_or_default();
 
     let allowances = all_allowed
         .into_iter()
@@ -2349,6 +2353,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -2369,6 +2374,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -2414,6 +2420,7 @@ mod tests {
             memo: None,
             decoys: Some(vec![lior_addr.clone(), jhon_addr.clone()]),
             entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            gas_target: None,
             padding: None,
         };
 
@@ -2450,6 +2457,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::RegisterReceive {
             code_hash: "this_is_a_hash_of_a_code".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("contract", &[]);
@@ -2467,6 +2475,7 @@ mod tests {
             padding: None,
             msg: Some(to_binary("hey hey you you").unwrap()),
             decoys: None,
+            gas_target: None,
             entropy: None,
         };
         let info = mock_info("bob", &[]);
@@ -2515,6 +2524,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::RegisterReceive {
             code_hash: "this_is_a_hash_of_a_code".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("contract", &[]);
@@ -2545,6 +2555,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::CreateViewingKey {
             entropy: "".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -2586,6 +2597,7 @@ mod tests {
         // Set VK
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "hi lol".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -2606,6 +2618,7 @@ mod tests {
         let actual_vk = "x".to_string().repeat(VIEWING_KEY_SIZE);
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: actual_vk.clone(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -2630,6 +2643,7 @@ mod tests {
     ) -> Result<Response, StdError> {
         let handle_msg = ExecuteMsg::RevokePermit {
             permit_name: permit_name.to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info(user_address, &[]);
@@ -2839,6 +2853,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2853,6 +2868,7 @@ mod tests {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
+            gas_target: None,
             expiration: Some(1_571_797_420),
         };
         let info = mock_info("bob", &[]);
@@ -2871,6 +2887,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2888,6 +2905,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
 
@@ -2903,8 +2921,12 @@ mod tests {
                     height: 12_345,
                     time: Timestamp::from_seconds(1_571_797_420),
                     chain_id: "cosmos-testnet-14002".to_string(),
+                    random: None,
                 },
-                transaction: Some(TransactionInfo { index: 3 }),
+                transaction: Some(TransactionInfo {
+                    index: 3,
+                    hash: "".to_string(),
+                }),
                 contract: ContractInfo {
                     address: Addr::unchecked(MOCK_CONTRACT_ADDR.to_string()),
                     code_hash: "".to_string(),
@@ -2924,6 +2946,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2953,6 +2976,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2985,6 +3009,7 @@ mod tests {
             msg: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -2999,6 +3024,7 @@ mod tests {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
+            gas_target: None,
             expiration: None,
         };
         let info = mock_info("bob", &[]);
@@ -3019,6 +3045,7 @@ mod tests {
             msg: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3031,6 +3058,7 @@ mod tests {
         // Sanity check
         let handle_msg = ExecuteMsg::RegisterReceive {
             code_hash: "lolz".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("contract", &[]);
@@ -3059,6 +3087,7 @@ mod tests {
             msg: Some(send_msg),
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3098,6 +3127,7 @@ mod tests {
             msg: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3144,6 +3174,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3160,6 +3191,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3173,6 +3205,7 @@ mod tests {
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
+            gas_target: None,
             padding: None,
             expiration: None,
         };
@@ -3191,6 +3224,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3207,6 +3241,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3231,6 +3266,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3293,6 +3329,7 @@ mod tests {
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3320,6 +3357,7 @@ mod tests {
                 spender: "alice".to_string(),
                 amount: Uint128::new(allowance_size),
                 padding: None,
+                gas_target: None,
                 expiration: None,
             };
             let info = mock_info(*name, &[]);
@@ -3336,6 +3374,7 @@ mod tests {
                 memo: None,
                 decoys: None,
                 entropy: None,
+                gas_target: None,
                 padding: None,
             };
             let info = mock_info("alice", &[]);
@@ -3360,6 +3399,7 @@ mod tests {
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3393,6 +3433,7 @@ mod tests {
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3425,6 +3466,7 @@ mod tests {
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -3450,6 +3492,7 @@ mod tests {
         let handle_msg = ExecuteMsg::DecreaseAllowance {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
+            gas_target: None,
             padding: None,
             expiration: None,
         };
@@ -3478,6 +3521,7 @@ mod tests {
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
+            gas_target: None,
             padding: None,
             expiration: None,
         };
@@ -3494,6 +3538,7 @@ mod tests {
         let handle_msg = ExecuteMsg::DecreaseAllowance {
             spender: "alice".to_string(),
             amount: Uint128::new(50),
+            gas_target: None,
             padding: None,
             expiration: None,
         };
@@ -3532,6 +3577,7 @@ mod tests {
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
+            gas_target: None,
             padding: None,
             expiration: None,
         };
@@ -3560,6 +3606,7 @@ mod tests {
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
+            gas_target: None,
             padding: None,
             expiration: None,
         };
@@ -3597,6 +3644,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::ChangeAdmin {
             address: "bob".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3627,6 +3675,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetContractStatus {
             level: ContractStatusLevel::StopAll,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3699,6 +3748,7 @@ mod tests {
             denom: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3714,6 +3764,7 @@ mod tests {
             denom: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3732,6 +3783,7 @@ mod tests {
             denom: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3750,6 +3802,7 @@ mod tests {
             denom: Option::from("uscrt".to_string()),
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("butler", &[]);
@@ -3799,6 +3852,7 @@ mod tests {
         let handle_msg = ExecuteMsg::Deposit {
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info(
@@ -3816,6 +3870,7 @@ mod tests {
         let handle_msg = ExecuteMsg::Deposit {
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
 
@@ -3873,6 +3928,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3889,6 +3945,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -3941,6 +3998,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3958,6 +4016,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -3997,6 +4056,7 @@ mod tests {
 
         let pause_msg = ExecuteMsg::SetContractStatus {
             level: ContractStatusLevel::StopAllButRedeems,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
@@ -4008,6 +4068,7 @@ mod tests {
 
         let mint_msg = ExecuteMsg::AddMinters {
             minters: vec!["not_admin".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
@@ -4019,6 +4080,7 @@ mod tests {
 
         let mint_msg = ExecuteMsg::RemoveMinters {
             minters: vec!["admin".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
@@ -4030,6 +4092,7 @@ mod tests {
 
         let mint_msg = ExecuteMsg::SetMinters {
             minters: vec!["not_admin".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
@@ -4041,6 +4104,7 @@ mod tests {
 
         let change_admin_msg = ExecuteMsg::ChangeAdmin {
             address: "not_admin".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("not_admin", &[]);
@@ -4073,6 +4137,7 @@ mod tests {
 
         let pause_msg = ExecuteMsg::SetContractStatus {
             level: ContractStatusLevel::StopAllButRedeems,
+            gas_target: None,
             padding: None,
         };
 
@@ -4092,6 +4157,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4109,6 +4175,7 @@ mod tests {
             denom: Option::from("uscrt".to_string()),
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -4136,6 +4203,7 @@ mod tests {
 
         let pause_msg = ExecuteMsg::SetContractStatus {
             level: ContractStatusLevel::StopAll,
+            gas_target: None,
             padding: None,
         };
 
@@ -4155,6 +4223,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4172,6 +4241,7 @@ mod tests {
             denom: Option::from("uscrt".to_string()),
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -4216,6 +4286,7 @@ mod tests {
         // try when mint disabled
         let handle_msg = ExecuteMsg::SetMinters {
             minters: vec!["bob".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4227,6 +4298,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetMinters {
             minters: vec!["bob".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4238,6 +4310,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetMinters {
             minters: vec!["bob".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4252,6 +4325,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4266,6 +4340,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4307,6 +4382,7 @@ mod tests {
         // try when mint disabled
         let handle_msg = ExecuteMsg::AddMinters {
             minters: vec!["bob".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4318,6 +4394,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::AddMinters {
             minters: vec!["bob".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4329,6 +4406,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::AddMinters {
             minters: vec!["bob".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4343,6 +4421,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4357,6 +4436,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4397,6 +4477,7 @@ mod tests {
         // try when mint disabled
         let handle_msg = ExecuteMsg::RemoveMinters {
             minters: vec!["bob".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4408,6 +4489,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::RemoveMinters {
             minters: vec!["admin".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4419,6 +4501,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::RemoveMinters {
             minters: vec!["admin".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4433,6 +4516,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4448,6 +4532,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4460,6 +4545,7 @@ mod tests {
         // Removing another extra time to ensure nothing funky happens
         let handle_msg = ExecuteMsg::RemoveMinters {
             minters: vec!["admin".to_string()],
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4474,6 +4560,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -4489,6 +4576,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -4526,6 +4614,7 @@ mod tests {
 
         let create_vk_msg = ExecuteMsg::CreateViewingKey {
             entropy: "34".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("giannis", &[]);
@@ -4932,6 +5021,7 @@ mod tests {
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: "lebron".to_string(),
             amount: Uint128::new(2000),
+            gas_target: None,
             padding: None,
             expiration: None,
         };
@@ -4964,6 +5054,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: vk1.clone(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("lebron", &[]);
@@ -4982,6 +5073,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: vk2.clone(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("giannis", &[]);
@@ -5057,6 +5149,7 @@ mod tests {
         for i in 0..num_owners {
             let handle_msg = ExecuteMsg::SetViewingKey {
                 key: vk.clone(),
+                gas_target: None,
                 padding: None,
             };
             let info = mock_info(format!("owner{}", i).as_str(), &[]);
@@ -5079,6 +5172,7 @@ mod tests {
                 let handle_msg = ExecuteMsg::IncreaseAllowance {
                     spender: format!("spender{}", j),
                     amount: Uint128::new(50),
+                    gas_target: None,
                     padding: None,
                     expiration: None,
                 };
@@ -5093,6 +5187,7 @@ mod tests {
 
                 let handle_msg = ExecuteMsg::SetViewingKey {
                     key: vk.clone(),
+                    gas_target: None,
                     padding: None,
                 };
                 let info = mock_info(format!("spender{}", j).as_str(), &[]);
@@ -5278,6 +5373,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "key".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5328,6 +5424,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "key".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5342,6 +5439,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5356,6 +5454,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5370,6 +5469,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5458,6 +5558,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "key".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5467,6 +5568,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "alice_key".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -5476,6 +5578,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "lior_key".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("lior", &[]);
@@ -5485,6 +5588,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "banana_key".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("banana", &[]);
@@ -5508,6 +5612,7 @@ mod tests {
             ]),
 
             entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5522,6 +5627,7 @@ mod tests {
             memo: None,
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5668,6 +5774,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "key".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5681,6 +5788,7 @@ mod tests {
             memo: Some("my burn message".to_string()),
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5698,6 +5806,7 @@ mod tests {
             denom: Option::from("uscrt".to_string()),
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5716,6 +5825,7 @@ mod tests {
             memo: Some("my mint message".to_string()),
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -5727,6 +5837,7 @@ mod tests {
         let handle_msg = ExecuteMsg::Deposit {
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info(
@@ -5750,6 +5861,7 @@ mod tests {
             memo: Some("my transfer message #1".to_string()),
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5765,6 +5877,7 @@ mod tests {
             memo: Some("my transfer message #2".to_string()),
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5780,6 +5893,7 @@ mod tests {
             memo: Some("my transfer message #3".to_string()),
             decoys: None,
             entropy: None,
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5962,6 +6076,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "key".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -5971,6 +6086,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "alice_key".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("alice", &[]);
@@ -5980,6 +6096,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "lior_key".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("lior", &[]);
@@ -5989,6 +6106,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "jhon_key".to_string(),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("jhon", &[]);
@@ -6010,6 +6128,7 @@ mod tests {
                 alice_addr.clone(),
             ]),
             entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -6031,6 +6150,7 @@ mod tests {
                 alice_addr.clone(),
             ]),
             entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -6053,6 +6173,7 @@ mod tests {
                 alice_addr.clone(),
             ]),
             entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("admin", &[]);
@@ -6068,6 +6189,7 @@ mod tests {
                 alice_addr.clone(),
             ]),
             entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info(
@@ -6095,6 +6217,7 @@ mod tests {
                 alice_addr.clone(),
             ]),
             entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -6114,6 +6237,7 @@ mod tests {
                 alice_addr.clone(),
             ]),
             entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);
@@ -6133,6 +6257,7 @@ mod tests {
                 alice_addr.clone(),
             ]),
             entropy: Some(Binary::from_base64("VEVTVFRFU1RURVNUQ0hFQ0tDSEVDSw==").unwrap()),
+            gas_target: None,
             padding: None,
         };
         let info = mock_info("bob", &[]);

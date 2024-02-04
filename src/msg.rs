@@ -95,11 +95,13 @@ pub enum ExecuteMsg {
         denom: Option<String>,
         decoys: Option<Vec<Addr>>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     Deposit {
         decoys: Option<Vec<Addr>>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
 
@@ -110,6 +112,7 @@ pub enum ExecuteMsg {
         memo: Option<String>,
         decoys: Option<Vec<Addr>>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     Send {
@@ -120,16 +123,19 @@ pub enum ExecuteMsg {
         memo: Option<String>,
         decoys: Option<Vec<Addr>>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     BatchTransfer {
         actions: Vec<batch::TransferAction>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     BatchSend {
         actions: Vec<batch::SendAction>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     Burn {
@@ -137,18 +143,22 @@ pub enum ExecuteMsg {
         memo: Option<String>,
         decoys: Option<Vec<Addr>>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     RegisterReceive {
         code_hash: String,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     CreateViewingKey {
         entropy: String,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     SetViewingKey {
         key: String,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
 
@@ -157,12 +167,14 @@ pub enum ExecuteMsg {
         spender: String,
         amount: Uint128,
         expiration: Option<u64>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     DecreaseAllowance {
         spender: String,
         amount: Uint128,
         expiration: Option<u64>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     TransferFrom {
@@ -172,6 +184,7 @@ pub enum ExecuteMsg {
         memo: Option<String>,
         decoys: Option<Vec<Addr>>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     SendFrom {
@@ -183,16 +196,19 @@ pub enum ExecuteMsg {
         memo: Option<String>,
         decoys: Option<Vec<Addr>>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     BatchTransferFrom {
         actions: Vec<batch::TransferFromAction>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     BatchSendFrom {
         actions: Vec<batch::SendFromAction>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     BurnFrom {
@@ -201,11 +217,13 @@ pub enum ExecuteMsg {
         memo: Option<String>,
         decoys: Option<Vec<Addr>>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     BatchBurnFrom {
         actions: Vec<batch::BurnFromAction>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
 
@@ -216,43 +234,57 @@ pub enum ExecuteMsg {
         memo: Option<String>,
         decoys: Option<Vec<Addr>>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     BatchMint {
         actions: Vec<batch::MintAction>,
         entropy: Option<Binary>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     AddMinters {
         minters: Vec<String>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     RemoveMinters {
         minters: Vec<String>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     SetMinters {
         minters: Vec<String>,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
 
     // Admin
     ChangeAdmin {
         address: String,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     SetContractStatus {
         level: ContractStatusLevel,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
     /// Add deposit/redeem support for these coin denoms
-    AddSupportedDenoms { denoms: Vec<String> },
+    AddSupportedDenoms {
+        denoms: Vec<String>,
+        gas_target: Option<u32>,
+    },
     /// Remove deposit/redeem support for these coin denoms
-    RemoveSupportedDenoms { denoms: Vec<String> },
+    RemoveSupportedDenoms {
+        denoms: Vec<String>,
+        gas_target: Option<u32>,
+    },
 
     // Permit
     RevokePermit {
         permit_name: String,
+        gas_target: Option<u32>,
         padding: Option<String>,
     },
 }
@@ -326,6 +358,55 @@ fn get_min_decoys_count<T: HasDecoy>(actions: &[T]) -> usize {
         0
     } else {
         min_decoys_count
+    }
+}
+
+pub trait Evaporator {
+    fn evaporate_to_target(&self, api: &dyn Api) -> StdResult<()>;
+}
+
+impl Evaporator for ExecuteMsg {
+    fn evaporate_to_target(&self, api: &dyn Api) -> StdResult<()> {
+        match self {
+            ExecuteMsg::Redeem { gas_target, .. }
+            | ExecuteMsg::Deposit { gas_target, .. }
+            | ExecuteMsg::Transfer { gas_target, .. }
+            | ExecuteMsg::Send { gas_target, .. }
+            | ExecuteMsg::BatchTransfer { gas_target, .. }
+            | ExecuteMsg::BatchSend { gas_target, .. }
+            | ExecuteMsg::Burn { gas_target, .. }
+            | ExecuteMsg::RegisterReceive { gas_target, .. }
+            | ExecuteMsg::CreateViewingKey { gas_target, .. }
+            | ExecuteMsg::SetViewingKey { gas_target, .. }
+            | ExecuteMsg::IncreaseAllowance { gas_target, .. }
+            | ExecuteMsg::DecreaseAllowance { gas_target, .. }
+            | ExecuteMsg::TransferFrom { gas_target, .. }
+            | ExecuteMsg::SendFrom { gas_target, .. }
+            | ExecuteMsg::BatchTransferFrom { gas_target, .. }
+            | ExecuteMsg::BatchSendFrom { gas_target, .. }
+            | ExecuteMsg::BurnFrom { gas_target, .. }
+            | ExecuteMsg::BatchBurnFrom { gas_target, .. }
+            | ExecuteMsg::Mint { gas_target, .. }
+            | ExecuteMsg::BatchMint { gas_target, .. }
+            | ExecuteMsg::AddMinters { gas_target, .. }
+            | ExecuteMsg::RemoveMinters { gas_target, .. }
+            | ExecuteMsg::SetMinters { gas_target, .. }
+            | ExecuteMsg::ChangeAdmin { gas_target, .. }
+            | ExecuteMsg::SetContractStatus { gas_target, .. }
+            | ExecuteMsg::AddSupportedDenoms { gas_target, .. }
+            | ExecuteMsg::RemoveSupportedDenoms { gas_target, .. }
+            | ExecuteMsg::RevokePermit { gas_target, .. } => match gas_target {
+                Some(gas_target) => {
+                    let gas_used = api.check_gas()? as u32;
+                    if gas_used < *gas_target {
+                        let evaporate_amount = gas_target - gas_used;
+                        api.gas_evaporate(evaporate_amount)?;
+                    }
+                    Ok(())
+                }
+                None => Ok(()),
+            },
+        }
     }
 }
 
