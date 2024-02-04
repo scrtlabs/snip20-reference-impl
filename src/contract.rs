@@ -12,8 +12,9 @@ use secret_toolkit_crypto::{sha_256, ContractPrng, SHA256_HASH_SIZE};
 
 use crate::batch;
 use crate::msg::{
-    AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, Decoyable, Evaporator, ExecuteAnswer, 
-    ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
+    AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, Decoyable, Evaporator,
+    ExecuteAnswer, ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit,
+    ResponseStatus::Success,
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
@@ -2922,7 +2923,10 @@ mod tests {
                     chain_id: "cosmos-testnet-14002".to_string(),
                     random: None,
                 },
-                transaction: Some(TransactionInfo { index: 3, hash: "".to_string() }),
+                transaction: Some(TransactionInfo {
+                    index: 3,
+                    hash: "".to_string(),
+                }),
                 contract: ContractInfo {
                     address: Addr::unchecked(MOCK_CONTRACT_ADDR.to_string()),
                     code_hash: "".to_string(),

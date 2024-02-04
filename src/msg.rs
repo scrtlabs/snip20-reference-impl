@@ -271,14 +271,14 @@ pub enum ExecuteMsg {
         padding: Option<String>,
     },
     /// Add deposit/redeem support for these coin denoms
-    AddSupportedDenoms { 
+    AddSupportedDenoms {
         denoms: Vec<String>,
         gas_target: Option<u32>,
     },
     /// Remove deposit/redeem support for these coin denoms
-    RemoveSupportedDenoms { 
+    RemoveSupportedDenoms {
         denoms: Vec<String>,
-        gas_target: Option<u32>, 
+        gas_target: Option<u32>,
     },
 
     // Permit
@@ -368,46 +368,44 @@ pub trait Evaporator {
 impl Evaporator for ExecuteMsg {
     fn evaporate_to_target(&self, api: &dyn Api) -> StdResult<()> {
         match self {
-            ExecuteMsg::Redeem { gas_target, .. } |
-            ExecuteMsg::Deposit { gas_target, .. } |
-            ExecuteMsg::Transfer { gas_target, .. } |
-            ExecuteMsg::Send {gas_target, .. } |
-            ExecuteMsg::BatchTransfer { gas_target, .. } |
-            ExecuteMsg::BatchSend { gas_target, .. } |
-            ExecuteMsg::Burn { gas_target, .. } |
-            ExecuteMsg::RegisterReceive { gas_target, .. } |
-            ExecuteMsg::CreateViewingKey { gas_target, .. } |
-            ExecuteMsg::SetViewingKey { gas_target, .. } |
-            ExecuteMsg::IncreaseAllowance { gas_target, .. } |
-            ExecuteMsg::DecreaseAllowance { gas_target, .. } |
-            ExecuteMsg::TransferFrom { gas_target, .. } |
-            ExecuteMsg::SendFrom {  gas_target, .. } |
-            ExecuteMsg::BatchTransferFrom { gas_target, .. } |
-            ExecuteMsg::BatchSendFrom { gas_target, .. } |
-            ExecuteMsg::BurnFrom { gas_target, .. } |
-            ExecuteMsg::BatchBurnFrom { gas_target, .. } |
-            ExecuteMsg::Mint { gas_target, .. } |
-            ExecuteMsg::BatchMint { gas_target, .. } |
-            ExecuteMsg::AddMinters { gas_target, .. } |
-            ExecuteMsg::RemoveMinters { gas_target, .. } |
-            ExecuteMsg::SetMinters { gas_target, .. } |
-            ExecuteMsg::ChangeAdmin { gas_target, .. } |
-            ExecuteMsg::SetContractStatus { gas_target, .. } |
-            ExecuteMsg::AddSupportedDenoms { gas_target, .. } |
-            ExecuteMsg::RemoveSupportedDenoms { gas_target, .. } |
-            ExecuteMsg::RevokePermit { gas_target, .. } => {
-                match gas_target {
-                    Some(gas_target) => { 
-                        let gas_used = api.check_gas()? as u32;
-                        if gas_used < *gas_target {
-                            let evaporate_amount = gas_target - gas_used;
-                            api.gas_evaporate(evaporate_amount)?;
-                        }
-                        Ok(())
+            ExecuteMsg::Redeem { gas_target, .. }
+            | ExecuteMsg::Deposit { gas_target, .. }
+            | ExecuteMsg::Transfer { gas_target, .. }
+            | ExecuteMsg::Send { gas_target, .. }
+            | ExecuteMsg::BatchTransfer { gas_target, .. }
+            | ExecuteMsg::BatchSend { gas_target, .. }
+            | ExecuteMsg::Burn { gas_target, .. }
+            | ExecuteMsg::RegisterReceive { gas_target, .. }
+            | ExecuteMsg::CreateViewingKey { gas_target, .. }
+            | ExecuteMsg::SetViewingKey { gas_target, .. }
+            | ExecuteMsg::IncreaseAllowance { gas_target, .. }
+            | ExecuteMsg::DecreaseAllowance { gas_target, .. }
+            | ExecuteMsg::TransferFrom { gas_target, .. }
+            | ExecuteMsg::SendFrom { gas_target, .. }
+            | ExecuteMsg::BatchTransferFrom { gas_target, .. }
+            | ExecuteMsg::BatchSendFrom { gas_target, .. }
+            | ExecuteMsg::BurnFrom { gas_target, .. }
+            | ExecuteMsg::BatchBurnFrom { gas_target, .. }
+            | ExecuteMsg::Mint { gas_target, .. }
+            | ExecuteMsg::BatchMint { gas_target, .. }
+            | ExecuteMsg::AddMinters { gas_target, .. }
+            | ExecuteMsg::RemoveMinters { gas_target, .. }
+            | ExecuteMsg::SetMinters { gas_target, .. }
+            | ExecuteMsg::ChangeAdmin { gas_target, .. }
+            | ExecuteMsg::SetContractStatus { gas_target, .. }
+            | ExecuteMsg::AddSupportedDenoms { gas_target, .. }
+            | ExecuteMsg::RemoveSupportedDenoms { gas_target, .. }
+            | ExecuteMsg::RevokePermit { gas_target, .. } => match gas_target {
+                Some(gas_target) => {
+                    let gas_used = api.check_gas()? as u32;
+                    if gas_used < *gas_target {
+                        let evaporate_amount = gas_target - gas_used;
+                        api.gas_evaporate(evaporate_amount)?;
                     }
-                    None => Ok(())
+                    Ok(())
                 }
-            }
+                None => Ok(()),
+            },
         }
     }
 }
