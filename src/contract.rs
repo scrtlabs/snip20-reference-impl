@@ -2674,8 +2674,9 @@ mod tests {
                     height: 12_345,
                     time: Timestamp::from_seconds(1_571_797_420),
                     chain_id: "cosmos-testnet-14002".to_string(),
+                    random: None,
                 },
-                transaction: Some(TransactionInfo { index: 3 }),
+                transaction: Some(TransactionInfo { index: 3, hash: "1010".to_string()}),
                 contract: ContractInfo {
                     address: Addr::unchecked(MOCK_CONTRACT_ADDR.to_string()),
                     code_hash: "".to_string(),
