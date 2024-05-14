@@ -139,75 +139,25 @@ impl BalancesStore {
         amount_to_be_updated: u128,
         should_add: bool,
         operation_name: &str,
-        decoys: &Option<Vec<Addr>>,
-        account_random_pos: &Option<usize>,
     ) -> StdResult<()> {
-        match decoys {
-            None => {
-                let mut balance = Self::load(store, account);
-                balance = match should_add {
-                    true => {
-                        safe_add(&mut balance, amount_to_be_updated);
-                        balance
-                    }
-                    false => {
-                        if let Some(balance) = balance.checked_sub(amount_to_be_updated) {
-                            balance
-                        } else {
-                            return Err(StdError::generic_err(format!(
-                                "insufficient funds to {operation_name}: balance={balance}, required={amount_to_be_updated}",
-                            )));
-                        }
-                    }
-                };
-
-                Self::save(store, account, balance)
+        let mut balance = Self::load(store, account);
+        balance = match should_add {
+            true => {
+                safe_add(&mut balance, amount_to_be_updated);
+                balance
             }
-            Some(decoys_vec) => {
-                // It should always be set when decoys_vec is set
-                let account_pos = account_random_pos.unwrap();
-
-                let mut accounts_to_be_written: Vec<&Addr> = vec![];
-
-                let (first_part, second_part) = decoys_vec.split_at(account_pos);
-                accounts_to_be_written.extend(first_part);
-                accounts_to_be_written.push(account);
-                accounts_to_be_written.extend(second_part);
-
-                // In a case where the account is also a decoy somehow
-                let mut was_account_updated = false;
-
-                for acc in accounts_to_be_written.iter() {
-                    // Always load account balance to obfuscate the real account
-                    // Please note that decoys are not always present in the DB. In this case it is ok beacuse load will return 0.
-                    let mut acc_balance = Self::load(store, acc);
-                    let mut new_balance = acc_balance;
-
-                    if *acc == account && !was_account_updated {
-                        was_account_updated = true;
-                        new_balance = match should_add {
-                            true => {
-                                safe_add(&mut acc_balance, amount_to_be_updated);
-                                acc_balance
-                            }
-                            false => {
-                                if let Some(balance) = acc_balance.checked_sub(amount_to_be_updated)
-                                {
-                                    balance
-                                } else {
-                                    return Err(StdError::generic_err(format!(
-                                        "insufficient funds to {operation_name}: balance={acc_balance}, required={amount_to_be_updated}",
-                                    )));
-                                }
-                            }
-                        };
-                    }
-                    Self::save(store, acc, new_balance)?;
+            false => {
+                if let Some(balance) = balance.checked_sub(amount_to_be_updated) {
+                    balance
+                } else {
+                    return Err(StdError::generic_err(format!(
+                        "insufficient funds to {operation_name}: balance={balance}, required={amount_to_be_updated}",
+                    )));
                 }
-
-                Ok(())
             }
-        }
+        };
+
+        Self::save(store, account, balance)
     }
 }
 
