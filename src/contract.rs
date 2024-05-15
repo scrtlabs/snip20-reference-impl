@@ -86,6 +86,7 @@ pub fn instantiate(
 
             store_mint(
                 deps.storage,
+                deps.api,
                 admin.clone(),
                 balance_address,
                 balance.amount,
@@ -590,6 +591,7 @@ pub fn query_transfers(
 
     let (txs, total) = StoredLegacyTransfer::get_transfers(
         deps.storage,
+        deps.api,
         account,
         page,
         page_size,
@@ -615,7 +617,13 @@ pub fn query_transactions(
     let account = Addr::unchecked(account);
 
     let (txs, total) =
-        StoredExtendedTx::get_txs(deps.storage, account, page, page_size)?;
+        StoredExtendedTx::get_txs(
+            deps.storage, 
+            deps.api,
+            account, 
+            page, 
+            page_size
+        )?;
 
     let result = QueryAnswer::TransactionHistory {
         txs,
@@ -733,6 +741,7 @@ fn try_mint_impl(
 
     store_mint(
         deps.storage,
+        deps.api,
         minter,
         recipient,
         amount,
@@ -1117,6 +1126,7 @@ fn try_transfer_impl(
     let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
         deps.storage,
+        deps.api,
         sender,
         sender,
         recipient,
@@ -1367,6 +1377,7 @@ fn try_transfer_from_impl(
     let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
         deps.storage,
+        deps.api,
         owner,
         spender,
         recipient,
@@ -1577,6 +1588,7 @@ fn try_burn_from(
 
     store_burn(
         deps.storage,
+        deps.api,
         owner,
         info.sender,
         amount,
@@ -1628,6 +1640,7 @@ fn try_batch_burn_from(
 
         store_burn(
             deps.storage,
+            deps.api,
             owner,
             spender.clone(),
             action.amount,
@@ -1832,6 +1845,7 @@ fn try_burn(
 
     store_burn(
         deps.storage,
+        deps.api,
         info.sender.clone(),
         info.sender,
         amount,

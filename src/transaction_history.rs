@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Coin, StdError, StdResult, Storage, Uint128};
+use cosmwasm_std::{Addr, Api, CanonicalAddr, Coin, StdError, StdResult, Storage, Uint128};
 
 use secret_toolkit::storage::AppendStore;
 
@@ -96,9 +96,9 @@ impl From<StoredCoin> for Coin {
 #[serde(rename_all = "snake_case")]
 pub struct StoredLegacyTransfer {
     id: u64,
-    from: Addr,
-    sender: Addr,
-    receiver: Addr,
+    from: CanonicalAddr,
+    sender: CanonicalAddr,
+    receiver: CanonicalAddr,
     coins: StoredCoin,
     memo: Option<String>,
     block_time: u64,
@@ -107,12 +107,12 @@ pub struct StoredLegacyTransfer {
 static TRANSFERS: AppendStore<StoredLegacyTransfer> = AppendStore::new(PREFIX_TRANSFERS);
 
 impl StoredLegacyTransfer {
-    pub fn into_humanized(self) -> StdResult<Tx> {
+    pub fn into_humanized(self, api: &dyn Api) -> StdResult<Tx> {
         let tx = Tx {
             id: self.id,
-            from: self.from,
-            sender: self.sender,
-            receiver: self.receiver,
+            from: api.addr_humanize(&self.from)?,
+            sender: api.addr_humanize(&self.sender)?,
+            receiver: api.addr_humanize(&self.receiver)?,
             coins: self.coins.into(),
             memo: self.memo,
             block_time: Some(self.block_time),
@@ -132,6 +132,7 @@ impl StoredLegacyTransfer {
 
     pub fn get_transfers(
         storage: &dyn Storage,
+        api: &dyn Api,
         for_address: Addr,
         page: u32,
         page_size: u32,
@@ -148,7 +149,7 @@ impl StoredLegacyTransfer {
 
         // The `and_then` here flattens the `StdResult<StdResult<ExtendedTx>>` to an `StdResult<ExtendedTx>`
         let transfers: StdResult<Vec<Tx>> = transfer_iter
-            .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
+            .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
             .collect();
         transfers.map(|txs| (txs, len))
     }
@@ -189,13 +190,13 @@ impl TxCode {
 #[serde(rename_all = "snake_case")]
 struct StoredTxAction {
     tx_type: u8,
-    address1: Option<Addr>,
-    address2: Option<Addr>,
-    address3: Option<Addr>,
+    address1: Option<CanonicalAddr>,
+    address2: Option<CanonicalAddr>,
+    address3: Option<CanonicalAddr>,
 }
 
 impl StoredTxAction {
-    fn transfer(from: Addr, sender: Addr, recipient: Addr) -> Self {
+    fn transfer(from: CanonicalAddr, sender: CanonicalAddr, recipient: CanonicalAddr) -> Self {
         Self {
             tx_type: TxCode::Transfer.to_u8(),
             address1: Some(from),
@@ -203,7 +204,7 @@ impl StoredTxAction {
             address3: Some(recipient),
         }
     }
-    fn mint(minter: Addr, recipient: Addr) -> Self {
+    fn mint(minter: CanonicalAddr, recipient: CanonicalAddr) -> Self {
         Self {
             tx_type: TxCode::Mint.to_u8(),
             address1: Some(minter),
@@ -211,7 +212,7 @@ impl StoredTxAction {
             address3: None,
         }
     }
-    fn burn(owner: Addr, burner: Addr) -> Self {
+    fn burn(owner: CanonicalAddr, burner: CanonicalAddr) -> Self {
         Self {
             tx_type: TxCode::Burn.to_u8(),
             address1: Some(burner),
@@ -236,7 +237,7 @@ impl StoredTxAction {
         }
     }
 
-    fn into_tx_action(self) -> StdResult<TxAction> {
+    fn into_tx_action(self, api: &dyn Api) -> StdResult<TxAction> {
         let transfer_addr_err = || {
             StdError::generic_err(
                 "Missing address in stored Transfer transaction. Storage is corrupt",
@@ -256,20 +257,26 @@ impl StoredTxAction {
                 let sender = self.address2.ok_or_else(transfer_addr_err)?;
                 let recipient = self.address3.ok_or_else(transfer_addr_err)?;
                 TxAction::Transfer {
-                    from,
-                    sender,
-                    recipient,
+                    from: api.addr_humanize(&from)?,
+                    sender: api.addr_humanize(&sender)?,
+                    recipient: api.addr_humanize(&recipient)?,
                 }
             }
             TxCode::Mint => {
                 let minter = self.address1.ok_or_else(mint_addr_err)?;
                 let recipient = self.address2.ok_or_else(mint_addr_err)?;
-                TxAction::Mint { minter, recipient }
+                TxAction::Mint { 
+                    minter: api.addr_humanize(&minter)?, 
+                    recipient: api.addr_humanize(&recipient)?
+                }
             }
             TxCode::Burn => {
                 let burner = self.address1.ok_or_else(burn_addr_err)?;
                 let owner = self.address2.ok_or_else(burn_addr_err)?;
-                TxAction::Burn { burner, owner }
+                TxAction::Burn { 
+                    burner: api.addr_humanize(&burner)?,
+                    owner: api.addr_humanize(&owner)? 
+                }
             }
             TxCode::Deposit => TxAction::Deposit {},
             TxCode::Redeem => TxAction::Redeem {},
@@ -310,10 +317,10 @@ impl StoredExtendedTx {
         }
     }
 
-    fn into_humanized(self) -> StdResult<ExtendedTx> {
+    fn into_humanized(self, api: &dyn Api) -> StdResult<ExtendedTx> {
         Ok(ExtendedTx {
             id: self.id,
-            action: self.action.into_tx_action()?,
+            action: self.action.into_tx_action(api)?,
             coins: self.coins.into(),
             memo: self.memo,
             block_time: self.block_time,
@@ -344,6 +351,7 @@ impl StoredExtendedTx {
 
     pub fn get_txs(
         storage: &dyn Storage,
+        api: &dyn Api,
         for_address: Addr,
         page: u32,
         page_size: u32,
@@ -361,7 +369,7 @@ impl StoredExtendedTx {
 
         // The `and_then` here flattens the `StdResult<StdResult<ExtendedTx>>` to an `StdResult<ExtendedTx>`
         let txs: StdResult<Vec<ExtendedTx>> = tx_iter
-            .map(|tx| tx.map(|tx| tx.into_humanized()).and_then(|x| x))
+            .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
             .collect();
         txs.map(|txs| (txs, len))
     }
@@ -378,6 +386,7 @@ fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
 #[allow(clippy::too_many_arguments)] // We just need them
 pub fn store_transfer(
     store: &mut dyn Storage,
+    api: &dyn Api,
     owner: &Addr,
     sender: &Addr,
     receiver: &Addr,
@@ -390,9 +399,9 @@ pub fn store_transfer(
     let coins = Coin { denom, amount };
     let transfer = StoredLegacyTransfer {
         id,
-        from: owner.clone(),
-        sender: sender.clone(),
-        receiver: receiver.clone(),
+        from: api.addr_canonicalize(owner.as_str())?,
+        sender: api.addr_canonicalize(sender.as_str())?,
+        receiver: api.addr_canonicalize(receiver.as_str())?,
         coins: coins.into(),
         memo,
         block_time: block.time.seconds(),
@@ -422,6 +431,7 @@ pub fn store_transfer(
 
 pub fn store_mint(
     store: &mut dyn Storage,
+    api: &dyn Api,
     minter: Addr,
     recipient: Addr,
     amount: Uint128,
@@ -431,7 +441,10 @@ pub fn store_mint(
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
-    let action = StoredTxAction::mint(minter.clone(), recipient.clone());
+    let action = StoredTxAction::mint(
+        api.addr_canonicalize(minter.as_str())?, 
+        api.addr_canonicalize(recipient.as_str())?
+    );
     let tx = StoredExtendedTx::new(id, action, coins, memo, block);
 
     if minter != recipient {
@@ -446,6 +459,7 @@ pub fn store_mint(
 #[allow(clippy::too_many_arguments)]
 pub fn store_burn(
     store: &mut dyn Storage,
+    api: &dyn Api,
     owner: Addr,
     burner: Addr,
     amount: Uint128,
@@ -455,7 +469,10 @@ pub fn store_burn(
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
-    let action = StoredTxAction::burn(owner.clone(), burner.clone());
+    let action = StoredTxAction::burn(
+        api.addr_canonicalize(owner.as_str())?, 
+        api.addr_canonicalize(burner.as_str())?
+    );
     let tx = StoredExtendedTx::new(id, action, coins, memo, block);
 
     if burner != owner {
