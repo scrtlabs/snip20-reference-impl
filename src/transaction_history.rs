@@ -8,26 +8,6 @@ use secret_toolkit::storage::AppendStore;
 use crate::state::TX_COUNT;
 
 const PREFIX_TXS: &[u8] = b"transactions";
-const PREFIX_TRANSFERS: &[u8] = b"transfers";
-
-// Note that id is a globally incrementing counter.
-// Since it's 64 bits long, even at 50 tx/s it would take
-// over 11 billion years for it to rollback. I'm pretty sure
-// we'll have bigger issues by then.
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
-pub struct Tx {
-    pub id: u64,
-    pub from: Addr,
-    pub sender: Addr,
-    pub receiver: Addr,
-    pub coins: Coin,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub memo: Option<String>,
-    // The block time and block height are optional so that the JSON schema
-    // reflects that some SNIP-20 contracts may not include this info.
-    pub block_time: Option<u64>,
-    pub block_height: Option<u64>,
-}
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -55,7 +35,7 @@ pub enum TxAction {
 // we'll have bigger issues by then.
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub struct ExtendedTx {
+pub struct Tx {
     pub id: u64,
     pub action: TxAction,
     pub coins: Coin,
@@ -88,70 +68,6 @@ impl From<StoredCoin> for Coin {
             denom: value.denom,
             amount: Uint128::new(value.amount),
         }
-    }
-}
-
-/// This type is the stored version of the legacy transfers
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
-pub struct StoredLegacyTransfer {
-    id: u64,
-    from: CanonicalAddr,
-    sender: CanonicalAddr,
-    receiver: CanonicalAddr,
-    coins: StoredCoin,
-    memo: Option<String>,
-    block_time: u64,
-    block_height: u64,
-}
-static TRANSFERS: AppendStore<StoredLegacyTransfer> = AppendStore::new(PREFIX_TRANSFERS);
-
-impl StoredLegacyTransfer {
-    pub fn into_humanized(self, api: &dyn Api) -> StdResult<Tx> {
-        let tx = Tx {
-            id: self.id,
-            from: api.addr_humanize(&self.from)?,
-            sender: api.addr_humanize(&self.sender)?,
-            receiver: api.addr_humanize(&self.receiver)?,
-            coins: self.coins.into(),
-            memo: self.memo,
-            block_time: Some(self.block_time),
-            block_height: Some(self.block_height),
-        };
-        Ok(tx)
-    }
-
-    fn append_transfer(
-        store: &mut dyn Storage,
-        tx: &StoredLegacyTransfer,
-        for_address: &Addr,
-    ) -> StdResult<()> {
-        let current_addr_store = TRANSFERS.add_suffix(for_address.as_bytes());
-        current_addr_store.push(store, tx)
-    }
-
-    pub fn get_transfers(
-        storage: &dyn Storage,
-        api: &dyn Api,
-        for_address: Addr,
-        page: u32,
-        page_size: u32,
-    ) -> StdResult<(Vec<Tx>, u64)> {
-        let current_addr_store = TRANSFERS.add_suffix(for_address.as_bytes());
-        let len = current_addr_store.get_len(storage)? as u64;
-        // Take `page_size` txs starting from the latest tx, potentially skipping `page * page_size`
-        // txs from the start.
-        let transfer_iter = current_addr_store
-            .iter(storage)?
-            .rev()
-            .skip((page * page_size) as _)
-            .take(page_size as _);
-
-        // The `and_then` here flattens the `StdResult<StdResult<ExtendedTx>>` to an `StdResult<ExtendedTx>`
-        let transfers: StdResult<Vec<Tx>> = transfer_iter
-            .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
-            .collect();
-        transfers.map(|txs| (txs, len))
     }
 }
 
@@ -286,11 +202,11 @@ impl StoredTxAction {
     }
 }
 
-static TRANSACTIONS: AppendStore<StoredExtendedTx> = AppendStore::new(PREFIX_TXS);
+static TRANSACTIONS: AppendStore<StoredTx> = AppendStore::new(PREFIX_TXS);
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
-pub struct StoredExtendedTx {
+pub struct StoredTx {
     id: u64,
     action: StoredTxAction,
     coins: StoredCoin,
@@ -299,7 +215,7 @@ pub struct StoredExtendedTx {
     block_height: u64,
 }
 
-impl StoredExtendedTx {
+impl StoredTx {
     fn new(
         id: u64,
         action: StoredTxAction,
@@ -317,8 +233,8 @@ impl StoredExtendedTx {
         }
     }
 
-    fn into_humanized(self, api: &dyn Api) -> StdResult<ExtendedTx> {
-        Ok(ExtendedTx {
+    fn into_humanized(self, api: &dyn Api) -> StdResult<Tx> {
+        Ok(Tx {
             id: self.id,
             action: self.action.into_tx_action(api)?,
             coins: self.coins.into(),
@@ -328,21 +244,9 @@ impl StoredExtendedTx {
         })
     }
 
-    fn from_stored_legacy_transfer(transfer: StoredLegacyTransfer) -> Self {
-        let action = StoredTxAction::transfer(transfer.from, transfer.sender, transfer.receiver);
-        Self {
-            id: transfer.id,
-            action,
-            coins: transfer.coins,
-            memo: transfer.memo,
-            block_time: transfer.block_time,
-            block_height: transfer.block_height,
-        }
-    }
-
     fn append_tx(
         store: &mut dyn Storage,
-        tx: &StoredExtendedTx,
+        tx: &StoredTx,
         for_address: &Addr,
     ) -> StdResult<()> {
         let current_addr_store = TRANSACTIONS.add_suffix(for_address.as_bytes());
@@ -355,7 +259,7 @@ impl StoredExtendedTx {
         for_address: Addr,
         page: u32,
         page_size: u32,
-    ) -> StdResult<(Vec<ExtendedTx>, u64)> {
+    ) -> StdResult<(Vec<Tx>, u64)> {
         let current_addr_store = TRANSACTIONS.add_suffix(for_address.as_bytes());
         let len = current_addr_store.get_len(storage)? as u64;
 
@@ -367,8 +271,8 @@ impl StoredExtendedTx {
             .skip((page * page_size) as _)
             .take(page_size as _);
 
-        // The `and_then` here flattens the `StdResult<StdResult<ExtendedTx>>` to an `StdResult<ExtendedTx>`
-        let txs: StdResult<Vec<ExtendedTx>> = tx_iter
+        // The `and_then` here flattens the `StdResult<StdResult<Tx>>` to an `StdResult<Tx>`
+        let txs: StdResult<Vec<Tx>> = tx_iter
             .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
             .collect();
         txs.map(|txs| (txs, len))
@@ -397,34 +301,34 @@ pub fn store_transfer(
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
-    let transfer = StoredLegacyTransfer {
+    let action = StoredTxAction::transfer(
+        api.addr_canonicalize(owner.as_str())?, 
+        api.addr_canonicalize(sender.as_str())?, 
+        api.addr_canonicalize(receiver.as_str())?
+    );
+    let tx = StoredTx {
         id,
-        from: api.addr_canonicalize(owner.as_str())?,
-        sender: api.addr_canonicalize(sender.as_str())?,
-        receiver: api.addr_canonicalize(receiver.as_str())?,
+        action,
         coins: coins.into(),
         memo,
         block_time: block.time.seconds(),
         block_height: block.height,
     };
-    let tx = StoredExtendedTx::from_stored_legacy_transfer(transfer.clone());
 
     // Write to the owners history if it's different from the other two addresses
+    // TODO: check if we want to always write this. 
     if owner != sender && owner != receiver {
         // cosmwasm_std::debug_print("saving transaction history for owner");
-        StoredExtendedTx::append_tx(store, &tx, owner)?;
-        StoredLegacyTransfer::append_transfer(store, &transfer, owner)?;
+        StoredTx::append_tx(store, &tx, owner)?;
     }
     // Write to the sender's history if it's different from the receiver
     if sender != receiver {
         // cosmwasm_std::debug_print("saving transaction history for sender");
-        StoredExtendedTx::append_tx(store, &tx, sender)?;
-        StoredLegacyTransfer::append_transfer(store, &transfer, sender)?;
+        StoredTx::append_tx(store, &tx, sender)?;
     }
     // Always write to the recipient's history
     // cosmwasm_std::debug_print("saving transaction history for receiver");
-    StoredExtendedTx::append_tx(store, &tx, receiver)?;
-    StoredLegacyTransfer::append_transfer(store, &transfer, receiver)?;
+    StoredTx::append_tx(store, &tx, receiver)?;
 
     Ok(())
 }
@@ -445,13 +349,13 @@ pub fn store_mint(
         api.addr_canonicalize(minter.as_str())?, 
         api.addr_canonicalize(recipient.as_str())?
     );
-    let tx = StoredExtendedTx::new(id, action, coins, memo, block);
+    let tx = StoredTx::new(id, action, coins, memo, block);
 
     if minter != recipient {
-        StoredExtendedTx::append_tx(store, &tx, &recipient)?;
+        StoredTx::append_tx(store, &tx, &recipient)?;
     }
 
-    StoredExtendedTx::append_tx(store, &tx, &minter)?;
+    StoredTx::append_tx(store, &tx, &minter)?;
 
     Ok(())
 }
@@ -473,13 +377,13 @@ pub fn store_burn(
         api.addr_canonicalize(owner.as_str())?, 
         api.addr_canonicalize(burner.as_str())?
     );
-    let tx = StoredExtendedTx::new(id, action, coins, memo, block);
+    let tx = StoredTx::new(id, action, coins, memo, block);
 
     if burner != owner {
-        StoredExtendedTx::append_tx(store, &tx, &owner)?;
+        StoredTx::append_tx(store, &tx, &owner)?;
     }
 
-    StoredExtendedTx::append_tx(store, &tx, &burner)?;
+    StoredTx::append_tx(store, &tx, &burner)?;
 
     Ok(())
 }
@@ -494,9 +398,9 @@ pub fn store_deposit(
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
     let action = StoredTxAction::deposit();
-    let tx = StoredExtendedTx::new(id, action, coins, None, block);
+    let tx = StoredTx::new(id, action, coins, None, block);
 
-    StoredExtendedTx::append_tx(store, &tx, recipient)?;
+    StoredTx::append_tx(store, &tx, recipient)?;
 
     Ok(())
 }
@@ -511,9 +415,9 @@ pub fn store_redeem(
     let id = increment_tx_count(store)?;
     let coins = Coin { denom, amount };
     let action = StoredTxAction::redeem();
-    let tx = StoredExtendedTx::new(id, action, coins, None, block);
+    let tx = StoredTx::new(id, action, coins, None, block);
 
-    StoredExtendedTx::append_tx(store, &tx, redeemer)?;
+    StoredTx::append_tx(store, &tx, redeemer)?;
 
     Ok(())
 }

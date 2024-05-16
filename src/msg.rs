@@ -3,8 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::batch;
-use crate::transaction_history::{ExtendedTx, Tx};
+use crate::{batch, transaction_history::Tx};
 use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
 
@@ -495,12 +494,8 @@ pub enum QueryAnswer {
     Balance {
         amount: Uint128,
     },
-    TransferHistory {
-        txs: Vec<Tx>,
-        total: Option<u64>,
-    },
     TransactionHistory {
-        txs: Vec<ExtendedTx>,
+        txs: Vec<Tx>,
         total: Option<u64>,
     },
     ViewingKeyError {

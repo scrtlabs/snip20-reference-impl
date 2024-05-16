@@ -19,9 +19,9 @@ use crate::state::{
     safe_add, AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore,
     CONFIG, CONTRACT_STATUS, TOTAL_SUPPLY,
 };
+use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
-    store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredExtendedTx,
-    StoredLegacyTransfer,
+    store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredTx,
 };
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -362,23 +362,8 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
 
             query_balance(deps, account)
         }
-        QueryWithPermit::TransferHistory {
-            page,
-            page_size,
-        } => {
-            if !permit.check_permission(&TokenPermissions::History) {
-                return Err(StdError::generic_err(format!(
-                    "No permission to query history, got permissions {:?}",
-                    permit.params.permissions
-                )));
-            }
-
-            query_transfers(
-                deps,
-                account,
-                page.unwrap_or(0),
-                page_size,
-            )
+        QueryWithPermit::TransferHistory { .. } => {
+            return Err(StdError::generic_err(TRANSFER_HISTORY_UNSUPPORTED_MSG));
         }
         QueryWithPermit::TransactionHistory {
             page,
@@ -471,17 +456,9 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
             return match msg {
                 // Base
                 QueryMsg::Balance { address, .. } => query_balance(deps, address),
-                QueryMsg::TransferHistory {
-                    address,
-                    page,
-                    page_size,
-                    ..
-                } => query_transfers(
-                    deps,
-                    address,
-                    page.unwrap_or(0),
-                    page_size,
-                ),
+                QueryMsg::TransferHistory { .. } => {
+                    return Err(StdError::generic_err(TRANSFER_HISTORY_UNSUPPORTED_MSG));
+                },
                 QueryMsg::TransactionHistory {
                     address,
                     page,
@@ -577,33 +554,6 @@ fn query_contract_status(storage: &dyn Storage) -> StdResult<Binary> {
     })
 }
 
-pub fn query_transfers(
-    deps: Deps,
-    account: String,
-    page: u32,
-    page_size: u32,
-) -> StdResult<Binary> {
-    // Notice that if query_transfers() was called by a viewking-key call, the address of 'account'
-    // has already been validated.
-    // The address of 'account' should not be validated if query_transfers() was called by a permit
-    // call, for compatibility with non-Secret addresses.
-    let account = Addr::unchecked(account);
-
-    let (txs, total) = StoredLegacyTransfer::get_transfers(
-        deps.storage,
-        deps.api,
-        account,
-        page,
-        page_size,
-    )?;
-
-    let result = QueryAnswer::TransferHistory {
-        txs,
-        total: Some(total),
-    };
-    to_binary(&result)
-}
-
 pub fn query_transactions(
     deps: Deps,
     account: String,
@@ -617,7 +567,7 @@ pub fn query_transactions(
     let account = Addr::unchecked(account);
 
     let (txs, total) =
-        StoredExtendedTx::get_txs(
+        StoredTx::get_txs(
             deps.storage, 
             deps.api,
             account, 
@@ -5025,120 +4975,6 @@ mod tests {
     }
 
     #[test]
-    fn test_query_transfer_history() {
-        let (init_result, mut deps) = init_helper(vec![InitialBalance {
-            address: "bob".to_string(),
-            amount: Uint128::new(5000),
-        }]);
-        assert!(
-            init_result.is_ok(),
-            "Init failed: {}",
-            init_result.err().unwrap()
-        );
-
-        let handle_msg = ExecuteMsg::SetViewingKey {
-            key: "key".to_string(),
-            padding: None,
-        };
-        let info = mock_info("bob", &[]);
-
-        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
-
-        assert!(ensure_success(handle_result.unwrap()));
-
-        let handle_msg = ExecuteMsg::Transfer {
-            recipient: "alice".to_string(),
-            amount: Uint128::new(1000),
-            memo: None,
-            padding: None,
-        };
-        let info = mock_info("bob", &[]);
-
-        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
-
-        let result = handle_result.unwrap();
-        assert!(ensure_success(result));
-        let handle_msg = ExecuteMsg::Transfer {
-            recipient: "banana".to_string(),
-            amount: Uint128::new(500),
-            memo: None,
-            padding: None,
-        };
-        let info = mock_info("bob", &[]);
-
-        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
-
-        let result = handle_result.unwrap();
-        assert!(ensure_success(result));
-        let handle_msg = ExecuteMsg::Transfer {
-            recipient: "mango".to_string(),
-            amount: Uint128::new(2500),
-            memo: None,
-            padding: None,
-        };
-        let info = mock_info("bob", &[]);
-
-        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
-
-        let result = handle_result.unwrap();
-        assert!(ensure_success(result));
-
-        let query_msg = QueryMsg::TransferHistory {
-            address: "bob".to_string(),
-            key: "key".to_string(),
-            page: None,
-            page_size: 0,
-        };
-        let query_result = query(deps.as_ref(), mock_env(), query_msg);
-        // let a: QueryAnswer = from_binary(&query_result.unwrap()).unwrap();
-        // println!("{:?}", a);
-        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
-            QueryAnswer::TransferHistory { txs, .. } => txs,
-            _ => panic!("Unexpected"),
-        };
-        assert!(transfers.is_empty());
-
-        let query_msg = QueryMsg::TransferHistory {
-            address: "bob".to_string(),
-            key: "key".to_string(),
-            page: None,
-            page_size: 10,
-        };
-        let query_result = query(deps.as_ref(), mock_env(), query_msg);
-        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
-            QueryAnswer::TransferHistory { txs, .. } => txs,
-            _ => panic!("Unexpected"),
-        };
-        assert_eq!(transfers.len(), 3);
-
-        let query_msg = QueryMsg::TransferHistory {
-            address: "bob".to_string(),
-            key: "key".to_string(),
-            page: None,
-            page_size: 2,
-        };
-        let query_result = query(deps.as_ref(), mock_env(), query_msg);
-        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
-            QueryAnswer::TransferHistory { txs, .. } => txs,
-            _ => panic!("Unexpected"),
-        };
-        assert_eq!(transfers.len(), 2);
-
-        let query_msg = QueryMsg::TransferHistory {
-            address: "bob".to_string(),
-            key: "key".to_string(),
-            page: Some(1),
-            page_size: 2,
-        };
-        let query_result = query(deps.as_ref(), mock_env(), query_msg);
-        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
-            QueryAnswer::TransferHistory { txs, .. } => txs,
-            _ => panic!("Unexpected"),
-        };
-        assert_eq!(transfers.len(), 1);
-    }
-
-    #[test]
     fn test_query_transaction_history() {
         let (init_result, mut deps) = init_helper_with_config(
             vec![InitialBalance {
@@ -5267,19 +5103,6 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        let query_msg = QueryMsg::TransferHistory {
-            address: "bob".to_string(),
-            key: "key".to_string(),
-            page: None,
-            page_size: 10,
-        };
-        let query_result = query(deps.as_ref(), mock_env(), query_msg);
-        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
-            QueryAnswer::TransferHistory { txs, .. } => txs,
-            _ => panic!("Unexpected"),
-        };
-        assert_eq!(transfers.len(), 3);
-
         let query_msg = QueryMsg::TransactionHistory {
             address: "bob".to_string(),
             key: "key".to_string(),
@@ -5292,9 +5115,9 @@ mod tests {
             other => panic!("Unexpected: {:?}", other),
         };
 
-        use crate::transaction_history::{ExtendedTx, TxAction};
+        use crate::transaction_history::{Tx, TxAction};
         let expected_transfers = [
-            ExtendedTx {
+            Tx {
                 id: 8,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -5309,7 +5132,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            ExtendedTx {
+            Tx {
                 id: 7,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -5324,7 +5147,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            ExtendedTx {
+            Tx {
                 id: 6,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -5339,7 +5162,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            ExtendedTx {
+            Tx {
                 id: 5,
                 action: TxAction::Deposit {},
                 coins: Coin {
@@ -5350,7 +5173,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            ExtendedTx {
+            Tx {
                 id: 4,
                 action: TxAction::Mint {
                     minter: Addr::unchecked("admin".to_string()),
@@ -5364,7 +5187,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            ExtendedTx {
+            Tx {
                 id: 3,
                 action: TxAction::Redeem {},
                 coins: Coin {
@@ -5375,7 +5198,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            ExtendedTx {
+            Tx {
                 id: 2,
                 action: TxAction::Burn {
                     burner: Addr::unchecked("bob".to_string()),
@@ -5389,7 +5212,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            ExtendedTx {
+            Tx {
                 id: 1,
                 action: TxAction::Mint {
                     minter: Addr::unchecked("admin".to_string()),
