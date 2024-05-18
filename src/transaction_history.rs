@@ -225,7 +225,6 @@ impl StoredTx {
         block: &cosmwasm_std::BlockInfo,
     ) -> Self {
         Self {
-            id,
             action,
             amount: amount.u128(),
             memo,
@@ -234,9 +233,9 @@ impl StoredTx {
         }
     }
 
-    fn into_humanized(self, api: &dyn Api) -> StdResult<Tx> {
+    fn into_humanized(self, api: &dyn Api, id: u64) -> StdResult<Tx> {
         Ok(Tx {
-            id: self.id,
+            id,
             action: self.action.into_tx_action(api)?,
             amount: Uint128::from(self.amount),
             memo: self.memo,
@@ -245,6 +244,7 @@ impl StoredTx {
         })
     }
 
+/*
     fn append_tx(
         store: &mut dyn Storage,
         tx: &StoredTx,
@@ -278,6 +278,7 @@ impl StoredTx {
             .collect();
         txs.map(|txs| (txs, len))
     }
+*/
 }
 
 // Storage functions:
@@ -313,17 +314,17 @@ fn append_new_stored_tx(
 pub fn store_transfer(
     store: &mut dyn Storage,
     api: &dyn Api,
-    owner: &Addr,
-    sender: &Addr,
-    receiver: &Addr,
+    owner: CanonicalAddr,
+    sender: CanonicalAddr,
+    receiver: CanonicalAddr,
     amount: Uint128,
     memo: Option<String>,
     block: &BlockInfo,
 ) -> StdResult<()> {
     let action = StoredTxAction::transfer(
-        api.addr_canonicalize(owner.as_str())?, 
-        api.addr_canonicalize(sender.as_str())?, 
-        api.addr_canonicalize(receiver.as_str())?
+        owner, 
+        sender, 
+        receiver
     );
     let id = append_new_stored_tx(store, &action, amount, memo, block)?;
 
@@ -348,15 +349,15 @@ pub fn store_transfer(
 pub fn store_mint(
     store: &mut dyn Storage,
     api: &dyn Api,
-    minter: Addr,
-    recipient: Addr,
+    minter: CanonicalAddr,
+    recipient: CanonicalAddr,
     amount: Uint128,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let action = StoredTxAction::mint(
-        api.addr_canonicalize(minter.as_str())?, 
-        api.addr_canonicalize(recipient.as_str())?
+        minter, 
+        recipient
     );
     let id = append_new_stored_tx(store, &action, amount, memo, block)?;
 
@@ -373,15 +374,15 @@ pub fn store_mint(
 pub fn store_burn(
     store: &mut dyn Storage,
     api: &dyn Api,
-    owner: Addr,
-    burner: Addr,
+    owner: CanonicalAddr,
+    burner: CanonicalAddr,
     amount: Uint128,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let action = StoredTxAction::burn(
-        api.addr_canonicalize(owner.as_str())?, 
-        api.addr_canonicalize(burner.as_str())?
+        owner, 
+        burner
     );
     let id = append_new_stored_tx(store, &action, amount, memo, block)?;
 
@@ -396,7 +397,7 @@ pub fn store_burn(
 
 pub fn store_deposit(
     store: &mut dyn Storage,
-    recipient: &Addr,
+    recipient: &CanonicalAddr,
     amount: Uint128,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
@@ -410,7 +411,7 @@ pub fn store_deposit(
 
 pub fn store_redeem(
     store: &mut dyn Storage,
-    redeemer: &Addr,
+    redeemer: &CanonicalAddr,
     amount: Uint128,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {

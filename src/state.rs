@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, StdError, StdResult, Storage};
+use cosmwasm_std::{Addr, CanonicalAddr, StdError, StdResult, Storage};
 use secret_toolkit::serialization::Json;
 use secret_toolkit::storage::{Item, Keymap, Keyset};
 use secret_toolkit_crypto::SHA256_HASH_SIZE;
@@ -122,19 +122,19 @@ pub fn safe_add(balance: &mut u128, amount: u128) -> u128 {
 pub static BALANCES: Item<u128> = Item::new(PREFIX_BALANCES);
 pub struct BalancesStore {}
 impl BalancesStore {
-    fn save(store: &mut dyn Storage, account: &Addr, amount: u128) -> StdResult<()> {
-        let balances = BALANCES.add_suffix(account.as_str().as_bytes());
+    fn save(store: &mut dyn Storage, account: &CanonicalAddr, amount: u128) -> StdResult<()> {
+        let balances = BALANCES.add_suffix(account.as_slice());
         balances.save(store, &amount)
     }
 
-    pub fn load(store: &dyn Storage, account: &Addr) -> u128 {
-        let balances = BALANCES.add_suffix(account.as_str().as_bytes());
+    pub fn load(store: &dyn Storage, account: &CanonicalAddr) -> u128 {
+        let balances = BALANCES.add_suffix(account.as_slice());
         balances.load(store).unwrap_or_default()
     }
 
     pub fn update_balance(
         store: &mut dyn Storage,
-        account: &Addr,
+        account: &CanonicalAddr,
         amount_to_be_updated: u128,
         should_add: bool,
         operation_name: &str,

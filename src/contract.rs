@@ -1,8 +1,7 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
-    MessageInfo, Response, StdError, StdResult, Storage, Uint128,
+    entry_point, to_binary, Addr, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128
 };
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
@@ -72,7 +71,7 @@ pub fn instantiate(
     let initial_balances = msg.initial_balances.unwrap_or_default();
     for balance in initial_balances {
         let amount = balance.amount.u128();
-        let balance_address = deps.api.addr_validate(balance.address.as_str())?;
+        let balance_address = deps.api.addr_canonicalize(balance.address.as_str())?;
         // Here amount is also the amount to be added because the account has no prior balance
         BalancesStore::update_balance(
             deps.storage,
@@ -93,7 +92,7 @@ pub fn instantiate(
         store_mint(
             deps.storage,
             deps.api,
-            admin.clone(),
+            deps.api.addr_canonicalize(admin.as_str())?,
             balance_address,
             balance.amount,
             Some("Initial Balance".to_string()),
@@ -564,7 +563,7 @@ pub fn query_transactions(
     page: u32,
     page_size: u32,
 ) -> StdResult<Binary> {
-    // Notice that if query_transactions() was called by a viewking-key call, the address of
+    // Notice that if query_transactions() was called by a viewing-key call, the address of
     // 'account' has already been validated.
     // The address of 'account' should not be validated if query_transactions() was called by a
     // permit call, for compatibility with non-Secret addresses.
@@ -612,7 +611,7 @@ pub fn query_balance(deps: Deps, account: String) -> StdResult<Binary> {
     // call, for compatibility with non-Secret addresses.
     let account = Addr::unchecked(account);
 
-    let amount = Uint128::new(BalancesStore::load(deps.storage, &account));
+    let amount = Uint128::new(BalancesStore::load(deps.storage, &deps.api.addr_canonicalize(account.as_str())?));
     let response = QueryAnswer::Balance { amount };
     to_binary(&response)
 }
@@ -702,10 +701,12 @@ fn try_mint_impl(
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
+    let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
+    let raw_minter = deps.api.addr_canonicalize(minter.as_str())?;
 
     BalancesStore::update_balance(
         deps.storage,
-        &recipient,
+        &raw_recipient,
         raw_amount,
         true,
         "",
@@ -714,8 +715,8 @@ fn try_mint_impl(
     store_mint(
         deps.storage,
         deps.api,
-        minter,
-        recipient,
+        raw_minter,
+        raw_recipient,
         amount,
         memo,
         block,
@@ -972,11 +973,11 @@ fn try_deposit(
     raw_amount = safe_add(&mut total_supply, raw_amount);
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
-    let sender_address = &info.sender;
+    let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
 
     BalancesStore::update_balance(
         deps.storage,
-        sender_address,
+        &sender_address,
         raw_amount,
         true,
         "",
@@ -984,7 +985,7 @@ fn try_deposit(
 
     store_deposit(
         deps.storage,
-        sender_address,
+        &sender_address,
         Uint128::new(raw_amount),
         //"uscrt".to_string(),
         &env.block,
@@ -1024,12 +1025,12 @@ fn try_redeem(
         ));
     };
 
-    let sender_address = &info.sender;
+    let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
     let amount_raw = amount.u128();
 
     BalancesStore::update_balance(
         deps.storage,
-        sender_address,
+        &sender_address,
         amount_raw,
         false,
         "redeem",
@@ -1061,7 +1062,7 @@ fn try_redeem(
 
     store_redeem(
         deps.storage,
-        sender_address,
+        &sender_address,
         amount,
         &env.block,
     )?;
@@ -1085,19 +1086,23 @@ fn try_transfer_impl(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
+    let raw_sender = deps.api.addr_canonicalize(sender.as_str())?;
+    let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
+
     perform_transfer(
         deps.storage,
-        sender,
-        recipient,
+        rng,
+        &raw_sender,
+        &raw_recipient,
         amount.u128(),
     )?;
 
     store_transfer(
         deps.storage,
         deps.api,
-        sender,
-        sender,
-        recipient,
+        raw_sender,
+        raw_sender,
+        raw_recipient,
         amount,
         memo,
         block,
@@ -1341,6 +1346,7 @@ fn use_allowance(
 #[allow(clippy::too_many_arguments)]
 fn try_transfer_from_impl(
     deps: &mut DepsMut,
+    rng: &mut ContractPrng,
     env: &Env,
     spender: &Addr,
     owner: &Addr,
@@ -1349,22 +1355,26 @@ fn try_transfer_from_impl(
     memo: Option<String>,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
+    let raw_spender = deps.api.addr_canonicalize(spender.as_str())?;
+    let raw_owner = deps.api.addr_canonicalize(owner.as_str())?;
+    let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
 
     use_allowance(deps.storage, env, owner, spender, raw_amount)?;
 
     perform_transfer(
         deps.storage,
-        owner,
-        recipient,
+        rng,
+        &raw_owner,
+        &raw_recipient,
         raw_amount,
     )?;
 
     store_transfer(
         deps.storage,
         deps.api,
-        owner,
-        spender,
-        recipient,
+        raw_owner,
+        raw_spender,
+        raw_recipient,
         amount,
         memo,
         &env.block,
@@ -1383,10 +1393,14 @@ fn try_transfer_from(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
+    let seed = env.block.random.as_ref().unwrap();
+    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
+
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
     try_transfer_from_impl(
         &mut deps,
+        &mut rng,
         env,
         &info.sender,
         &owner,
@@ -1404,11 +1418,15 @@ fn try_batch_transfer_from(
     info: MessageInfo,
     actions: Vec<batch::TransferFromAction>,
 ) -> StdResult<Response> {
+    let seed = env.block.random.as_ref().unwrap();
+    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
+
     for action in actions {
         let owner = deps.api.addr_validate(action.owner.as_str())?;
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_transfer_from_impl(
             &mut deps,
+            &mut rng,
             env,
             &info.sender,
             &owner,
@@ -1438,9 +1456,13 @@ fn try_send_from_impl(
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<()> {
+    let seed = env.block.random.as_ref().unwrap();
+    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
+
     let spender = info.sender.clone();
     try_transfer_from_impl(
         deps,
+        &mut rng,
         &env,
         &spender,
         &owner,
@@ -1539,6 +1561,7 @@ fn try_burn_from(
     memo: Option<String>,
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
+    let raw_owner = deps.api.addr_canonicalize(owner.as_str())?;
     let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
@@ -1551,7 +1574,7 @@ fn try_burn_from(
 
     BalancesStore::update_balance(
         deps.storage,
-        &owner,
+        &raw_owner,
         raw_amount,
         false,
         "burn",
@@ -1572,8 +1595,8 @@ fn try_burn_from(
     store_burn(
         deps.storage,
         deps.api,
-        owner,
-        info.sender,
+        raw_owner,
+        deps.api.addr_canonicalize(info.sender.as_str())?,
         amount,
         memo,
         &env.block,
@@ -1595,17 +1618,18 @@ fn try_batch_burn_from(
         ));
     }
 
-    let spender = info.sender;
+    let raw_spender = deps.api.addr_canonicalize(info.sender.as_str())?;
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
 
     for action in actions {
         let owner = deps.api.addr_validate(action.owner.as_str())?;
+        let raw_owner = deps.api.addr_canonicalize(owner.as_str())?;
         let amount = action.amount.u128();
-        use_allowance(deps.storage, env, &owner, &spender, amount)?;
+        use_allowance(deps.storage, env, &owner, &info.sender, amount)?;
 
         BalancesStore::update_balance(
             deps.storage,
-            &owner,
+            &raw_owner,
             amount,
             false,
             "burn",
@@ -1623,8 +1647,8 @@ fn try_batch_burn_from(
         store_burn(
             deps.storage,
             deps.api,
-            owner,
-            spender.clone(),
+            raw_owner,
+            raw_spender,
             action.amount,
             action.memo,
             &env.block,
@@ -1805,10 +1829,11 @@ fn try_burn(
     }
 
     let raw_amount = amount.u128();
+    let raw_burn_address = deps.api.addr_canonicalize(info.sender.as_str())?;
 
     BalancesStore::update_balance(
         deps.storage,
-        &info.sender,
+        &raw_burn_address,
         raw_amount,
         false,
         "burn",
@@ -1827,8 +1852,8 @@ fn try_burn(
     store_burn(
         deps.storage,
         deps.api,
-        info.sender.clone(),
-        info.sender,
+        raw_burn_address.clone(),
+        raw_burn_address,
         amount,
         memo,
         &env.block,
@@ -1839,15 +1864,30 @@ fn try_burn(
 
 fn perform_transfer(
     store: &mut dyn Storage,
-    from: &Addr,
-    to: &Addr,
+    rng: &mut ContractPrng,
+    from: &CanonicalAddr,
+    to: &CanonicalAddr,
     amount: u128,
 ) -> StdResult<()> {
     // load delayed write buffer
     let dwb = DWB.load(store)?;
 
+    // check if `from` is in the dwb
+    let mut from_in_dwb = false;
+    for element in dwb.elements {
+        if element.recipient == *from {
+
+        }
+    }
+
     // check have enough funds and withdraw `amount` from `from` account
     BalancesStore::update_balance(store, from, amount, false, "transfer")?;
+
+    if dwb.saturated() {
+
+    } else {
+
+    }
 
     // TODO: 
     BalancesStore::update_balance(
