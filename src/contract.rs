@@ -10,9 +10,11 @@ use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::sha_256;
 
 use crate::batch;
+use crate::dwb::{DelayedWriteBuffer, DWB, DWB_LEN};
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
+    TxWithCoins,
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
@@ -21,7 +23,7 @@ use crate::state::{
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
-    store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredTx,
+    store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredTx, TxAction,
 };
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -62,39 +64,42 @@ pub fn instantiate(
     let prng_seed_hashed = sha_256(&msg.prng_seed.0);
     PrngStore::save(deps.storage, prng_seed_hashed)?;
 
-    {
-        let initial_balances = msg.initial_balances.unwrap_or_default();
-        for balance in initial_balances {
-            let amount = balance.amount.u128();
-            let balance_address = deps.api.addr_validate(balance.address.as_str())?;
-            // Here amount is also the amount to be added because the account has no prior balance
-            BalancesStore::update_balance(
-                deps.storage,
-                &balance_address,
-                amount,
-                true,
-                "",
-            )?;
+    // initialize the delay write buffer
+    DWB.save(deps.storage, &DelayedWriteBuffer{
+        empty_space_counter: DWB_LEN,
+        elements: vec![],
+    })?;
 
-            if let Some(new_total_supply) = total_supply.checked_add(amount) {
-                total_supply = new_total_supply;
-            } else {
-                return Err(StdError::generic_err(
-                    "The sum of all initial balances exceeds the maximum possible total supply",
-                ));
-            }
+    let initial_balances = msg.initial_balances.unwrap_or_default();
+    for balance in initial_balances {
+        let amount = balance.amount.u128();
+        let balance_address = deps.api.addr_validate(balance.address.as_str())?;
+        // Here amount is also the amount to be added because the account has no prior balance
+        BalancesStore::update_balance(
+            deps.storage,
+            &balance_address,
+            amount,
+            true,
+            "",
+        )?;
 
-            store_mint(
-                deps.storage,
-                deps.api,
-                admin.clone(),
-                balance_address,
-                balance.amount,
-                msg.symbol.clone(),
-                Some("Initial Balance".to_string()),
-                &env.block,
-            )?;
+        if let Some(new_total_supply) = total_supply.checked_add(amount) {
+            total_supply = new_total_supply;
+        } else {
+            return Err(StdError::generic_err(
+                "The sum of all initial balances exceeds the maximum possible total supply",
+            ));
         }
+
+        store_mint(
+            deps.storage,
+            deps.api,
+            admin.clone(),
+            balance_address,
+            balance.amount,
+            Some("Initial Balance".to_string()),
+            &env.block,
+        )?;
     }
 
     let supported_denoms = match msg.supported_denoms {
@@ -575,6 +580,25 @@ pub fn query_transactions(
             page_size
         )?;
 
+    let symbol = CONFIG.load(deps.storage)?.symbol;
+    let txs = txs.iter().map(|tx| {
+        let denom = match tx.action {
+            TxAction::Deposit {  } => "uscrt".to_string(),
+            _ => symbol.clone()
+        };
+        TxWithCoins {
+            id: tx.id,
+            action: tx.action.clone(),
+            coins: Coin {
+                denom,
+                amount: tx.amount,
+            },
+            memo: tx.memo.clone(),
+            block_height: tx.block_height,
+            block_time: tx.block_time,
+        }
+    }).collect();
+
     let result = QueryAnswer::TransactionHistory {
         txs,
         total: Some(total),
@@ -675,7 +699,6 @@ fn try_mint_impl(
     minter: Addr,
     recipient: Addr,
     amount: Uint128,
-    denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
@@ -695,7 +718,6 @@ fn try_mint_impl(
         minter,
         recipient,
         amount,
-        denom,
         memo,
         block,
     )?;
@@ -739,7 +761,6 @@ fn try_mint(
         info.sender,
         recipient,
         Uint128::new(minted_amount),
-        constants.symbol,
         memo,
         &env.block,
     )?;
@@ -780,7 +801,6 @@ fn try_batch_mint(
             info.sender.clone(),
             recipient,
             Uint128::new(actual_amount),
-            constants.symbol.clone(),
             action.memo,
             &env.block,
         )?;
@@ -967,7 +987,7 @@ fn try_deposit(
         deps.storage,
         sender_address,
         Uint128::new(raw_amount),
-        "uscrt".to_string(),
+        //"uscrt".to_string(),
         &env.block,
     )?;
 
@@ -1044,7 +1064,6 @@ fn try_redeem(
         deps.storage,
         sender_address,
         amount,
-        constants.symbol,
         &env.block,
     )?;
 
@@ -1073,7 +1092,6 @@ fn try_transfer_impl(
         amount.u128(),
     )?;
 
-    let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
         deps.storage,
         deps.api,
@@ -1081,7 +1099,6 @@ fn try_transfer_impl(
         sender,
         recipient,
         amount,
-        symbol,
         memo,
         block,
     )?;
@@ -1324,7 +1341,6 @@ fn try_transfer_from_impl(
         raw_amount,
     )?;
 
-    let symbol = CONFIG.load(deps.storage)?.symbol;
     store_transfer(
         deps.storage,
         deps.api,
@@ -1332,7 +1348,6 @@ fn try_transfer_from_impl(
         spender,
         recipient,
         amount,
-        symbol,
         memo,
         &env.block,
     )?;
@@ -1542,7 +1557,6 @@ fn try_burn_from(
         owner,
         info.sender,
         amount,
-        constants.symbol,
         memo,
         &env.block,
     )?;
@@ -1594,7 +1608,6 @@ fn try_batch_burn_from(
             owner,
             spender.clone(),
             action.amount,
-            constants.symbol.clone(),
             action.memo,
             &env.block,
         )?;
@@ -1799,7 +1812,6 @@ fn try_burn(
         info.sender.clone(),
         info.sender,
         amount,
-        constants.symbol,
         memo,
         &env.block,
     )?;
@@ -5115,9 +5127,9 @@ mod tests {
             other => panic!("Unexpected: {:?}", other),
         };
 
-        use crate::transaction_history::{Tx, TxAction};
+        use crate::transaction_history::TxAction;
         let expected_transfers = [
-            Tx {
+            TxWithCoins {
                 id: 8,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -5132,7 +5144,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            Tx {
+            TxWithCoins {
                 id: 7,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -5147,7 +5159,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            Tx {
+            TxWithCoins {
                 id: 6,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -5162,7 +5174,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            Tx {
+            TxWithCoins {
                 id: 5,
                 action: TxAction::Deposit {},
                 coins: Coin {
@@ -5173,7 +5185,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            Tx {
+            TxWithCoins {
                 id: 4,
                 action: TxAction::Mint {
                     minter: Addr::unchecked("admin".to_string()),
@@ -5187,7 +5199,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            Tx {
+            TxWithCoins {
                 id: 3,
                 action: TxAction::Redeem {},
                 coins: Coin {
@@ -5198,7 +5210,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            Tx {
+            TxWithCoins {
                 id: 2,
                 action: TxAction::Burn {
                     burner: Addr::unchecked("bob".to_string()),
@@ -5212,7 +5224,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            Tx {
+            TxWithCoins {
                 id: 1,
                 action: TxAction::Mint {
                     minter: Addr::unchecked("admin".to_string()),

@@ -15,7 +15,6 @@ pub const KEY_PRNG: &[u8] = b"prng";
 pub const KEY_MINTERS: &[u8] = b"minters";
 pub const KEY_TX_COUNT: &[u8] = b"tx-count";
 
-pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_ALLOWED: &[u8] = b"allowed";

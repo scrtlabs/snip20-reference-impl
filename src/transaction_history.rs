@@ -38,7 +38,7 @@ pub enum TxAction {
 pub struct Tx {
     pub id: u64,
     pub action: TxAction,
-    pub coins: Coin,
+    pub amount: Uint128,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memo: Option<String>,
     pub block_time: u64,
@@ -209,7 +209,7 @@ static TRANSACTIONS: AppendStore<StoredTx> = AppendStore::new(PREFIX_TXS);
 pub struct StoredTx {
     id: u64,
     action: StoredTxAction,
-    coins: StoredCoin,
+    amount: u128,
     memo: Option<String>,
     block_time: u64,
     block_height: u64,
@@ -219,14 +219,14 @@ impl StoredTx {
     fn new(
         id: u64,
         action: StoredTxAction,
-        coins: Coin,
+        amount: Uint128,
         memo: Option<String>,
         block: &cosmwasm_std::BlockInfo,
     ) -> Self {
         Self {
             id,
             action,
-            coins: coins.into(),
+            amount: amount.u128(),
             memo,
             block_time: block.time.seconds(),
             block_height: block.height,
@@ -237,7 +237,7 @@ impl StoredTx {
         Ok(Tx {
             id: self.id,
             action: self.action.into_tx_action(api)?,
-            coins: self.coins.into(),
+            amount: Uint128::from(self.amount),
             memo: self.memo,
             block_time: self.block_time,
             block_height: self.block_height,
@@ -295,12 +295,10 @@ pub fn store_transfer(
     sender: &Addr,
     receiver: &Addr,
     amount: Uint128,
-    denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
     let action = StoredTxAction::transfer(
         api.addr_canonicalize(owner.as_str())?, 
         api.addr_canonicalize(sender.as_str())?, 
@@ -309,7 +307,7 @@ pub fn store_transfer(
     let tx = StoredTx {
         id,
         action,
-        coins: coins.into(),
+        amount: amount.u128(),
         memo,
         block_time: block.time.seconds(),
         block_height: block.height,
@@ -339,17 +337,15 @@ pub fn store_mint(
     minter: Addr,
     recipient: Addr,
     amount: Uint128,
-    denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
     let action = StoredTxAction::mint(
         api.addr_canonicalize(minter.as_str())?, 
         api.addr_canonicalize(recipient.as_str())?
     );
-    let tx = StoredTx::new(id, action, coins, memo, block);
+    let tx = StoredTx::new(id, action, amount, memo, block);
 
     if minter != recipient {
         StoredTx::append_tx(store, &tx, &recipient)?;
@@ -367,17 +363,15 @@ pub fn store_burn(
     owner: Addr,
     burner: Addr,
     amount: Uint128,
-    denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
     let action = StoredTxAction::burn(
         api.addr_canonicalize(owner.as_str())?, 
         api.addr_canonicalize(burner.as_str())?
     );
-    let tx = StoredTx::new(id, action, coins, memo, block);
+    let tx = StoredTx::new(id, action, amount, memo, block);
 
     if burner != owner {
         StoredTx::append_tx(store, &tx, &owner)?;
@@ -392,13 +386,11 @@ pub fn store_deposit(
     store: &mut dyn Storage,
     recipient: &Addr,
     amount: Uint128,
-    denom: String,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
     let action = StoredTxAction::deposit();
-    let tx = StoredTx::new(id, action, coins, None, block);
+    let tx = StoredTx::new(id, action, amount, None, block);
 
     StoredTx::append_tx(store, &tx, recipient)?;
 
@@ -409,13 +401,11 @@ pub fn store_redeem(
     store: &mut dyn Storage,
     redeemer: &Addr,
     amount: Uint128,
-    denom: String,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let id = increment_tx_count(store)?;
-    let coins = Coin { denom, amount };
     let action = StoredTxAction::redeem();
-    let tx = StoredTx::new(id, action, coins, None, block);
+    let tx = StoredTx::new(id, action, amount, None, block);
 
     StoredTx::append_tx(store, &tx, redeemer)?;
 
