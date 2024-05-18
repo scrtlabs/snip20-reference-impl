@@ -1,9 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Api, CanonicalAddr, Coin, StdError, StdResult, Storage, Uint128};
+use cosmwasm_std::{Addr, Api, BlockInfo, CanonicalAddr, Coin, StdError, StdResult, Storage, Uint128};
 
-use secret_toolkit::storage::AppendStore;
+use secret_toolkit::storage::{AppendStore, Item};
 
 use crate::state::TX_COUNT;
 
@@ -202,12 +202,13 @@ impl StoredTxAction {
     }
 }
 
-static TRANSACTIONS: AppendStore<StoredTx> = AppendStore::new(PREFIX_TXS);
+// use with add_suffix tx id (u64)
+// does not need to be an AppendStore because we never need to iterate over global list of txs
+static TRANSACTIONS: Item<StoredTx> = Item::new(PREFIX_TXS);
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct StoredTx {
-    id: u64,
     action: StoredTxAction,
     amount: u128,
     memo: Option<String>,
@@ -287,6 +288,27 @@ fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
     Ok(id)
 }
 
+fn append_new_stored_tx(
+    store: &mut dyn Storage,
+    action: &StoredTxAction,
+    amount: Uint128,
+    memo: Option<String>,
+    block: &BlockInfo,
+) -> StdResult<u64> {
+    let id = TX_COUNT.load(store).unwrap_or_default();
+    let stored_tx = StoredTx {
+        action: action.clone(),
+        amount: amount.u128(),
+        memo,
+        block_time: block.time.seconds(),
+        block_height: block.height,
+    };
+
+    TRANSACTIONS.add_suffix(&id.to_be_bytes()).save(store, &stored_tx)?;
+    TX_COUNT.save(store, &(id+1))?;
+    Ok(id)
+}
+
 #[allow(clippy::too_many_arguments)] // We just need them
 pub fn store_transfer(
     store: &mut dyn Storage,
@@ -296,22 +318,14 @@ pub fn store_transfer(
     receiver: &Addr,
     amount: Uint128,
     memo: Option<String>,
-    block: &cosmwasm_std::BlockInfo,
+    block: &BlockInfo,
 ) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
     let action = StoredTxAction::transfer(
         api.addr_canonicalize(owner.as_str())?, 
         api.addr_canonicalize(sender.as_str())?, 
         api.addr_canonicalize(receiver.as_str())?
     );
-    let tx = StoredTx {
-        id,
-        action,
-        amount: amount.u128(),
-        memo,
-        block_time: block.time.seconds(),
-        block_height: block.height,
-    };
+    let id = append_new_stored_tx(store, &action, amount, memo, block)?;
 
     // Write to the owners history if it's different from the other two addresses
     // TODO: check if we want to always write this. 
@@ -340,12 +354,11 @@ pub fn store_mint(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
     let action = StoredTxAction::mint(
         api.addr_canonicalize(minter.as_str())?, 
         api.addr_canonicalize(recipient.as_str())?
     );
-    let tx = StoredTx::new(id, action, amount, memo, block);
+    let id = append_new_stored_tx(store, &action, amount, memo, block)?;
 
     if minter != recipient {
         StoredTx::append_tx(store, &tx, &recipient)?;
@@ -366,12 +379,11 @@ pub fn store_burn(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
     let action = StoredTxAction::burn(
         api.addr_canonicalize(owner.as_str())?, 
         api.addr_canonicalize(burner.as_str())?
     );
-    let tx = StoredTx::new(id, action, amount, memo, block);
+    let id = append_new_stored_tx(store, &action, amount, memo, block)?;
 
     if burner != owner {
         StoredTx::append_tx(store, &tx, &owner)?;
@@ -388,9 +400,8 @@ pub fn store_deposit(
     amount: Uint128,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
     let action = StoredTxAction::deposit();
-    let tx = StoredTx::new(id, action, amount, None, block);
+    let id = append_new_stored_tx(store, &action, amount, None, block)?;
 
     StoredTx::append_tx(store, &tx, recipient)?;
 
@@ -403,9 +414,8 @@ pub fn store_redeem(
     amount: Uint128,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
-    let id = increment_tx_count(store)?;
     let action = StoredTxAction::redeem();
-    let tx = StoredTx::new(id, action, amount, None, block);
+    let id = append_new_stored_tx(store, &action, amount, None, block)?;
 
     StoredTx::append_tx(store, &tx, redeemer)?;
 

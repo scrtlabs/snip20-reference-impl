@@ -7,7 +7,7 @@ use cosmwasm_std::{
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
-use secret_toolkit_crypto::sha_256;
+use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
 use crate::dwb::{DelayedWriteBuffer, DWB, DWB_LEN};
@@ -18,8 +18,7 @@ use crate::msg::{
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    safe_add, AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore,
-    CONFIG, CONTRACT_STATUS, TOTAL_SUPPLY,
+    safe_add, AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG, CONTRACT_STATUS, PRNG, TOTAL_SUPPLY
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
@@ -1079,6 +1078,7 @@ fn try_redeem(
 #[allow(clippy::too_many_arguments)]
 fn try_transfer_impl(
     deps: &mut DepsMut,
+    rng: &mut ContractPrng,
     sender: &Addr,
     recipient: &Addr,
     amount: Uint128,
@@ -1115,10 +1115,14 @@ fn try_transfer(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let recipient = deps.api.addr_validate(recipient.as_str())?;
+    let seed = env.block.random.as_ref().unwrap();
+    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
+
+    let recipient: Addr = deps.api.addr_validate(recipient.as_str())?;
 
     try_transfer_impl(
         &mut deps,
+        &mut rng,
         &info.sender,
         &recipient,
         amount,
@@ -1135,10 +1139,14 @@ fn try_batch_transfer(
     info: MessageInfo,
     actions: Vec<batch::TransferAction>,
 ) -> StdResult<Response> {
+    let seed = env.block.random.as_ref().unwrap();
+    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
+
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_transfer_impl(
             &mut deps,
+            &mut rng,
             &info.sender,
             &recipient,
             action.amount,
@@ -1187,6 +1195,7 @@ fn try_add_receiver_api_callback(
 #[allow(clippy::too_many_arguments)]
 fn try_send_impl(
     deps: &mut DepsMut,
+    rng: &mut ContractPrng,
     messages: &mut Vec<CosmosMsg>,
     sender: Addr,
     recipient: Addr,
@@ -1198,6 +1207,7 @@ fn try_send_impl(
 ) -> StdResult<()> {
     try_transfer_impl(
         deps,
+        rng,
         &sender,
         &recipient,
         amount,
@@ -1231,11 +1241,15 @@ fn try_send(
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<Response> {
+    let seed = env.block.random.as_ref().unwrap();
+    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
+
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
     let mut messages = vec![];
     try_send_impl(
         &mut deps,
+        &mut rng,
         &mut messages,
         info.sender,
         recipient,
@@ -1257,11 +1271,15 @@ fn try_batch_send(
     info: MessageInfo,
     actions: Vec<batch::SendAction>,
 ) -> StdResult<Response> {
+    let seed = env.block.random.as_ref().unwrap();
+    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
+
     let mut messages = vec![];
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_send_impl(
             &mut deps,
+            &mut rng,
             &mut messages,
             info.sender.clone(),
             recipient,
@@ -1825,7 +1843,13 @@ fn perform_transfer(
     to: &Addr,
     amount: u128,
 ) -> StdResult<()> {
+    // load delayed write buffer
+    let dwb = DWB.load(store)?;
+
+    // check have enough funds and withdraw `amount` from `from` account
     BalancesStore::update_balance(store, from, amount, false, "transfer")?;
+
+    // TODO: 
     BalancesStore::update_balance(
         store,
         to,
