@@ -104,7 +104,7 @@ impl TxCode {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
-struct StoredTxAction {
+pub struct StoredTxAction {
     tx_type: u8,
     address1: Option<CanonicalAddr>,
     address2: Option<CanonicalAddr>,
@@ -112,7 +112,7 @@ struct StoredTxAction {
 }
 
 impl StoredTxAction {
-    fn transfer(from: CanonicalAddr, sender: CanonicalAddr, recipient: CanonicalAddr) -> Self {
+    pub fn transfer(from: CanonicalAddr, sender: CanonicalAddr, recipient: CanonicalAddr) -> Self {
         Self {
             tx_type: TxCode::Transfer.to_u8(),
             address1: Some(from),
@@ -120,7 +120,7 @@ impl StoredTxAction {
             address3: Some(recipient),
         }
     }
-    fn mint(minter: CanonicalAddr, recipient: CanonicalAddr) -> Self {
+    pub fn mint(minter: CanonicalAddr, recipient: CanonicalAddr) -> Self {
         Self {
             tx_type: TxCode::Mint.to_u8(),
             address1: Some(minter),
@@ -128,7 +128,7 @@ impl StoredTxAction {
             address3: None,
         }
     }
-    fn burn(owner: CanonicalAddr, burner: CanonicalAddr) -> Self {
+    pub fn burn(owner: CanonicalAddr, burner: CanonicalAddr) -> Self {
         Self {
             tx_type: TxCode::Burn.to_u8(),
             address1: Some(burner),
@@ -136,7 +136,7 @@ impl StoredTxAction {
             address3: None,
         }
     }
-    fn deposit() -> Self {
+    pub fn deposit() -> Self {
         Self {
             tx_type: TxCode::Deposit.to_u8(),
             address1: None,
@@ -144,7 +144,7 @@ impl StoredTxAction {
             address3: None,
         }
     }
-    fn redeem() -> Self {
+    pub fn redeem() -> Self {
         Self {
             tx_type: TxCode::Redeem.to_u8(),
             address1: None,
@@ -153,7 +153,7 @@ impl StoredTxAction {
         }
     }
 
-    fn into_tx_action(self, api: &dyn Api) -> StdResult<TxAction> {
+    pub fn into_tx_action(self, api: &dyn Api) -> StdResult<TxAction> {
         let transfer_addr_err = || {
             StdError::generic_err(
                 "Missing address in stored Transfer transaction. Storage is corrupt",
@@ -289,17 +289,17 @@ fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
     Ok(id)
 }
 
-fn append_new_stored_tx(
+pub fn append_new_stored_tx(
     store: &mut dyn Storage,
     action: &StoredTxAction,
-    amount: Uint128,
+    amount: u128,
     memo: Option<String>,
     block: &BlockInfo,
 ) -> StdResult<u64> {
     let id = TX_COUNT.load(store).unwrap_or_default();
     let stored_tx = StoredTx {
         action: action.clone(),
-        amount: amount.u128(),
+        amount,
         memo,
         block_time: block.time.seconds(),
         block_height: block.height,
@@ -313,21 +313,20 @@ fn append_new_stored_tx(
 #[allow(clippy::too_many_arguments)] // We just need them
 pub fn store_transfer(
     store: &mut dyn Storage,
-    api: &dyn Api,
-    owner: CanonicalAddr,
-    sender: CanonicalAddr,
-    receiver: CanonicalAddr,
-    amount: Uint128,
+    owner: &CanonicalAddr,
+    sender: &CanonicalAddr,
+    receiver: &CanonicalAddr,
+    amount: u128,
     memo: Option<String>,
     block: &BlockInfo,
-) -> StdResult<()> {
+) -> StdResult<u64> {
     let action = StoredTxAction::transfer(
-        owner, 
-        sender, 
-        receiver
+        owner.clone(), 
+        sender.clone(), 
+        receiver.clone()
     );
-    let id = append_new_stored_tx(store, &action, amount, memo, block)?;
-
+    append_new_stored_tx(store, &action, amount, memo, block)
+/*
     // Write to the owners history if it's different from the other two addresses
     // TODO: check if we want to always write this. 
     if owner != sender && owner != receiver {
@@ -342,8 +341,7 @@ pub fn store_transfer(
     // Always write to the recipient's history
     // cosmwasm_std::debug_print("saving transaction history for receiver");
     StoredTx::append_tx(store, &tx, receiver)?;
-
-    Ok(())
+*/
 }
 
 pub fn store_mint(
@@ -351,7 +349,7 @@ pub fn store_mint(
     api: &dyn Api,
     minter: CanonicalAddr,
     recipient: CanonicalAddr,
-    amount: Uint128,
+    amount: u128,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
@@ -361,11 +359,13 @@ pub fn store_mint(
     );
     let id = append_new_stored_tx(store, &action, amount, memo, block)?;
 
+/*
     if minter != recipient {
         StoredTx::append_tx(store, &tx, &recipient)?;
     }
 
     StoredTx::append_tx(store, &tx, &minter)?;
+*/
 
     Ok(())
 }
@@ -376,7 +376,7 @@ pub fn store_burn(
     api: &dyn Api,
     owner: CanonicalAddr,
     burner: CanonicalAddr,
-    amount: Uint128,
+    amount: u128,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
@@ -386,11 +386,13 @@ pub fn store_burn(
     );
     let id = append_new_stored_tx(store, &action, amount, memo, block)?;
 
+/*
     if burner != owner {
         StoredTx::append_tx(store, &tx, &owner)?;
     }
 
     StoredTx::append_tx(store, &tx, &burner)?;
+*/
 
     Ok(())
 }
@@ -398,13 +400,15 @@ pub fn store_burn(
 pub fn store_deposit(
     store: &mut dyn Storage,
     recipient: &CanonicalAddr,
-    amount: Uint128,
+    amount: u128,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let action = StoredTxAction::deposit();
     let id = append_new_stored_tx(store, &action, amount, None, block)?;
 
+/*
     StoredTx::append_tx(store, &tx, recipient)?;
+*/
 
     Ok(())
 }
@@ -412,13 +416,15 @@ pub fn store_deposit(
 pub fn store_redeem(
     store: &mut dyn Storage,
     redeemer: &CanonicalAddr,
-    amount: Uint128,
+    amount: u128,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
     let action = StoredTxAction::redeem();
     let id = append_new_stored_tx(store, &action, amount, None, block)?;
 
+/*
     StoredTx::append_tx(store, &tx, redeemer)?;
+*/
 
     Ok(())
 }

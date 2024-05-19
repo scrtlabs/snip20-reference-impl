@@ -1,7 +1,7 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    entry_point, to_binary, Addr, BankMsg, Binary, CanonicalAddr, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128
+    entry_point, to_binary, Addr, BankMsg, Binary, BlockInfo, CanonicalAddr, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128
 };
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
@@ -9,7 +9,7 @@ use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
-use crate::dwb::{DelayedWriteBuffer, DWB, DWB_LEN};
+use crate::dwb::{AccountTxsStore, DelayedWriteBuffer, DelayedWriteBufferElement, TxNode, DWB, DWB_LEN, TX_NODES};
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
@@ -21,7 +21,7 @@ use crate::state::{
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
-    store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredTx, TxAction,
+    append_new_stored_tx, store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredTx, StoredTxAction, TxAction
 };
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -94,7 +94,7 @@ pub fn instantiate(
             deps.api,
             deps.api.addr_canonicalize(admin.as_str())?,
             balance_address,
-            balance.amount,
+            balance.amount.u128(),
             Some("Initial Balance".to_string()),
             &env.block,
         )?;
@@ -568,7 +568,7 @@ pub fn query_transactions(
     // The address of 'account' should not be validated if query_transactions() was called by a
     // permit call, for compatibility with non-Secret addresses.
     let account = Addr::unchecked(account);
-
+/*
     let (txs, total) =
         StoredTx::get_txs(
             deps.storage, 
@@ -596,10 +596,12 @@ pub fn query_transactions(
             block_time: tx.block_time,
         }
     }).collect();
-
+*/
     let result = QueryAnswer::TransactionHistory {
-        txs,
-        total: Some(total),
+        //txs,
+        txs: vec![], // TODO update
+        //total: Some(total),
+        total: None,
     };
     to_binary(&result)
 }
@@ -717,7 +719,7 @@ fn try_mint_impl(
         deps.api,
         raw_minter,
         raw_recipient,
-        amount,
+        amount.u128(),
         memo,
         block,
     )?;
@@ -986,7 +988,7 @@ fn try_deposit(
     store_deposit(
         deps.storage,
         &sender_address,
-        Uint128::new(raw_amount),
+        raw_amount,
         //"uscrt".to_string(),
         &env.block,
     )?;
@@ -1063,7 +1065,7 @@ fn try_redeem(
     store_redeem(
         deps.storage,
         &sender_address,
-        amount,
+        amount.u128(),
         &env.block,
     )?;
 
@@ -1094,16 +1096,8 @@ fn try_transfer_impl(
         rng,
         &raw_sender,
         &raw_recipient,
+        &raw_sender,
         amount.u128(),
-    )?;
-
-    store_transfer(
-        deps.storage,
-        deps.api,
-        raw_sender,
-        raw_sender,
-        raw_recipient,
-        amount,
         memo,
         block,
     )?;
@@ -1366,16 +1360,8 @@ fn try_transfer_from_impl(
         rng,
         &raw_owner,
         &raw_recipient,
+        &raw_spender,
         raw_amount,
-    )?;
-
-    store_transfer(
-        deps.storage,
-        deps.api,
-        raw_owner,
-        raw_spender,
-        raw_recipient,
-        amount,
         memo,
         &env.block,
     )?;
@@ -1597,7 +1583,7 @@ fn try_burn_from(
         deps.api,
         raw_owner,
         deps.api.addr_canonicalize(info.sender.as_str())?,
-        amount,
+        amount.u128(),
         memo,
         &env.block,
     )?;
@@ -1648,8 +1634,8 @@ fn try_batch_burn_from(
             deps.storage,
             deps.api,
             raw_owner,
-            raw_spender,
-            action.amount,
+            raw_spender.clone(),
+            action.amount.u128(),
             action.memo,
             &env.block,
         )?;
@@ -1854,7 +1840,7 @@ fn try_burn(
         deps.api,
         raw_burn_address.clone(),
         raw_burn_address,
-        amount,
+        amount.u128(),
         memo,
         &env.block,
     )?;
@@ -1867,25 +1853,104 @@ fn perform_transfer(
     rng: &mut ContractPrng,
     from: &CanonicalAddr,
     to: &CanonicalAddr,
+    sender: &CanonicalAddr,
     amount: u128,
+    memo: Option<String>,
+    block: &BlockInfo,
 ) -> StdResult<()> {
+    // first store the tx information in the global append list of txs and get the new tx id
+    let action = StoredTxAction::transfer(
+        from.clone(), 
+        sender.clone(), 
+        to.clone()
+    );
+    let tx_id = append_new_stored_tx(store, &action, amount, memo, block)?;
+
     // load delayed write buffer
-    let dwb = DWB.load(store)?;
+    let mut dwb = DWB.load(store)?;
 
-    // check if `from` is in the dwb
-    let mut from_in_dwb = false;
-    for element in dwb.elements {
+    // check if `from` is already in the delayed write buffer
+    let mut from_element_in_dwb = None;
+    let mut from_index_in_dwb = None;
+    for (idx, element) in dwb.elements.iter().enumerate() {
         if element.recipient == *from {
-
+            from_element_in_dwb = Some(element.clone());
+            from_index_in_dwb = Some(idx);
         }
     }
 
-    // check have enough funds and withdraw `amount` from `from` account
-    BalancesStore::update_balance(store, from, amount, false, "transfer")?;
+    let mut from_should_add = false;
+    let mut from_amount = amount;
+    // if `from` is in dwb, settle the transfer in buffer first
+    if let Some(mut from_element) = from_element_in_dwb {
+        // replace with random address in the buffer
+        let random_addr = CanonicalAddr::from(&rng.rand_bytes()[0..20]);
+        dwb.elements[from_index_in_dwb.unwrap()] = DelayedWriteBufferElement {
+            recipient: random_addr,
+            amount: 0,
+            list_len: 0,
+            head_node: None,
+        };
+
+        // figure out how much to subtract or add
+        if from_element.amount > amount { // change from subtract to add
+            from_amount = from_element.amount - amount;
+            from_should_add = true;
+        } else {
+            from_amount = amount - from_element.amount;
+        }
+
+        // now add this tx at the head before adding new tx bundle for account history
+        from_element.add_tx_node(store, tx_id, None)?;
+        let head_node = from_element.head_node.ok_or_else(|| return StdError::generic_err("Corrupted DWB element"))?;
+
+        AccountTxsStore::append_bundle(
+            store, 
+            from, 
+            head_node, 
+            from_element.list_len
+        )?;
+    } else { // not in dwb, so we just create a single node and push it as a bundle in the account tx history
+        let tx_node = TxNode {
+            tx_id,
+            next: None,
+        };
+        TX_NODES.push(store, &tx_node)?;
+        let head_node = TX_NODES.get_len(store)? - 1;
+        AccountTxsStore::append_bundle(
+            store, 
+            from, 
+            head_node,
+            1
+        )?;
+    }
+
+    // TODO: now check if we have to settle anything for `sender` (if different from `from`)
+    if sender != from {
+        
+    }
+
+    // check have enough funds and withdraw `amount` from `from` account,
+    // or in case there are more received tokens in the delayed write buffer, 
+    // then add the difference.
+    BalancesStore::update_balance(store, from, from_amount, from_should_add, "transfer")?;
+
+    // check if `to` is already in the delayed write buffer
+    let mut to_element_in_dwb = None;
+    let mut to_index_in_dwb = None;
+    for (idx, element) in dwb.elements.iter().enumerate() {
+        if element.recipient == *to {
+            to_element_in_dwb = Some(element.clone());
+            to_index_in_dwb = Some(idx);
+        }
+    }
+
+    // if it is in the delayed write buffer
 
     if dwb.saturated() {
 
     } else {
+        // we want to simply add to the buffer without settling anything
 
     }
 
@@ -1947,7 +2012,7 @@ fn is_valid_symbol(symbol: &str) -> bool {
 mod tests {
     use std::any::Any;
 
-    use cosmwasm_std::testing::*;
+    use cosmwasm_std::{testing::*, Api};
     use cosmwasm_std::{
         from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
         SubMsg, Timestamp, TransactionInfo, WasmMsg,
@@ -2235,8 +2300,14 @@ mod tests {
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
-        let bob_addr = Addr::unchecked("bob".to_string());
-        let alice_addr = Addr::unchecked("alice".to_string());
+        let bob_addr = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("bob".to_string()).as_str())
+            .unwrap();
+        let alice_addr = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("alice".to_string()).as_str())
+            .unwrap();
 
         assert_eq!(5000 - 1000, BalancesStore::load(&deps.storage, &bob_addr));
         assert_eq!(1000, BalancesStore::load(&deps.storage, &alice_addr));
@@ -2745,8 +2816,14 @@ mod tests {
             "handle() failed: {}",
             handle_result.err().unwrap()
         );
-        let bob_canonical = Addr::unchecked("bob".to_string());
-        let alice_canonical = Addr::unchecked("alice".to_string());
+        let bob_canonical = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("bob".to_string()).as_str())
+            .unwrap();
+        let alice_canonical = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("alice".to_string()).as_str())
+            .unwrap();
 
         let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
         let alice_balance = BalancesStore::load(&deps.storage, &alice_canonical);
@@ -2881,8 +2958,16 @@ mod tests {
             )
             .unwrap()
         ));
-        let bob_canonical = Addr::unchecked("bob".to_string());
-        let contract_canonical = Addr::unchecked("contract".to_string());
+
+        let bob_canonical = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("bob".to_string()).as_str())
+            .unwrap();
+        let contract_canonical = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("contract".to_string()).as_str())
+            .unwrap();
+
         let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
         let contract_balance = BalancesStore::load(&deps.storage, &contract_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
@@ -3010,7 +3095,11 @@ mod tests {
             "handle() failed: {}",
             handle_result.err().unwrap()
         );
-        let bob_canonical = Addr::unchecked("bob".to_string());
+        let bob_canonical = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("bob".to_string()).as_str())
+            .unwrap();
+
         let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
         assert_eq!(bob_balance, 10000 - 2000);
         let total_supply = TOTAL_SUPPLY.load(&deps.storage).unwrap();
@@ -3156,7 +3245,10 @@ mod tests {
             handle_result.err().unwrap()
         );
         for (name, amount) in &[("bob", 200_u128), ("jerry", 300), ("mike", 400)] {
-            let name_canon = Addr::unchecked(name.to_string());
+            let name_canon = deps
+                .api
+                .addr_canonicalize(Addr::unchecked(name.to_string()).as_str())
+                .unwrap();
             let balance = BalancesStore::load(&deps.storage, &name_canon);
             assert_eq!(balance, 10000 - amount);
         }
@@ -3187,7 +3279,10 @@ mod tests {
             handle_result.err().unwrap()
         );
         for name in &["bob", "jerry", "mike"] {
-            let name_canon = Addr::unchecked(name.to_string());
+            let name_canon = deps
+                .api
+                .addr_canonicalize(Addr::unchecked(name.to_string()).as_str())
+                .unwrap();
             let balance = BalancesStore::load(&deps.storage, &name_canon);
             assert_eq!(balance, 10000 - allowance_size);
         }
@@ -3534,7 +3629,10 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let canonical = Addr::unchecked("butler".to_string());
+        let canonical = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("butler".to_string()).as_str())
+            .unwrap();
         assert_eq!(BalancesStore::load(&deps.storage, &canonical), 3000)
     }
 
@@ -3602,7 +3700,10 @@ mod tests {
             handle_result.err().unwrap()
         );
 
-        let canonical = Addr::unchecked("lebron".to_string());
+        let canonical = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("lebron".to_string()).as_str())
+            .unwrap();
         assert_eq!(BalancesStore::load(&deps.storage, &canonical), 6000)
     }
 

@@ -108,7 +108,7 @@ impl MintersStore {
 
 // To avoid balance guessing attacks based on balance overflow we need to perform safe addition and don't expose overflows to the caller.
 // Assuming that max of u128 is probably an unreachable balance, we want the addition to be bounded the max of u128
-// Currently the logic here is very straight forward yet the existence of the function is mendatory for future changes if needed.
+// Currently the logic here is very straight forward yet the existence of the function is mandatory for future changes if needed.
 pub fn safe_add(balance: &mut u128, amount: u128) -> u128 {
     // Note that new_amount can be equal to base after this operation.
     // Currently we do nothing maybe on other implementations we will have something to add here
