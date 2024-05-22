@@ -40,7 +40,9 @@ secret-toolkit-crypto = { version = "0.10.0", features = ["rand", "hash"] }
 
 schemars = "0.8.12"
 serde = { version = "1.0.158", default-features = false, features = ["derive"] }
+serde-big-array = "0.5.1"
 base64 = "0.21.0"
+rust-crypto = "0.2.36"
 
 [dev-dependencies]
 cosmwasm-schema = { version = "1.1.8" }

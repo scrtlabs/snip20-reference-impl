@@ -3,13 +3,14 @@
 use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, BlockInfo, CanonicalAddr, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128
 };
+use crypto::buffer;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
-use crate::dwb::{AccountTxsStore, DelayedWriteBuffer, DelayedWriteBufferElement, TxNode, DWB, DWB_LEN, TX_NODES};
+use crate::dwb::{AccountTxsStore, DelayedWriteBuffer, DelayedWriteBufferEntry, TxNode, DWB, DWB_LEN, TX_NODES};
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
@@ -63,10 +64,7 @@ pub fn instantiate(
     PrngStore::save(deps.storage, prng_seed_hashed)?;
 
     // initialize the delay write buffer
-    DWB.save(deps.storage, &DelayedWriteBuffer{
-        empty_space_counter: DWB_LEN,
-        elements: vec![],
-    })?;
+    DWB.save(deps.storage, &DelayedWriteBuffer::new()?)?;
 
     let initial_balances = msg.initial_balances.unwrap_or_default();
     for balance in initial_balances {
@@ -1869,80 +1867,24 @@ fn perform_transfer(
     // load delayed write buffer
     let mut dwb = DWB.load(store)?;
 
-    // check if `from` is already in the delayed write buffer
-    let mut from_element_in_dwb = None;
-    let mut from_index_in_dwb = None;
-    for (idx, element) in dwb.elements.iter().enumerate() {
-        if element.recipient == *from {
-            from_element_in_dwb = Some(element.clone());
-            from_index_in_dwb = Some(idx);
-        }
-    }
-
-    let mut from_should_add = false;
-    let mut from_amount = amount;
-    // if `from` is in dwb, settle the transfer in buffer first
-    if let Some(mut from_element) = from_element_in_dwb {
-        // replace with random address in the buffer
-        let random_addr = CanonicalAddr::from(&rng.rand_bytes()[0..20]);
-        dwb.elements[from_index_in_dwb.unwrap()] = DelayedWriteBufferElement {
-            recipient: random_addr,
-            amount: 0,
-            list_len: 0,
-            head_node: None,
-        };
-
-        // figure out how much to subtract or add
-        if from_element.amount > amount { // change from subtract to add
-            from_amount = from_element.amount - amount;
-            from_should_add = true;
-        } else {
-            from_amount = amount - from_element.amount;
-        }
-
-        // now add this tx at the head before adding new tx bundle for account history
-        from_element.add_tx_node(store, tx_id, None)?;
-        let head_node = from_element.head_node.ok_or_else(|| return StdError::generic_err("Corrupted DWB element"))?;
-
-        AccountTxsStore::append_bundle(
-            store, 
-            from, 
-            head_node, 
-            from_element.list_len
-        )?;
-    } else { // not in dwb, so we just create a single node and push it as a bundle in the account tx history
-        let tx_node = TxNode {
-            tx_id,
-            next: None,
-        };
-        TX_NODES.push(store, &tx_node)?;
-        let head_node = TX_NODES.get_len(store)? - 1;
-        AccountTxsStore::append_bundle(
-            store, 
-            from, 
-            head_node,
-            1
-        )?;
-    }
-
-    // TODO: now check if we have to settle anything for `sender` (if different from `from`)
+    // settle the owner's account
+    dwb.settle_account(store, rng, from, tx_id, amount)?;
+    // if this is a *_from action, settle the sender's account, too
     if sender != from {
-        
+        dwb.settle_account(store, rng, sender, tx_id, 0)?;
     }
 
-    // check have enough funds and withdraw `amount` from `from` account,
-    // or in case there are more received tokens in the delayed write buffer, 
-    // then add the difference.
-    BalancesStore::update_balance(store, from, from_amount, from_should_add, "transfer")?;
-
-    // check if `to` is already in the delayed write buffer
-    let mut to_element_in_dwb = None;
-    let mut to_index_in_dwb = None;
-    for (idx, element) in dwb.elements.iter().enumerate() {
-        if element.recipient == *to {
-            to_element_in_dwb = Some(element.clone());
-            to_index_in_dwb = Some(idx);
-        }
+    // check if `to` is already a recipient in the delayed write buffer
+    let buffer_match = dwb.recipient_match(&to);
+    if let Some(idx) = buffer_match {
+        // if it is, update the amount for the entry and add a new tx node at the head
+        let mut entry = dwb.entries[idx];
+        entry.add_tx_node(store, tx_id, Some(amount))?;
+        dwb.entries[idx] = entry;
+    } else {
+        // create a new entry
+        let mut new_entry = DelayedWriteBufferEntry::new(to.clone())?;
+        new_entry.add_tx_node(store, tx_id, Some(amount))?;
     }
 
     // if it is in the delayed write buffer

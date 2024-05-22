@@ -119,10 +119,23 @@ pub fn safe_add(balance: &mut u128, amount: u128) -> u128 {
     *balance - prev_balance
 }
 
+// To avoid balance guessing attacks based on balance overflow we need to perform safe addition and don't expose overflows to the caller.
+// Assuming that max of u64 is probably an unreachable balance, we want the addition to be bounded the max of u64
+// Currently the logic here is very straight forward yet the existence of the function is mandatory for future changes if needed.
+pub fn safe_add_u64(balance: &mut u64, amount: u64) -> u64 {
+    // Note that new_amount can be equal to base after this operation.
+    // Currently we do nothing maybe on other implementations we will have something to add here
+    let prev_balance: u64 = *balance;
+    *balance = balance.saturating_add(amount);
+
+    // Won't underflow as the minimal value possible is 0
+    *balance - prev_balance
+}
+
 pub static BALANCES: Item<u128> = Item::new(PREFIX_BALANCES);
 pub struct BalancesStore {}
 impl BalancesStore {
-    fn save(store: &mut dyn Storage, account: &CanonicalAddr, amount: u128) -> StdResult<()> {
+    pub fn save(store: &mut dyn Storage, account: &CanonicalAddr, amount: u128) -> StdResult<()> {
         let balances = BALANCES.add_suffix(account.as_slice());
         balances.save(store, &amount)
     }

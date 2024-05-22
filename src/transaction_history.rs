@@ -296,7 +296,8 @@ pub fn append_new_stored_tx(
     memo: Option<String>,
     block: &BlockInfo,
 ) -> StdResult<u64> {
-    let id = TX_COUNT.load(store).unwrap_or_default();
+    // tx ids are serialized starting at 1
+    let serial_id = TX_COUNT.load(store).unwrap_or_default() + 1;
     let stored_tx = StoredTx {
         action: action.clone(),
         amount,
@@ -305,9 +306,9 @@ pub fn append_new_stored_tx(
         block_height: block.height,
     };
 
-    TRANSACTIONS.add_suffix(&id.to_be_bytes()).save(store, &stored_tx)?;
-    TX_COUNT.save(store, &(id+1))?;
-    Ok(id)
+    TRANSACTIONS.add_suffix(&serial_id.to_be_bytes()).save(store, &stored_tx)?;
+    TX_COUNT.save(store, &(serial_id))?;
+    Ok(serial_id)
 }
 
 #[allow(clippy::too_many_arguments)] // We just need them
