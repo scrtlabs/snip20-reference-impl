@@ -117,6 +117,7 @@ impl DelayedWriteBuffer {
     }
 
     /// "releases" a given recipient from the buffer, removing their entry if one exists, in constant-time
+    /// returns the new balance and the buffer entry
     pub fn constant_time_release(
         &mut self, 
         store: &mut dyn Storage, 
@@ -127,36 +128,34 @@ impl DelayedWriteBuffer {
         let mut balance = BalancesStore::load(store, address);
 
         // locate the position of the entry in the buffer
-        let matched_entry = self.recipient_match(address);
+        let matched_entry_idx = self.recipient_match(address);
 
         // produce a new random address
         let mut replacement_address = random_addr(rng);
         // ensure random addr is not already in dwb (extremely unlikely!!)
-        while self.recipient_match(&replacement_address).is_some() {
+        while self.recipient_match(&replacement_address) > 0 {
             replacement_address = random_addr(rng);
         }
         let replacement_entry = DelayedWriteBufferEntry::new(replacement_address)?;
-        let return_entry;
-        // overwrite the buffer entry in memory to this random address, if address was in dwb.
-        // otherwise, write to the dummy entry at beginning of vec
-        if let Some(entry_idx) = matched_entry {
-            let entry = self.entries[entry_idx];
-            return_entry = Some(entry.clone());
-            safe_add(&mut balance, entry.amount()? as u128);
-            self.entries[entry_idx] = replacement_entry;
-        } else {
-            return_entry = None;
-            safe_add(&mut balance, 0);
-            // write it to dummy entry
-            self.write_dummy_entry(replacement_entry);
-        }
 
-        Ok((balance, return_entry))
+        // get the current entry at the matched index (0 if dummy)
+        let entry = self.entries[matched_entry_idx];
+        // add entry amount to the stored balance for the address (will be 0 if dummy)
+        safe_add(&mut balance, entry.amount()? as u128);
+        // overwrite the entry idx with random addr replacement
+        self.entries[matched_entry_idx] = replacement_entry;
+
+        match matched_entry_idx {
+            // no match
+            0 => Ok((balance, None)),
+            // otherwise return the updated balance and entry
+            x => Ok((balance, Some(entry)))
+        }
     }
 
     // returns matched index for a given address
-    // trailing zeros will be 128 if not found
-    pub fn recipient_match(&self, address: &CanonicalAddr) -> Option<usize> {
+    // trailing zeros will be 128 if not found, so return 0 (dummy entry)
+    pub fn recipient_match(&self, address: &CanonicalAddr) -> usize {
         // for a dwb > 128 entries in size use a u256
         let mut matched_index: u128 = 0;
         let address = address.as_slice();
@@ -165,15 +164,11 @@ impl DelayedWriteBuffer {
             matched_index |= equals << idx;
         }
         match matched_index.trailing_zeros() {
-            128 => None,
-            x => Some(x as usize)
+            128 => 0,
+            x => x as usize
         }
     }
 
-    #[inline]
-    pub fn write_dummy_entry(&mut self, entry: DelayedWriteBufferEntry) {
-        self.entries[0] = entry;
-    }
 }
 
 const U64_BYTES: usize = 8;
@@ -200,6 +195,7 @@ const DWB_ENTRY_BYTES: usize = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD
 /// 
 /// total: 34 bytes
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct DelayedWriteBufferEntry(
     #[serde(with = "BigArray")]
     [u8; DWB_ENTRY_BYTES]
@@ -211,7 +207,7 @@ impl DelayedWriteBufferEntry {
         if recipient.len() != DWB_RECIPIENT_BYTES {
             return Err(StdError::generic_err("dwb: invalid recipient length"));
         }
-        let mut result = [0u8;DWB_ENTRY_BYTES];
+        let mut result = [0u8; DWB_ENTRY_BYTES];
         result[..DWB_RECIPIENT_BYTES].copy_from_slice(recipient);
         Ok(Self {
             0: result
@@ -407,5 +403,30 @@ impl AccountTxsStore {
         }
 
         Ok(None)
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+
+    use cosmwasm_std::{testing::*, Api};
+    use cosmwasm_std::{
+        from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
+        SubMsg, Timestamp, TransactionInfo, WasmMsg,
+    };
+    use secret_toolkit::permit::{PermitParams, PermitSignature, PubKey};
+
+    use crate::msg::ResponseStatus;
+    use crate::msg::{InitConfig, InitialBalance};
+
+    use super::*;
+
+    #[test]
+    fn test_dwb_entry_setters_getters() {
+        let recipient = CanonicalAddr::from(ZERO_ADDR);
+        let dwb_entry = DelayedWriteBufferEntry::new(recipient).unwrap();
+        assert_eq!(dwb_entry, DelayedWriteBufferEntry([0u8; DWB_ENTRY_BYTES]));
     }
 }
