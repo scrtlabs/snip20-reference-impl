@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crypto::util::fixed_time_eq;
+use rand::RngCore;
 use schemars::JsonSchema;
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 use serde::{Deserialize, Serialize};
@@ -32,6 +33,7 @@ fn store_new_tx_node(store: &mut dyn Storage, tx_node: TxNode) -> StdResult<u64>
 
 pub const ZERO_ADDR: [u8; 20] = [0u8; 20];
 // 64 entries + 1 "dummy" entry prepended (idx: 0 in DelayedWriteBufferEntry array)
+// minimum allowable size: 3
 pub const DWB_LEN: u16 = 65;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -44,6 +46,15 @@ pub struct DelayedWriteBuffer {
 #[inline]
 fn random_addr(rng: &mut ContractPrng) -> CanonicalAddr {
     CanonicalAddr::from(&rng.rand_bytes()[0..20])
+}
+
+pub fn random_in_range(rng: &mut ContractPrng, a: u32, b: u32) -> StdResult<u32> {
+    if b <= a {
+        return Err(StdError::generic_err("invalid range"));
+    }
+    let range_size = b - a + 1;
+    let random_u32 = rng.next_u32() % range_size;
+    Ok(random_u32 + a)
 }
 
 impl DelayedWriteBuffer {
@@ -62,8 +73,31 @@ impl DelayedWriteBuffer {
         self.empty_space_counter == 0
     }
 
+    /// settles an entry at a given index in the buffer
+    pub fn settle_entry(
+        &mut self,
+        store: &mut dyn Storage,
+        index: usize,
+    ) -> StdResult<()> {
+        let entry = self.entries[index];
+        let account = entry.recipient()?;
+
+        AccountTxsStore::append_bundle(
+            store,
+            &account,
+            entry.head_node()?,
+            entry.list_len()
+        );
+
+        // get the address' stored balance
+        let mut balance = BalancesStore::load(store, &account);
+        safe_add(&mut balance, entry.amount()? as u128);
+        // add the amount from entry to the stored balance
+        BalancesStore::save(store, &account, balance)
+    }
+
     /// settles a participant's account who may or may not have an entry in the buffer
-    pub fn settle_account(
+    pub fn settle_sender_or_owner_account(
         &mut self,
         store: &mut dyn Storage,
         rng: &mut ContractPrng,
@@ -72,37 +106,20 @@ impl DelayedWriteBuffer {
         amount_spent: u128,
     ) -> StdResult<()> {
         // release the address from the buffer
-        let (balance, entry_opt) = self.constant_time_release(
+        let (balance, mut entry) = self.constant_time_release(
             store, 
             rng, 
             address
         )?;
-    
-        if let Some(mut entry) = entry_opt {
-            // add tx at the head before adding new tx bundle for account history
-            entry.add_tx_node(store, tx_id, None)?;
-            AccountTxsStore::append_bundle(
-                store,
-                address,
-                entry.head_node()?,
-                entry.list_len()
-            )?;
-        } else { 
-            // no entry in dwb, so we just create a single node and 
-            // push it as a bundle in the account tx history 
-            let tx_node = TxNode {
-                tx_id,
-                next: None,
-            };
 
-            let head_node = store_new_tx_node(store, tx_node)?;
-            AccountTxsStore::append_bundle(
-                store, 
-                address, 
-                head_node,
-                1
-            )?;
-        }
+        let head_node = entry.add_tx_node(store, tx_id)?;
+
+        AccountTxsStore::append_bundle(
+            store,
+            address,
+            head_node,
+            entry.list_len(),
+        )?;
     
         let new_balance = if let Some(balance_after_sub) = balance.checked_sub(amount_spent) {
             balance_after_sub
@@ -123,20 +140,14 @@ impl DelayedWriteBuffer {
         store: &mut dyn Storage, 
         rng: &mut ContractPrng, 
         address: &CanonicalAddr
-    ) -> StdResult<(u128, Option<DelayedWriteBufferEntry>)> {
+    ) -> StdResult<(u128, DelayedWriteBufferEntry)> {
         // get the address' stored balance
         let mut balance = BalancesStore::load(store, address);
 
         // locate the position of the entry in the buffer
         let matched_entry_idx = self.recipient_match(address);
 
-        // produce a new random address
-        let mut replacement_address = random_addr(rng);
-        // ensure random addr is not already in dwb (extremely unlikely!!)
-        while self.recipient_match(&replacement_address) > 0 {
-            replacement_address = random_addr(rng);
-        }
-        let replacement_entry = DelayedWriteBufferEntry::new(replacement_address)?;
+        let replacement_entry = self.unique_random_entry(rng)?;
 
         // get the current entry at the matched index (0 if dummy)
         let entry = self.entries[matched_entry_idx];
@@ -145,12 +156,17 @@ impl DelayedWriteBuffer {
         // overwrite the entry idx with random addr replacement
         self.entries[matched_entry_idx] = replacement_entry;
 
-        match matched_entry_idx {
-            // no match
-            0 => Ok((balance, None)),
-            // otherwise return the updated balance and entry
-            x => Ok((balance, Some(entry)))
+        Ok((balance, entry))
+    }
+
+    pub fn unique_random_entry(&self, rng: &mut ContractPrng) -> StdResult<DelayedWriteBufferEntry> {
+        // produce a new random address
+        let mut replacement_address = random_addr(rng);
+        // ensure random addr is not already in dwb (extremely unlikely!!)
+        while self.recipient_match(&replacement_address) > 0 {
+            replacement_address = random_addr(rng);
         }
+        DelayedWriteBufferEntry::new(replacement_address)
     }
 
     // returns matched index for a given address
@@ -224,7 +240,7 @@ impl DelayedWriteBufferEntry {
         Ok(result)
     }
 
-    fn set_recipient(&mut self, val: &CanonicalAddr) -> StdResult<()> {
+    pub fn set_recipient(&mut self, val: &CanonicalAddr) -> StdResult<()> {
         let val_slice = val.as_slice();
         if val_slice.len() != DWB_RECIPIENT_BYTES {
             return Err(StdError::generic_err("Set dwb recipient error"));
@@ -233,7 +249,7 @@ impl DelayedWriteBufferEntry {
         Ok(())
     }
 
-    fn amount(&self) -> StdResult<u64> {
+    pub fn amount(&self) -> StdResult<u64> {
         let start = DWB_RECIPIENT_BYTES;
         let end = start + DWB_AMOUNT_BYTES;
         let amount_slice = &self.0[start..end];
@@ -253,7 +269,7 @@ impl DelayedWriteBufferEntry {
         Ok(())
     }
 
-    fn head_node(&self) -> StdResult<u64> {
+    pub fn head_node(&self) -> StdResult<u64> {
         let start = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES;
         let end = start + DWB_HEAD_NODE_BYTES;
         let head_node_slice = &self.0[start..end];
@@ -276,7 +292,7 @@ impl DelayedWriteBufferEntry {
         Ok(())
     }
 
-    fn list_len(&self) -> u8 {
+    pub fn list_len(&self) -> u8 {
         let pos = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD_NODE_BYTES;
         self.0[pos]
     }
@@ -286,20 +302,13 @@ impl DelayedWriteBufferEntry {
         self.0[pos] = val;
     }
 
-    pub fn add_tx_node(&mut self, store: &mut dyn Storage, tx_id: u64, add_tx_amount: Option<u128>) -> StdResult<()> {
-        let tx_node;
-        let head_node = self.head_node()?;
-        if head_node > 0 {
-            tx_node = TxNode {
-                tx_id,
-                next: Some(head_node),
-            };
-        } else {
-            tx_node = TxNode {
-                tx_id,
-                next: None,
-            };
-        }
+    /// adds a tx node to the linked list
+    /// returns: the new head node
+    pub fn add_tx_node(&mut self, store: &mut dyn Storage, tx_id: u64) -> StdResult<u64> {
+        let tx_node = TxNode {
+            tx_id,
+            next: self.head_node()?,
+        };
 
         // store the new node on chain
         let new_node = store_new_tx_node(store, tx_node)?;
@@ -307,18 +316,23 @@ impl DelayedWriteBufferEntry {
         self.set_head_node(new_node)?;
         // increment the node list length
         self.set_list_len(self.list_len() + 1);
-        if let Some(add_tx_amount) = add_tx_amount {
-            // change this to safe_add if your coin needs to store amount in buffer as u128 (e.g. 18 decimals)
-            let mut amount = self.amount()?;
-            let add_tx_amount_u64 = add_tx_amount
-                .try_into()
-                .or_else(|_| return Err(StdError::generic_err("dwb: deposit overflow")))?;
-            safe_add_u64(&mut amount, add_tx_amount_u64);
-            self.set_amount(amount)?;
-        }
+        
+        Ok(new_node)
+    }
 
-        Ok(())
-    } 
+    // adds some amount to the total amount for all txs in the entry linked list
+    // returns: the new amount
+    pub fn add_amount(&mut self, add_tx_amount: u128) -> StdResult<u64> {
+        // change this to safe_add if your coin needs to store amount in buffer as u128 (e.g. 18 decimals)
+        let mut amount = self.amount()?;
+        let add_tx_amount_u64 = add_tx_amount
+            .try_into()
+            .or_else(|_| return Err(StdError::generic_err("dwb: deposit overflow")))?;
+        safe_add_u64(&mut amount, add_tx_amount_u64);
+        self.set_amount(amount)?;
+
+        Ok(amount)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -326,7 +340,8 @@ pub struct TxNode {
     /// transaction id in the TRANSACTIONS list
     pub tx_id: u64,
     /// TX_NODES idx - pointer to the next node in the linked list
-    pub next: Option<u64>,
+    /// 0 if next is null
+    pub next: u64,
 }
 
 

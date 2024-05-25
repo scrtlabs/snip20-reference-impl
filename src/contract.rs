@@ -10,7 +10,7 @@ use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
-use crate::dwb::{AccountTxsStore, DelayedWriteBuffer, DelayedWriteBufferEntry, TxNode, DWB, DWB_LEN, TX_NODES};
+use crate::dwb::{random_in_range, AccountTxsStore, DelayedWriteBuffer, DelayedWriteBufferEntry, TxNode, DWB, DWB_LEN, TX_NODES};
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
@@ -18,7 +18,7 @@ use crate::msg::{
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    safe_add, AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG, CONTRACT_STATUS, PRNG, TOTAL_SUPPLY
+    safe_add, safe_add_u64, AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG, CONTRACT_STATUS, PRNG, TOTAL_SUPPLY
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
@@ -1868,33 +1868,52 @@ fn perform_transfer(
     let mut dwb = DWB.load(store)?;
 
     // settle the owner's account
-    dwb.settle_account(store, rng, from, tx_id, amount)?;
+    dwb.settle_sender_or_owner_account(store, rng, from, tx_id, amount)?;
     // if this is a *_from action, settle the sender's account, too
     if sender != from {
-        dwb.settle_account(store, rng, sender, tx_id, 0)?;
+        dwb.settle_sender_or_owner_account(store, rng, sender, tx_id, 0)?;
     }
-
-    // check if `to` is already a recipient in the delayed write buffer
-    let buffer_match = dwb.recipient_match(&to);
-    if let Some(idx) = buffer_match {
-        // if it is, update the amount for the entry and add a new tx node at the head
-        let mut entry = dwb.entries[idx];
-        entry.add_tx_node(store, tx_id, Some(amount))?;
-        dwb.entries[idx] = entry;
-    } else {
-        // create a new entry
-        let mut new_entry = DelayedWriteBufferEntry::new(to.clone())?;
-        new_entry.add_tx_node(store, tx_id, Some(amount))?;
-    }
-
-    // if it is in the delayed write buffer
 
     if dwb.saturated() {
+        // check if `to` is already a recipient in the delayed write buffer
+        let recipient_index = dwb.recipient_match(&to);
 
+        // this will either be a prior entry for the recipient or the dummy entry
+        let mut new_entry = dwb.entries[recipient_index].clone();
+        new_entry.set_recipient(&to)?;
+        new_entry.add_tx_node(store, tx_id)?;
+        new_entry.add_amount(amount)?;
+
+        // if recipient is in the buffer (non-zero index), set this value to 1, otherwise 0, in constant-time
+        // casting will never overflow, so long as dwb length is limited to a u16 value
+        let zero_or_one = (((recipient_index as isize | -(recipient_index as isize)) >> 31) & 1) as usize;
+
+        // randomly pick an entry to exclude in case the recipient is not in the buffer
+        let random_exclude_index = random_in_range(rng, 1, DWB_LEN as u32)? as usize;
+        
+        // index of entry to exclude from selection
+        let exclude_index = (recipient_index as usize * zero_or_one) + (random_exclude_index * (1 - zero_or_one));
+
+        // randomly select any other entry to settle in constant-time (avoiding the reserved 0th position)
+        let settle_index = (((random_in_range(rng, 0, DWB_LEN as u32 - 2)? + exclude_index as u32) % (DWB_LEN as u32 - 1)) + 1) as usize;
+
+        // settle the entry
+        dwb.settle_entry(store, settle_index)?;
+
+        // replace it with a randomly generated address (that is not currently in the buffer) and 0 amount and nil events pointer
+        let replacement_entry = dwb.unique_random_entry(rng)?;
+        dwb.entries[settle_index] = replacement_entry;
+
+        // pick the index to where the recipient's entry should be written
+        let write_index = (recipient_index * zero_or_one) + (settle_index * (1 - zero_or_one));
+
+        // either updates the existing recipient entry, or overwrites the random replacement entry in the settled index
+        dwb.entries[write_index] = new_entry;
     } else {
-        // we want to simply add to the buffer without settling anything
-
+        // TODO:
     }
+
+
 
     // TODO: 
     BalancesStore::update_balance(
