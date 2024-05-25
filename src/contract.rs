@@ -1876,14 +1876,14 @@ fn perform_transfer(
         // check if `to` is already a recipient in the delayed write buffer
         let recipient_index = dwb.recipient_match(&to);
 
-        // this will either be a prior entry for the recipient or the dummy entry
+        // the new entry will either derive from a prior entry for the recipient or the dummy entry
         let mut new_entry = dwb.entries[recipient_index].clone();
         new_entry.set_recipient(&to)?;
         new_entry.add_tx_node(store, tx_id)?;
         new_entry.add_amount(amount)?;
 
         // if recipient is in the buffer (non-zero index), set this value to 1, otherwise 0, in constant-time
-        // casting will never overflow, so long as dwb length is limited to a u16 value
+        // casting to isize will never overflow, so long as dwb length is limited to a u16 value
         let zero_or_one = (((recipient_index as isize | -(recipient_index as isize)) >> 31) & 1) as usize;
 
         // randomly pick an entry to exclude in case the recipient is not in the buffer

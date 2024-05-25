@@ -49,7 +49,7 @@ pub fn random_in_range(rng: &mut ContractPrng, a: u32, b: u32) -> StdResult<u32>
     if b <= a {
         return Err(StdError::generic_err("invalid range"));
     }
-    let range_size = b - a + 1;
+    let range_size = b - a;
     let random_u32 = rng.next_u32() % range_size;
     Ok(random_u32 + a)
 }
@@ -167,19 +167,14 @@ impl DelayedWriteBuffer {
     }
 
     // returns matched index for a given address
-    // trailing zeros will be 128 if not found, so return 0 (dummy entry)
     pub fn recipient_match(&self, address: &CanonicalAddr) -> usize {
-        // for a dwb > 128 entries in size use a u256
-        let mut matched_index: u128 = 0;
+        let mut matched_index: usize = 0;
         let address = address.as_slice();
         for (idx, entry) in self.entries.iter().enumerate().skip(1) {
-            let equals = fixed_time_eq(address, entry.recipient_slice()) as u128;
-            matched_index |= equals << idx;
+            let equals = fixed_time_eq(address, entry.recipient_slice()) as usize;
+            matched_index |= idx * equals;
         }
-        match matched_index.trailing_zeros() {
-            128 => 0,
-            x => x as usize
-        }
+        matched_index
     }
 
 }
