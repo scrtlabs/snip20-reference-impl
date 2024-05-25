@@ -9,7 +9,7 @@ use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
-use crate::dwb::{random_in_range, DelayedWriteBuffer, DWB, DWB_LEN};
+use crate::dwb::{random_in_range, DelayedWriteBuffer, DWB, DWB_LEN, TX_NODES};
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
@@ -564,6 +564,22 @@ pub fn query_transactions(
     // The address of 'account' should not be validated if query_transactions() was called by a
     // permit call, for compatibility with non-Secret addresses.
     let account = Addr::unchecked(account);
+    let account_raw = deps.api.addr_canonicalize(account.as_str())?;
+
+    // first check if there are any transactions in dwb
+    let dwb = DWB.load(deps.storage)?;
+    let dwb_index = dwb.recipient_match(&account_raw);
+    let mut transactions_in_dwb = vec![];
+    if dwb_index > 0 && dwb.entries[dwb_index].list_len()? > 0 {
+        let head_node_index = dwb.entries[dwb_index].head_node()?;
+        if head_node_index > 0 {
+            let head_node = TX_NODES.add_suffix(&head_node_index.to_be_bytes()).load(deps.storage)?;
+            transactions_in_dwb = head_node.to_vec(deps.storage, deps.api)?;
+        }
+    }
+
+    // second get number of txs in account storage
+    
 /*
     let (txs, total) =
         StoredTx::get_txs(
@@ -603,7 +619,7 @@ pub fn query_transactions(
 }
 
 pub fn query_balance(deps: Deps, account: String) -> StdResult<Binary> {
-    // Notice that if query_balance() was called by a viewing-key call, the address of 'account'
+    // Notice that if query_balance() was called by a viewing key call, the address of 'account'
     // has already been validated.
     // The address of 'account' should not be validated if query_balance() was called by a permit
     // call, for compatibility with non-Secret addresses.

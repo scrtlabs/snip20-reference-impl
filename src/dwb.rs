@@ -3,10 +3,10 @@ use rand::RngCore;
 use secret_toolkit_crypto::ContractPrng;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use cosmwasm_std::{CanonicalAddr, StdError, StdResult, Storage};
+use cosmwasm_std::{Api, CanonicalAddr, StdError, StdResult, Storage};
 use secret_toolkit::storage::{AppendStore, Item};
 
-use crate::state::{safe_add, safe_add_u64, BalancesStore,};
+use crate::{state::{safe_add, safe_add_u64, BalancesStore,}, transaction_history::{Tx, TRANSACTIONS}};
 
 pub const KEY_DWB: &[u8] = b"dwb";
 pub const KEY_TX_NODES_COUNT: &[u8] = b"dwb-node-cnt";
@@ -351,13 +351,37 @@ impl DelayedWriteBufferEntry {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct TxNode {
     /// transaction id in the TRANSACTIONS list
     pub tx_id: u64,
     /// TX_NODES idx - pointer to the next node in the linked list
     /// 0 if next is null
     pub next: u64,
+}
+
+impl TxNode {
+    // converts this and following elements in list to a vec of Tx
+    pub fn to_vec(&self, store: &dyn Storage, api: &dyn Api) -> StdResult<Vec<Tx>> {
+        let mut result = vec![];
+        let mut cur_node = Some(self.to_owned());
+        while cur_node.is_some() {
+            let node = cur_node.unwrap();
+            let stored_tx = TRANSACTIONS
+                .add_suffix(&node.tx_id.to_be_bytes())
+                .load(store)?;
+            let tx = stored_tx.into_humanized(api, node.tx_id)?;
+            result.push(tx);
+            if node.next > 0 {
+                let next_node = TX_NODES.add_suffix(&node.next.to_be_bytes()).load(store)?;
+                cur_node = Some(next_node);
+            } else {
+                cur_node = None;
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 

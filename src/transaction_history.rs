@@ -202,9 +202,9 @@ impl StoredTxAction {
     }
 }
 
-// use with add_suffix tx id (u64)
+// use with add_suffix tx id (u64 to_be_bytes)
 // does not need to be an AppendStore because we never need to iterate over global list of txs
-static TRANSACTIONS: Item<StoredTx> = Item::new(PREFIX_TXS);
+pub static TRANSACTIONS: Item<StoredTx> = Item::new(PREFIX_TXS);
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -233,7 +233,7 @@ impl StoredTx {
         }
     }
 
-    fn into_humanized(self, api: &dyn Api, id: u64) -> StdResult<Tx> {
+    pub fn into_humanized(self, api: &dyn Api, id: u64) -> StdResult<Tx> {
         Ok(Tx {
             id,
             action: self.action.into_tx_action(api)?,
