@@ -90,7 +90,7 @@ impl DelayedWriteBuffer {
             store,
             &account,
             entry.head_node()?,
-            entry.list_len()
+            entry.list_len()?,
         )?;
 
         // get the address' stored balance
@@ -122,7 +122,7 @@ impl DelayedWriteBuffer {
             store,
             address,
             head_node,
-            entry.list_len(),
+            entry.list_len()?,
         )?;
     
         let new_balance = if let Some(balance_after_sub) = balance.checked_sub(amount_spent) {
@@ -179,6 +179,7 @@ impl DelayedWriteBuffer {
         let address = address.as_slice();
         for (idx, entry) in self.entries.iter().enumerate().skip(1) {
             let equals = fixed_time_eq(address, entry.recipient_slice()) as usize;
+            // an address can only occur once in the buffer
             matched_index |= idx * equals;
         }
         matched_index
@@ -186,12 +187,13 @@ impl DelayedWriteBuffer {
 
 }
 
+const U16_BYTES: usize = 2;
 const U64_BYTES: usize = 8;
 
 const DWB_RECIPIENT_BYTES: usize = 20;
 const DWB_AMOUNT_BYTES: usize = 8;     // Max 16 (u128)
 const DWB_HEAD_NODE_BYTES: usize = 5;  // Max 8  (u64)
-const DWB_LIST_LEN_BYTES: usize = 1;
+const DWB_LIST_LEN_BYTES: usize = 2;   // u16
 
 const DWB_ENTRY_BYTES: usize = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD_NODE_BYTES + DWB_LIST_LEN_BYTES;
 
@@ -206,9 +208,9 @@ const DWB_ENTRY_BYTES: usize = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD
 /// // 40 bits allows for over 1 trillion transactions
 /// head_node - 5 bytes
 /// // length of list (limited to 255)
-/// list_len  - 1 byte
+/// list_len  - 2 byte
 /// 
-/// total: 34 bytes
+/// total: 35 bytes
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct DelayedWriteBufferEntry(
@@ -291,14 +293,24 @@ impl DelayedWriteBufferEntry {
         Ok(())
     }
 
-    pub fn list_len(&self) -> u8 {
-        let pos = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD_NODE_BYTES;
-        self.0[pos]
+    pub fn list_len(&self) -> StdResult<u16> {
+        let start = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD_NODE_BYTES;
+        let end = start + DWB_LIST_LEN_BYTES;
+        let list_len_slice = &self.0[start..end];
+        let result = list_len_slice
+            .try_into()
+            .or(Err(StdError::generic_err("Get dwb list len error")))?;
+        Ok(u16::from_be_bytes(result))
     }
 
-    fn set_list_len(&mut self, val: u8) {
-        let pos = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD_NODE_BYTES;
-        self.0[pos] = val;
+    fn set_list_len(&mut self, val: u16) -> StdResult<()> {
+        let start = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD_NODE_BYTES;
+        let end = start + DWB_LIST_LEN_BYTES;
+        if DWB_LIST_LEN_BYTES != U16_BYTES {
+            return Err(StdError::generic_err("Set dwb amount error"));
+        }
+        self.0[start..end].copy_from_slice(&val.to_be_bytes());
+        Ok(())
     }
 
     /// adds a tx node to the linked list
@@ -314,7 +326,7 @@ impl DelayedWriteBufferEntry {
         // set the head node to the new node id
         self.set_head_node(new_node)?;
         // increment the node list length
-        self.set_list_len(self.list_len() + 1);
+        self.set_list_len(self.list_len()? + 1)?;
         
         Ok(new_node)
     }
@@ -349,7 +361,7 @@ pub struct TxBundle {
     /// TX_NODES idx - pointer to the head tx node in the linked list
     pub head_node: u64,
     /// length of the tx node linked list for this element
-    pub list_len: u8,
+    pub list_len: u16,
     /// offset of the first tx of this bundle in the history of txs for the account (for pagination)
     pub offset: u32,
 }
@@ -367,7 +379,7 @@ pub static ACCOUNT_TX_COUNT: Item<u32> = Item::new(KEY_ACCOUNT_TX_COUNT);
 pub struct AccountTxsStore {}
 impl AccountTxsStore {
     /// appends a new tx bundle for an account, called when non-transfer tx occurs or is settled.
-    pub fn append_bundle(store: &mut dyn Storage, account: &CanonicalAddr, head_node: u64, list_len: u8) -> StdResult<()> {
+    pub fn append_bundle(store: &mut dyn Storage, account: &CanonicalAddr, head_node: u64, list_len: u16) -> StdResult<()> {
         let account_txs_store = ACCOUNT_TXS.add_suffix(account.as_slice());
         let account_txs_len = account_txs_store.get_len(store)?;
         let tx_bundle;

@@ -1872,10 +1872,9 @@ fn perform_transfer(
         dwb.settle_sender_or_owner_account(store, rng, sender, tx_id, 0)?;
     }
 
+    // check if `to` is already a recipient in the delayed write buffer
+    let recipient_index = dwb.recipient_match(&to);
     if dwb.saturated() {
-        // check if `to` is already a recipient in the delayed write buffer
-        let recipient_index = dwb.recipient_match(&to);
-
         // the new entry will either derive from a prior entry for the recipient or the dummy entry
         let mut new_entry = dwb.entries[recipient_index].clone();
         new_entry.set_recipient(&to)?;
@@ -1884,31 +1883,40 @@ fn perform_transfer(
 
         // if recipient is in the buffer (non-zero index), set this value to 1, otherwise 0, in constant-time
         // casting to isize will never overflow, so long as dwb length is limited to a u16 value
-        let zero_or_one = (((recipient_index as isize | -(recipient_index as isize)) >> 31) & 1) as usize;
+        let recipient_in_buffer = (((recipient_index as isize | -(recipient_index as isize)) >> 31) & 1) as usize;
 
         // randomly pick an entry to exclude in case the recipient is not in the buffer
         let random_exclude_index = random_in_range(rng, 1, DWB_LEN as u32)? as usize;
         
         // index of entry to exclude from selection
-        let exclude_index = (recipient_index as usize * zero_or_one) + (random_exclude_index * (1 - zero_or_one));
+        let exclude_index = (recipient_index as usize * recipient_in_buffer) + (random_exclude_index * (1 - recipient_in_buffer));
 
         // randomly select any other entry to settle in constant-time (avoiding the reserved 0th position)
-        let settle_index = (((random_in_range(rng, 0, DWB_LEN as u32 - 2)? + exclude_index as u32) % (DWB_LEN as u32 - 1)) + 1) as usize;
+        let random_settle_index = (((random_in_range(rng, 0, DWB_LEN as u32 - 2)? + exclude_index as u32) % (DWB_LEN as u32 - 1)) + 1) as usize;
+
+        // check if we have any open slots in the linked list
+        let open_slots = (u16::MAX - dwb.entries[recipient_index].list_len()?) as i32;
+        let list_can_grow = (((open_slots | -open_slots) >> 31) & 1) as usize;
+
+        // if we would overflow the list, just settle recipient
+        // TODO: see docs for attack analysis
+        let actual_settle_index = (random_settle_index as usize * list_can_grow) + (recipient_index * (1 - list_can_grow));
 
         // settle the entry
-        dwb.settle_entry(store, settle_index)?;
+        dwb.settle_entry(store, actual_settle_index)?;
 
         // replace it with a randomly generated address (that is not currently in the buffer) and 0 amount and nil events pointer
         let replacement_entry = dwb.unique_random_entry(rng)?;
-        dwb.entries[settle_index] = replacement_entry;
+        dwb.entries[actual_settle_index] = replacement_entry;
 
         // pick the index to where the recipient's entry should be written
-        let write_index = (recipient_index * zero_or_one) + (settle_index * (1 - zero_or_one));
+        let write_index = (recipient_index * recipient_in_buffer) + (actual_settle_index * (1 - recipient_in_buffer));
 
         // either updates the existing recipient entry, or overwrites the random replacement entry in the settled index
         dwb.entries[write_index] = new_entry;
     } else {
         // TODO:
+
     }
 
 
