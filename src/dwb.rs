@@ -49,9 +49,16 @@ pub fn random_in_range(rng: &mut ContractPrng, a: u32, b: u32) -> StdResult<u32>
     if b <= a {
         return Err(StdError::generic_err("invalid range"));
     }
-    let range_size = b - a;
-    let random_u32 = rng.next_u32() % range_size;
-    Ok(random_u32 + a)
+    let range_size = (b - a) as u64;
+    // need to make sure random is below threshold to prevent modulo bias
+    let threshold = u64::MAX - range_size;
+    loop {
+        // this loop will almost always run only once since range_size << u64::MAX
+        let random_u64 = rng.next_u64();
+        if random_u64 < threshold { 
+            return Ok((random_u64 % range_size) as u32 + a)
+        }
+    }
 }
 
 impl DelayedWriteBuffer {
