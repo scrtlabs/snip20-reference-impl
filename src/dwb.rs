@@ -29,6 +29,11 @@ fn store_new_tx_node(store: &mut dyn Storage, tx_node: TxNode) -> StdResult<u64>
 }
 
 pub const ZERO_ADDR: [u8; 20] = [0u8; 20];
+pub const IMPOSSIBLE_ADDR: [u8; 20] = [
+    0x29, 0xcf, 0xc6, 0x37, 0x62, 0x55, 0xa7, 0x84, 0x51, 0xee,
+    0xb4, 0xb1, 0x29, 0xed, 0x8e, 0xac, 0xff, 0xa2, 0xfe, 0xef
+];
+
 // 64 entries + 1 "dummy" entry prepended (idx: 0 in DelayedWriteBufferEntry array)
 // minimum allowable size: 3
 pub const DWB_LEN: u16 = 65;
@@ -67,7 +72,7 @@ impl DelayedWriteBuffer {
             empty_space_counter: DWB_LEN - 1,
             // first entry is a dummy entry for constant-time writing
             entries: [
-                DelayedWriteBufferEntry::new(CanonicalAddr::from(&ZERO_ADDR))?; DWB_LEN as usize
+                DelayedWriteBufferEntry::new(CanonicalAddr::from(&IMPOSSIBLE_ADDR))?; DWB_LEN as usize
             ]
         })
     }
@@ -207,7 +212,7 @@ const DWB_ENTRY_BYTES: usize = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD
 /// // global id for head of linked list of transaction nodes
 /// // 40 bits allows for over 1 trillion transactions
 /// head_node - 5 bytes
-/// // length of list (limited to 255)
+/// // length of list (limited to 65535)
 /// list_len  - 2 byte
 /// 
 /// total: 35 bytes
@@ -452,7 +457,23 @@ mod tests {
     #[test]
     fn test_dwb_entry_setters_getters() {
         let recipient = CanonicalAddr::from(ZERO_ADDR);
-        let dwb_entry = DelayedWriteBufferEntry::new(recipient).unwrap();
+        let mut dwb_entry = DelayedWriteBufferEntry::new(recipient).unwrap();
         assert_eq!(dwb_entry, DelayedWriteBufferEntry([0u8; DWB_ENTRY_BYTES]));
+
+        assert_eq!(dwb_entry.recipient().unwrap(), CanonicalAddr::from(ZERO_ADDR));
+        assert_eq!(dwb_entry.amount().unwrap(), 0u64);
+        assert_eq!(dwb_entry.head_node().unwrap(), 0u64);
+        assert_eq!(dwb_entry.list_len().unwrap(), 0u16);
+
+        let canonical_addr = CanonicalAddr::from(&[1u8; 20]);
+        dwb_entry.set_recipient(&canonical_addr).unwrap();
+        dwb_entry.set_amount(1).unwrap();
+        dwb_entry.set_head_node(1).unwrap();
+        dwb_entry.set_list_len(1).unwrap();
+
+        assert_eq!(dwb_entry.recipient().unwrap(), CanonicalAddr::from(&[1u8; 20]));
+        assert_eq!(dwb_entry.amount().unwrap(), 1u64);
+        assert_eq!(dwb_entry.head_node().unwrap(), 1u64);
+        assert_eq!(dwb_entry.list_len().unwrap(), 1u16);
     }
 }

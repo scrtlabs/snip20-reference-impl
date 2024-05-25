@@ -1874,17 +1874,18 @@ fn perform_transfer(
 
     // check if `to` is already a recipient in the delayed write buffer
     let recipient_index = dwb.recipient_match(&to);
+
+    // the new entry will either derive from a prior entry for the recipient or the dummy entry
+    let mut new_entry = dwb.entries[recipient_index].clone();
+    new_entry.set_recipient(&to)?;
+    new_entry.add_tx_node(store, tx_id)?;
+    new_entry.add_amount(amount)?;
+
+    // if recipient is in the buffer (non-zero index), set this value to 1, otherwise 0, in constant-time
+    // casting to isize will never overflow, so long as dwb length is limited to a u16 value
+    let recipient_in_buffer = (((recipient_index as isize | -(recipient_index as isize)) >> 31) & 1) as usize;
+
     if dwb.saturated() {
-        // the new entry will either derive from a prior entry for the recipient or the dummy entry
-        let mut new_entry = dwb.entries[recipient_index].clone();
-        new_entry.set_recipient(&to)?;
-        new_entry.add_tx_node(store, tx_id)?;
-        new_entry.add_amount(amount)?;
-
-        // if recipient is in the buffer (non-zero index), set this value to 1, otherwise 0, in constant-time
-        // casting to isize will never overflow, so long as dwb length is limited to a u16 value
-        let recipient_in_buffer = (((recipient_index as isize | -(recipient_index as isize)) >> 31) & 1) as usize;
-
         // randomly pick an entry to exclude in case the recipient is not in the buffer
         let random_exclude_index = random_in_range(rng, 1, DWB_LEN as u32)? as usize;
         
@@ -1915,20 +1916,24 @@ fn perform_transfer(
         // either updates the existing recipient entry, or overwrites the random replacement entry in the settled index
         dwb.entries[write_index] = new_entry;
     } else {
-        // TODO:
+        // TODO: revisit contract warm up with other options, e.g saturating with random address from beginning
 
+        // find the next empty entry in the buffer
+        let next_index = (DWB_LEN - dwb.empty_space_counter) as usize;
+
+        // pick the index to where the recipient's entry should be written
+        let write_index = (recipient_index * recipient_in_buffer) + (next_index * (1 - recipient_in_buffer));
+
+        // either updates the existing recipient entry, or write the entry to the next index value
+        dwb.entries[write_index] = new_entry;
+
+        let empty_space_counter_delta = (1 - recipient_in_buffer) as u16;
+
+        // decrement empty space counter if receipient is not already in buffer
+        dwb.empty_space_counter -= empty_space_counter_delta;
     }
 
-
-
-    // TODO: 
-    BalancesStore::update_balance(
-        store,
-        to,
-        amount,
-        true,
-        "transfer",
-    )?;
+    DWB.save(store, &dwb)?;
 
     Ok(())
 }
