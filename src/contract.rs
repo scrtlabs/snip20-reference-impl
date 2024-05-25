@@ -3,26 +3,24 @@
 use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, BlockInfo, CanonicalAddr, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128
 };
-use crypto::buffer;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
-use crate::dwb::{random_in_range, AccountTxsStore, DelayedWriteBuffer, DelayedWriteBufferEntry, TxNode, DWB, DWB_LEN, TX_NODES};
+use crate::dwb::{random_in_range, DelayedWriteBuffer, DWB, DWB_LEN};
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
-    TxWithCoins,
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    safe_add, safe_add_u64, AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG, CONTRACT_STATUS, PRNG, TOTAL_SUPPLY
+    safe_add, AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG, CONTRACT_STATUS, PRNG, TOTAL_SUPPLY
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
-    append_new_stored_tx, store_burn, store_deposit, store_mint, store_redeem, store_transfer, StoredTx, StoredTxAction, TxAction
+    append_new_stored_tx, store_burn, store_deposit, store_mint, store_redeem, StoredTxAction, 
 };
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -1980,7 +1978,7 @@ mod tests {
     };
     use secret_toolkit::permit::{PermitParams, PermitSignature, PubKey};
 
-    use crate::msg::ResponseStatus;
+    use crate::msg::{ResponseStatus, TxWithCoins};
     use crate::msg::{InitConfig, InitialBalance};
 
     use super::*;

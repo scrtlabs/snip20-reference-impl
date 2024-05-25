@@ -1,15 +1,12 @@
-use std::collections::{HashMap, HashSet};
-
 use crypto::util::fixed_time_eq;
 use rand::RngCore;
-use schemars::JsonSchema;
-use secret_toolkit_crypto::{sha_256, ContractPrng};
+use secret_toolkit_crypto::ContractPrng;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use cosmwasm_std::{CanonicalAddr, StdError, StdResult, Storage};
 use secret_toolkit::storage::{AppendStore, Item};
 
-use crate::{state::{safe_add, safe_add_u64, BalancesStore, BALANCES}, transaction_history::Tx};
+use crate::state::{safe_add, safe_add_u64, BalancesStore,};
 
 pub const KEY_DWB: &[u8] = b"dwb";
 pub const KEY_TX_NODES_COUNT: &[u8] = b"dwb-node-cnt";
@@ -87,7 +84,7 @@ impl DelayedWriteBuffer {
             &account,
             entry.head_node()?,
             entry.list_len()
-        );
+        )?;
 
         // get the address' stored balance
         let mut balance = BalancesStore::load(store, &account);
