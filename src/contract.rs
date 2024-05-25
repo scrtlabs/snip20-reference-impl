@@ -603,13 +603,20 @@ pub fn query_transactions(
 }
 
 pub fn query_balance(deps: Deps, account: String) -> StdResult<Binary> {
-    // Notice that if query_balance() was called by a viewking-key call, the address of 'account'
+    // Notice that if query_balance() was called by a viewing-key call, the address of 'account'
     // has already been validated.
     // The address of 'account' should not be validated if query_balance() was called by a permit
     // call, for compatibility with non-Secret addresses.
     let account = Addr::unchecked(account);
+    let account = deps.api.addr_canonicalize(account.as_str())?;
 
-    let amount = Uint128::new(BalancesStore::load(deps.storage, &deps.api.addr_canonicalize(account.as_str())?));
+    let mut amount = BalancesStore::load(deps.storage, &account);
+    let dwb = DWB.load(deps.storage)?;
+    let dwb_index = dwb.recipient_match(&account);
+    if dwb_index > 0 {
+        amount = amount.saturating_add(dwb.entries[dwb_index].amount()? as u128);
+    }
+    let amount = Uint128::new(amount);
     let response = QueryAnswer::Balance { amount };
     to_binary(&response)
 }
@@ -1927,9 +1934,8 @@ fn perform_transfer(
         // either updates the existing recipient entry, or write the entry to the next index value
         dwb.entries[write_index] = new_entry;
 
-        let empty_space_counter_delta = (1 - recipient_in_buffer) as u16;
-
         // decrement empty space counter if receipient is not already in buffer
+        let empty_space_counter_delta = (1 - recipient_in_buffer) as u16;
         dwb.empty_space_counter -= empty_space_counter_delta;
     }
 
