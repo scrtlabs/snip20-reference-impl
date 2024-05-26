@@ -38,6 +38,9 @@ pub const IMPOSSIBLE_ADDR: [u8; 20] = [
 // minimum allowable size: 3
 pub const DWB_LEN: u16 = 65;
 
+// maximum number of tx events allowed in an entry's linked list
+pub const DWB_MAX_TX_EVENTS: u16 = u16::MAX;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DelayedWriteBuffer {
     pub empty_space_counter: u16,
