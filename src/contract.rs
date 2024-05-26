@@ -9,7 +9,7 @@ use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
-use crate::dwb::{random_in_range, DelayedWriteBuffer, ACCOUNT_TXS, DWB, DWB_LEN, TX_NODES};
+use crate::dwb::{random_in_range, DelayedWriteBuffer, DWB, DWB_LEN, DWB_MAX_TX_EVENTS, TX_NODES};
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
@@ -1910,56 +1910,57 @@ fn perform_transfer(
     new_entry.add_tx_node(store, tx_id)?;
     new_entry.add_amount(amount)?;
 
-    // if recipient is in the buffer (non-zero index), set this value to 1, otherwise 0, in constant-time
-    // casting to isize will never overflow, so long as dwb length is limited to a u16 value
-    let recipient_in_buffer = (((recipient_index as isize | -(recipient_index as isize)) >> 31) & 1) as usize;
 
-    if dwb.saturated() {
-        // randomly pick an entry to exclude in case the recipient is not in the buffer
-        let random_exclude_index = random_in_range(rng, 1, DWB_LEN as u32)? as usize;
-        
-        // index of entry to exclude from selection
-        let exclude_index = (recipient_index as usize * recipient_in_buffer) + (random_exclude_index * (1 - recipient_in_buffer));
+    // whether or not recipient is in the buffer (non-zero index)
+    // casting to i32 will never overflow, so long as dwb length is limited to a u16 value
+    let if_recipient_in_buffer = constant_time_is_not_zero(recipient_index as i32);
 
-        // randomly select any other entry to settle in constant-time (avoiding the reserved 0th position)
-        let random_settle_index = (((random_in_range(rng, 0, DWB_LEN as u32 - 2)? + exclude_index as u32) % (DWB_LEN as u32 - 1)) + 1) as usize;
+    // randomly pick an entry to exclude in case the recipient is not in the buffer
+    let random_exclude_index = random_in_range(rng, 1, DWB_LEN as u32)? as usize;
 
-        // check if we have any open slots in the linked list
-        let open_slots = (u16::MAX - dwb.entries[recipient_index].list_len()?) as i32;
-        let list_can_grow = (((open_slots | -open_slots) >> 31) & 1) as usize;
+    // index of entry to exclude from selection
+    let exclude_index = constant_time_if_else(if_recipient_in_buffer, recipient_index, random_exclude_index);
 
-        // if we would overflow the list, just settle recipient
-        // TODO: see docs for attack analysis
-        let actual_settle_index = (random_settle_index as usize * list_can_grow) + (recipient_index * (1 - list_can_grow));
+    // randomly select any other entry to settle in constant-time (avoiding the reserved 0th position)
+    let random_settle_index = (((random_in_range(rng, 0, DWB_LEN as u32 - 2)? + exclude_index as u32) % (DWB_LEN as u32 - 1)) + 1) as usize;
 
-        // settle the entry
-        dwb.settle_entry(store, actual_settle_index)?;
 
-        // replace it with a randomly generated address (that is not currently in the buffer) and 0 amount and nil events pointer
-        let replacement_entry = dwb.unique_random_entry(rng)?;
-        dwb.entries[actual_settle_index] = replacement_entry;
+    // whether or not the buffer is fully saturated yet
+    let if_undersaturated = constant_time_is_not_zero(dwb.empty_space_counter as i32);
 
-        // pick the index to where the recipient's entry should be written
-        let write_index = (recipient_index * recipient_in_buffer) + (actual_settle_index * (1 - recipient_in_buffer));
+    // find the next empty entry in the buffer
+    let next_empty_index = (DWB_LEN - dwb.empty_space_counter) as usize;
 
-        // either updates the existing recipient entry, or overwrites the random replacement entry in the settled index
-        dwb.entries[write_index] = new_entry;
-    } else {
-        // TODO: revisit contract warm up with other options, e.g saturating with random address from beginning
+    // if buffer is not yet saturated, settle the address at the next empty index
+    let bounded_settle_index = constant_time_if_else(if_undersaturated, next_empty_index, random_settle_index);
 
-        // find the next empty entry in the buffer
-        let next_index = (DWB_LEN - dwb.empty_space_counter) as usize;
 
-        // pick the index to where the recipient's entry should be written
-        let write_index = (recipient_index * recipient_in_buffer) + (next_index * (1 - recipient_in_buffer));
+    // check if we have any open slots in the linked list
+    let if_list_can_grow = constant_time_is_not_zero((DWB_MAX_TX_EVENTS - dwb.entries[recipient_index].list_len()?) as i32);
 
-        // either updates the existing recipient entry, or write the entry to the next index value
-        dwb.entries[write_index] = new_entry;
+    // if we would overflow the list, just settle recipient
+    // TODO: see docs for attack analysis
+    let actual_settle_index = constant_time_if_else(if_list_can_grow, bounded_settle_index, recipient_index);
 
-        // decrement empty space counter if receipient is not already in buffer
-        let empty_space_counter_delta = (1 - recipient_in_buffer) as u16;
-        dwb.empty_space_counter -= empty_space_counter_delta;
-    }
+    // settle the entry
+    dwb.settle_entry(store, actual_settle_index)?;
+
+    // replace it with a randomly generated address (that is not currently in the buffer) and 0 amount and nil events pointer
+    let replacement_entry = dwb.unique_random_entry(rng)?;
+    dwb.entries[actual_settle_index] = replacement_entry;
+
+    // pick the index to where the recipient's entry should be written
+    let write_index = constant_time_if_else(if_recipient_in_buffer, recipient_index, actual_settle_index);
+
+    // either updates the existing recipient entry, or overwrites the random replacement entry in the settled index
+    dwb.entries[write_index] = new_entry;
+
+    // decrement empty space counter if it is undersaturated and the recipient was not already in the buffer
+    dwb.empty_space_counter -= constant_time_if_else(
+        if_undersaturated,
+        constant_time_if_else(if_recipient_in_buffer, 0usize, 1usize),
+        0usize
+    ) as u16;
 
     DWB.save(store, &dwb)?;
 
@@ -1997,6 +1998,16 @@ fn is_valid_symbol(symbol: &str) -> bool {
     let len_is_valid = (3..=20).contains(&len);
 
     len_is_valid && symbol.bytes().all(|byte| byte.is_ascii_alphabetic())
+}
+
+#[inline]
+fn constant_time_is_not_zero(value: i32) -> u32 {
+    return (((value | -value) >> 31) & 1) as u32;
+}
+
+#[inline]
+fn constant_time_if_else(condition: u32, then: usize, els: usize) -> usize {
+    return (then * condition as usize) | (els * (1 - condition as usize));
 }
 
 // pub fn migrate(
