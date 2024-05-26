@@ -566,20 +566,26 @@ pub fn query_transactions(
     let account = Addr::unchecked(account);
     let account_raw = deps.api.addr_canonicalize(account.as_str())?;
 
+    let start = page * page_size;
+
     // first check if there are any transactions in dwb
     let dwb = DWB.load(deps.storage)?;
     let dwb_index = dwb.recipient_match(&account_raw);
-    let mut transactions_in_dwb = vec![];
-    if dwb_index > 0 && dwb.entries[dwb_index].list_len()? > 0 {
+    let mut txs_in_dwb = vec![];
+    let txs_in_dwb_count = dwb.entries[dwb_index].list_len()?;
+    if dwb_index > 0 && txs_in_dwb_count > 0 && start < txs_in_dwb_count as u32 { // skip if start is after buffer entries
         let head_node_index = dwb.entries[dwb_index].head_node()?;
         if head_node_index > 0 {
             let head_node = TX_NODES.add_suffix(&head_node_index.to_be_bytes()).load(deps.storage)?;
-            transactions_in_dwb = head_node.to_vec(deps.storage, deps.api)?;
+            txs_in_dwb = head_node.to_vec(deps.storage, deps.api)?;
         }
     }
 
     // second get number of txs in account storage
-    
+    let addr_store = ACCOUNT_TXS.add_suffix(account_raw.as_slice());
+    let len = addr_store.get_len(deps.storage)? as u64;
+
+
 /*
     let (txs, total) =
         StoredTx::get_txs(
