@@ -676,16 +676,7 @@ pub fn query_transactions(
         }
     }
 
-/*
-    let (txs, total) =
-        StoredTx::get_txs(
-            deps.storage, 
-            deps.api,
-            account, 
-            page, 
-            page_size
-        )?;
-*/
+    // TODO handle deposit denom
     let symbol = CONFIG.load(deps.storage)?.symbol;
     let txs = txs.iter().map(|tx| {
         let denom = match tx.action {
