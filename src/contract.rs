@@ -9,7 +9,8 @@ use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
-use crate::dwb::{random_in_range, DelayedWriteBuffer, DWB, DWB_LEN, DWB_MAX_TX_EVENTS, TX_NODES};
+use crate::dwb::{random_in_range, AccountTxsStore, DelayedWriteBuffer, ACCOUNT_TXS, ACCOUNT_TX_COUNT, DWB, DWB_LEN, DWB_MAX_TX_EVENTS, TX_NODES};
+use crate::msg::TxWithCoins;
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
@@ -20,7 +21,7 @@ use crate::state::{
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
-    append_new_stored_tx, store_burn, store_deposit, store_mint, store_redeem, StoredTxAction, 
+    append_new_stored_tx, store_burn, store_deposit, store_mint, store_redeem, StoredTxAction, Tx, TxAction, 
 };
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -559,6 +560,10 @@ pub fn query_transactions(
     page: u32,
     page_size: u32,
 ) -> StdResult<Binary> {
+    if page_size == 0 {
+        return Err(StdError::generic_err("invalid page size"));
+    }
+
     // Notice that if query_transactions() was called by a viewing-key call, the address of
     // 'account' has already been validated.
     // The address of 'account' should not be validated if query_transactions() was called by a
@@ -567,6 +572,7 @@ pub fn query_transactions(
     let account_raw = deps.api.addr_canonicalize(account.as_str())?;
 
     let start = page * page_size;
+    let mut end = start + page_size; // one more than end index
 
     // first check if there are any transactions in dwb
     let dwb = DWB.load(deps.storage)?;
@@ -581,10 +587,94 @@ pub fn query_transactions(
         }
     }
 
-    // second get number of txs in account storage
-    let addr_store = ACCOUNT_TXS.add_suffix(account_raw.as_slice());
-    let len = addr_store.get_len(deps.storage)? as u64;
+    let account_slice = account_raw.as_slice();
+    let settled_tx_count = ACCOUNT_TX_COUNT.add_suffix(account_slice).load(deps.storage)?;
+    let total = txs_in_dwb_count as u32 + settled_tx_count as u32;
+    if end > total {
+        end = total;
+    }
 
+    let mut txs: Vec<Tx> = vec![];
+
+    let txs_in_dwb_count = txs_in_dwb_count as u32;
+    if start < txs_in_dwb_count && end < txs_in_dwb_count {
+        // option 1, start and end are both in dwb
+        txs = txs_in_dwb[start as usize..end as usize].to_vec(); // reverse chronological
+    } else if start < txs_in_dwb_count && end >= txs_in_dwb_count {
+        // option 2, start is in dwb and end is in settled txs
+        // in this case, we do not need to search for txs, just begin at last bundle and move backwards
+        txs = txs_in_dwb[start as usize..].to_vec(); // reverse chronological
+        let mut txs_left = (end - start).saturating_sub(txs.len() as u32);
+        let tx_bundles_store = ACCOUNT_TXS.add_suffix(account_slice);
+        let tx_bundles_idx_len = tx_bundles_store.get_len(deps.storage)?;
+        if tx_bundles_idx_len > 0 {
+            let mut bundle_idx = tx_bundles_idx_len - 1;
+            loop {
+                let tx_bundle = tx_bundles_store.get_at(deps.storage, bundle_idx.clone())?;
+                let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
+                let list_len = tx_bundle.list_len as u32;
+                if txs_left <= list_len {
+                    txs.extend_from_slice(&head_node.to_vec(deps.storage, deps.api)?[0..txs_left as usize]);
+                    break;
+                }
+                txs.extend(head_node.to_vec(deps.storage, deps.api)?);
+                txs_left = txs_left.saturating_sub(list_len);
+                if bundle_idx > 0 {
+                    bundle_idx -= 1;
+                } else {
+                    break;
+                }
+            }
+        }
+    } else if start >= txs_in_dwb_count {
+        // option 3, start is not in dwb
+        // in this case, search for where the beginning bundle is using binary search
+
+        // bundle tx offsets are chronological, but we need reverse chronological
+        // so get the settled start index as if order is reversed
+        let settled_start = settled_tx_count.saturating_sub(start - txs_in_dwb_count);
+        
+        if let Some((bundle_idx, tx_bundle, start_at)) = AccountTxsStore::find_start_bundle(
+            deps.storage, 
+            &account_raw, 
+            settled_start
+        )? {
+            let mut txs_left = end - start;
+
+            let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
+            let list_len = tx_bundle.list_len as u32;
+            if start_at + txs_left <= list_len {
+                // this first bundle has all the txs we need
+                txs = head_node.to_vec(deps.storage, deps.api)?[start_at as usize..(start_at + txs_left) as usize].to_vec();
+            } else {
+                // get the rest of the txs in this bundle and then go back through history
+                txs = head_node.to_vec(deps.storage, deps.api)?[start_at as usize..].to_vec();
+                txs_left = txs_left.saturating_sub(list_len - start_at);
+
+                if bundle_idx > 0 && txs_left > 0 {
+                    // get the next earlier bundle
+                    let mut bundle_idx = bundle_idx - 1;
+                    let tx_bundles_store = ACCOUNT_TXS.add_suffix(account_slice);
+                    loop {
+                        let tx_bundle = tx_bundles_store.get_at(deps.storage, bundle_idx.clone())?;
+                        let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
+                        let list_len = tx_bundle.list_len as u32;
+                        if txs_left <= list_len {
+                            txs.extend_from_slice(&head_node.to_vec(deps.storage, deps.api)?[0..txs_left as usize]);
+                            break;
+                        }
+                        txs.extend(head_node.to_vec(deps.storage, deps.api)?);
+                        txs_left = txs_left.saturating_sub(list_len);
+                        if bundle_idx > 0 {
+                            bundle_idx -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                }   
+            }
+        }
+    }
 
 /*
     let (txs, total) =
@@ -595,7 +685,7 @@ pub fn query_transactions(
             page, 
             page_size
         )?;
-
+*/
     let symbol = CONFIG.load(deps.storage)?.symbol;
     let txs = txs.iter().map(|tx| {
         let denom = match tx.action {
@@ -614,12 +704,10 @@ pub fn query_transactions(
             block_time: tx.block_time,
         }
     }).collect();
-*/
+
     let result = QueryAnswer::TransactionHistory {
-        //txs,
-        txs: vec![], // TODO update
-        //total: Some(total),
-        total: None,
+        txs,
+        total: Some(total as u64),
     };
     to_binary(&result)
 }

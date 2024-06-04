@@ -29,11 +29,6 @@ fn store_new_tx_node(store: &mut dyn Storage, tx_node: TxNode) -> StdResult<u64>
 }
 
 pub const ZERO_ADDR: [u8; 20] = [0u8; 20];
-pub const IMPOSSIBLE_ADDR: [u8; 20] = [
-    0x29, 0xcf, 0xc6, 0x37, 0x62, 0x55, 0xa7, 0x84, 0x51, 0xee,
-    0xb4, 0xb1, 0x29, 0xed, 0x8e, 0xac, 0xff, 0xa2, 0xfe, 0xef
-];
-
 // 64 entries + 1 "dummy" entry prepended (idx: 0 in DelayedWriteBufferEntry array)
 // minimum allowable size: 3
 pub const DWB_LEN: u16 = 65;
@@ -75,7 +70,7 @@ impl DelayedWriteBuffer {
             empty_space_counter: DWB_LEN - 1,
             // first entry is a dummy entry for constant-time writing
             entries: [
-                DelayedWriteBufferEntry::new(CanonicalAddr::from(&IMPOSSIBLE_ADDR))?; DWB_LEN as usize
+                DelayedWriteBufferEntry::new(CanonicalAddr::from(&ZERO_ADDR))?; DWB_LEN as usize
             ]
         })
     }
@@ -441,7 +436,8 @@ impl AccountTxsStore {
 
     /// Does a binary search on the append store to find the bundle where the `start_idx` tx can be found.
     /// For a paginated search `start_idx` = `page` * `page_size`.
-    pub fn find_start_bundle(store: &dyn Storage, account: CanonicalAddr, start_idx: u32) -> StdResult<Option<(u32, TxBundle)>> {
+    /// Returns the bundle index, the bundle, and the index in the bundle list to start at
+    pub fn find_start_bundle(store: &dyn Storage, account: &CanonicalAddr, start_idx: u32) -> StdResult<Option<(u32, TxBundle, u32)>> {
         let account_txs_store = ACCOUNT_TXS.add_suffix(account.as_slice());
 
         let mut left = 0u32;
@@ -450,9 +446,11 @@ impl AccountTxsStore {
         while left <= right {
             let mid = (left + right) / 2;
             let mid_bundle = account_txs_store.get_at(store, mid)?;
-            if start_idx >= mid_bundle.offset && start_idx < mid_bundle.offset + u32::from(mid_bundle.list_len) {
+            if start_idx >= mid_bundle.offset && start_idx < mid_bundle.offset + (mid_bundle.list_len as u32) {
                 // we have the correct bundle
-                return Ok(Some((mid, mid_bundle)));
+                // which index in list to start at?
+                let start_at = (mid_bundle.list_len as u32) - (start_idx - mid_bundle.offset) - 1;
+                return Ok(Some((mid, mid_bundle, start_at)));
             } else if start_idx < mid_bundle.offset {
                 right = mid - 1;
             } else {
@@ -469,20 +467,58 @@ impl AccountTxsStore {
 mod tests {
     use std::any::Any;
 
-    use cosmwasm_std::{testing::*, Api};
+    use cosmwasm_std::{testing::*, Api, Binary, Response, Uint128};
     use cosmwasm_std::{
         from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
         SubMsg, Timestamp, TransactionInfo, WasmMsg,
     };
     use secret_toolkit::permit::{PermitParams, PermitSignature, PubKey};
 
-    use crate::msg::ResponseStatus;
+    use crate::contract::instantiate;
+    use crate::msg::{InstantiateMsg, ResponseStatus};
     use crate::msg::{InitConfig, InitialBalance};
+    use crate::transaction_history::{append_new_stored_tx, StoredTxAction};
 
     use super::*;
 
+    fn init_helper(
+        initial_balances: Vec<InitialBalance>,
+    ) -> (
+        StdResult<Response>,
+        OwnedDeps<MockStorage, MockApi, MockQuerier>,
+    ) {
+        let mut deps = mock_dependencies_with_balance(&[]);
+        let env = mock_env();
+        let info = mock_info("instantiator", &[]);
+
+        let init_msg = InstantiateMsg {
+            name: "sec-sec".to_string(),
+            admin: Some("admin".to_string()),
+            symbol: "SECSEC".to_string(),
+            decimals: 8,
+            initial_balances: Some(initial_balances),
+            prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            config: None,
+            supported_denoms: None,
+        };
+
+        (instantiate(deps.as_mut(), env, info, init_msg), deps)
+    }
+
     #[test]
-    fn test_dwb_entry_setters_getters() {
+    fn test_dwb_entry() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: "bob".to_string(),
+            amount: Uint128::new(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+        let env = mock_env();
+        let info = mock_info("bob", &[]);
+
         let recipient = CanonicalAddr::from(ZERO_ADDR);
         let mut dwb_entry = DelayedWriteBufferEntry::new(recipient).unwrap();
         assert_eq!(dwb_entry, DelayedWriteBufferEntry([0u8; DWB_ENTRY_BYTES]));
@@ -502,5 +538,20 @@ mod tests {
         assert_eq!(dwb_entry.amount().unwrap(), 1u64);
         assert_eq!(dwb_entry.head_node().unwrap(), 1u64);
         assert_eq!(dwb_entry.list_len().unwrap(), 1u16);
+
+        // first store the tx information in the global append list of txs and get the new tx id
+        let mut storage = deps.as_mut().storage;
+        let from = CanonicalAddr::from(&[2u8; 20]);
+        let sender = CanonicalAddr::from(&[2u8; 20]);
+        let to = CanonicalAddr::from(&[1u8;20]);
+        let action = StoredTxAction::transfer(
+            from.clone(), 
+            sender.clone(), 
+            to.clone()
+        );
+        let tx_id = append_new_stored_tx(storage, &action, 1000u128, Some("memo".to_string()), &env.block).unwrap();
+
+        let result = dwb_entry.add_tx_node(storage, tx_id).unwrap();
+        assert_eq!(dwb_entry.head_node().unwrap(), result);
     }
 }
