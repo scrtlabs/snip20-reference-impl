@@ -2753,7 +2753,6 @@ mod tests {
             assert_eq!(2724, BalancesStore::load(&deps.storage, &alice_addr));
         }
 
-        // now we use alice to check query transaction history pagination works
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "key".to_string(),
             padding: None,
@@ -2764,6 +2763,23 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
+        // check that alice's balance when queried is correct (includes both settled and dwb amounts)
+        // settled = 2724
+        // dwb = 1275
+        // total should be = 3999
+        let query_msg = QueryMsg::Balance {
+            address: "alice".to_string(),
+            key: "key".to_string(),
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let balance = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected"),
+        };
+        assert_eq!(balance, Uint128::new(3999));
+
+        // now we use alice to check query transaction history pagination works
+        
         //
         // check last 3 transactions for alice (all in dwb)
         //
@@ -3038,7 +3054,6 @@ mod tests {
         let transfers_len = transfers.len();
         println!("transfers.len(): {transfers_len}");
         assert_eq!(transfers, expected_transfers);
-
 
         //
         //
