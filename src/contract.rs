@@ -599,10 +599,12 @@ pub fn query_transactions(
     let txs_in_dwb_count = txs_in_dwb_count as u32;
     if start < txs_in_dwb_count && end < txs_in_dwb_count {
         // option 1, start and end are both in dwb
+        println!("OPTION 1");
         txs = txs_in_dwb[start as usize..end as usize].to_vec(); // reverse chronological
     } else if start < txs_in_dwb_count && end >= txs_in_dwb_count {
         // option 2, start is in dwb and end is in settled txs
         // in this case, we do not need to search for txs, just begin at last bundle and move backwards
+        println!("OPTION 2");
         txs = txs_in_dwb[start as usize..].to_vec(); // reverse chronological
         let mut txs_left = (end - start).saturating_sub(txs.len() as u32);
         let tx_bundles_store = ACCOUNT_TXS.add_suffix(account_slice);
@@ -632,7 +634,11 @@ pub fn query_transactions(
 
         // bundle tx offsets are chronological, but we need reverse chronological
         // so get the settled start index as if order is reversed
-        let settled_start = settled_tx_count.saturating_sub(start - txs_in_dwb_count);
+        println!("OPTION 3");
+        println!("start: {start}");
+        println!("txs_in_dwb_count: {txs_in_dwb_count}");
+        let settled_start = settled_tx_count.saturating_sub(start - txs_in_dwb_count).saturating_sub(1);
+        println!("settled_start: {settled_start}");
         
         if let Some((bundle_idx, tx_bundle, start_at)) = AccountTxsStore::find_start_bundle(
             deps.storage, 
@@ -640,6 +646,7 @@ pub fn query_transactions(
             settled_start
         )? {
             let mut txs_left = end - start;
+            println!("txs_left: {txs_left}");
 
             let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
             let list_len = tx_bundle.list_len as u32;
@@ -650,6 +657,7 @@ pub fn query_transactions(
                 // get the rest of the txs in this bundle and then go back through history
                 txs = head_node.to_vec(deps.storage, deps.api)?[start_at as usize..].to_vec();
                 txs_left = txs_left.saturating_sub(list_len - start_at);
+                println!("txs_left: {txs_left}");
 
                 if bundle_idx > 0 && txs_left > 0 {
                     // get the next earlier bundle
@@ -1989,20 +1997,20 @@ fn perform_transfer(
     new_entry.add_tx_node(store, tx_id)?;
     new_entry.add_amount(amount)?;
 
-
     // whether or not recipient is in the buffer (non-zero index)
     // casting to i32 will never overflow, so long as dwb length is limited to a u16 value
     let if_recipient_in_buffer = constant_time_is_not_zero(recipient_index as i32);
 
     // randomly pick an entry to exclude in case the recipient is not in the buffer
     let random_exclude_index = random_in_range(rng, 1, DWB_LEN as u32)? as usize;
+    println!("random_exclude_index: {random_exclude_index}");
 
     // index of entry to exclude from selection
     let exclude_index = constant_time_if_else(if_recipient_in_buffer, recipient_index, random_exclude_index);
 
     // randomly select any other entry to settle in constant-time (avoiding the reserved 0th position)
     let random_settle_index = (((random_in_range(rng, 0, DWB_LEN as u32 - 2)? + exclude_index as u32) % (DWB_LEN as u32 - 1)) + 1) as usize;
-
+    println!("random_settle_index: {random_settle_index}");
 
     // whether or not the buffer is fully saturated yet
     let if_undersaturated = constant_time_is_not_zero(dwb.empty_space_counter as i32);
@@ -2012,7 +2020,6 @@ fn perform_transfer(
 
     // if buffer is not yet saturated, settle the address at the next empty index
     let bounded_settle_index = constant_time_if_else(if_undersaturated, next_empty_index, random_settle_index);
-
 
     // check if we have any open slots in the linked list
     let if_list_can_grow = constant_time_is_not_zero((DWB_MAX_TX_EVENTS - dwb.entries[recipient_index].list_len()?) as i32);
@@ -2037,8 +2044,8 @@ fn perform_transfer(
     // decrement empty space counter if it is undersaturated and the recipient was not already in the buffer
     dwb.empty_space_counter -= constant_time_if_else(
         if_undersaturated,
-        constant_time_if_else(if_recipient_in_buffer, 0usize, 1usize),
-        0usize
+        constant_time_if_else(if_recipient_in_buffer, 0, 1),
+        0
     ) as u16;
 
     DWB.save(store, &dwb)?;
@@ -2109,8 +2116,10 @@ mod tests {
     };
     use secret_toolkit::permit::{PermitParams, PermitSignature, PubKey};
 
+    use crate::dwb::TX_NODES_COUNT;
     use crate::msg::{ResponseStatus, TxWithCoins};
     use crate::msg::{InitConfig, InitialBalance};
+    use crate::state::TX_COUNT;
 
     use super::*;
 
@@ -2378,6 +2387,11 @@ mod tests {
             init_result.err().unwrap()
         );
 
+        let tx_nodes_count = TX_NODES_COUNT.load(&deps.storage).unwrap_or_default();
+        assert_eq!(0, tx_nodes_count);
+        let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
+        assert_eq!(1, tx_count); // due to mint
+
         let handle_msg = ExecuteMsg::Transfer {
             recipient: "alice".to_string(),
             amount: Uint128::new(1000),
@@ -2385,23 +2399,653 @@ mod tests {
             padding: None,
         };
         let info = mock_info("bob", &[]);
-
-        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        let mut env = mock_env();
+        env.block.random = Some(Binary::from(&[0u8; 32]));
+        let handle_result = execute(deps.as_mut(), env, info, handle_msg);
 
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
         let bob_addr = deps
             .api
-            .addr_canonicalize(Addr::unchecked("bob".to_string()).as_str())
+            .addr_canonicalize(Addr::unchecked("bob").as_str())
             .unwrap();
         let alice_addr = deps
             .api
-            .addr_canonicalize(Addr::unchecked("alice".to_string()).as_str())
+            .addr_canonicalize(Addr::unchecked("alice").as_str())
             .unwrap();
 
         assert_eq!(5000 - 1000, BalancesStore::load(&deps.storage, &bob_addr));
-        assert_eq!(1000, BalancesStore::load(&deps.storage, &alice_addr));
+        // alice has not been settled yet
+        assert_ne!(1000, BalancesStore::load(&deps.storage, &alice_addr));
 
+        let dwb = DWB.load(&deps.storage).unwrap();
+        println!("DWB: {dwb:?}");
+        // assert we have decremented empty_space_counter
+        assert_eq!(63, dwb.empty_space_counter);
+        // assert first entry has correct information for alice
+        let alice_entry = dwb.entries[1];
+        assert_eq!(1, alice_entry.list_len().unwrap());
+        assert_eq!(1000, alice_entry.amount().unwrap());
+        // the id of the head_node 
+        assert_eq!(2, alice_entry.head_node().unwrap());
+        let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
+        assert_eq!(2, tx_count); 
+
+        let tx_node1 = TX_NODES.add_suffix(&1u64.to_be_bytes()).load(&deps.storage).unwrap();
+        println!("tx node 1: {tx_node1:?}");
+        let tx_node2 = TX_NODES.add_suffix(&2u64.to_be_bytes()).load(&deps.storage).unwrap();
+        println!("tx node 2: {tx_node2:?}");
+
+        // now send 100 to charlie from bob
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "charlie".to_string(),
+            amount: Uint128::new(100),
+            memo: None,
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let mut env = mock_env();
+        env.block.random = Some(Binary::from(&[1u8; 32]));
+        let handle_result = execute(deps.as_mut(), env, info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+        let charlie_addr = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("charlie").as_str())
+            .unwrap();
+
+        assert_eq!(5000 - 1000 - 100, BalancesStore::load(&deps.storage, &bob_addr));
+        // alice has not been settled yet
+        assert_ne!(1000, BalancesStore::load(&deps.storage, &alice_addr));
+        // charlie has not been settled yet
+        assert_ne!(100, BalancesStore::load(&deps.storage, &charlie_addr));
+
+        let dwb = DWB.load(&deps.storage).unwrap();
+        println!("DWB: {dwb:?}");
+        // assert we have decremented empty_space_counter
+        assert_eq!(62, dwb.empty_space_counter);
+        // assert entry has correct information for alice
+        let charlie_entry = dwb.entries[2];
+        assert_eq!(1, charlie_entry.list_len().unwrap());
+        assert_eq!(100, charlie_entry.amount().unwrap());
+        // the id of the head_node 
+        assert_eq!(4, charlie_entry.head_node().unwrap());
+        let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
+        assert_eq!(3, tx_count); 
+
+        // send another 500 to alice from bob
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "alice".to_string(),
+            amount: Uint128::new(500),
+            memo: None,
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+        let mut env = mock_env();
+        env.block.random = Some(Binary::from(&[2u8; 32]));
+        let handle_result = execute(deps.as_mut(), env, info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        assert_eq!(5000 - 1000 - 100 - 500, BalancesStore::load(&deps.storage, &bob_addr));
+        // make sure alice has not been settled yet
+        assert_ne!(1500, BalancesStore::load(&deps.storage, &alice_addr));
+
+        let dwb = DWB.load(&deps.storage).unwrap();
+        println!("DWB: {dwb:?}");
+        // assert we have not decremented empty_space_counter
+        assert_eq!(62, dwb.empty_space_counter);
+        // assert entry has correct information for alice
+        let alice_entry = dwb.entries[1];
+        assert_eq!(2, alice_entry.list_len().unwrap());
+        assert_eq!(1500, alice_entry.amount().unwrap());
+        // the id of the head_node 
+        assert_eq!(6, alice_entry.head_node().unwrap());
+        let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
+        assert_eq!(4, tx_count); 
+
+        // convert head_node to vec
+        let alice_nodes = TX_NODES.add_suffix(
+            &alice_entry
+                .head_node().unwrap()
+                .to_be_bytes()).load(&deps.storage).unwrap()
+                .to_vec(&deps.storage, &deps.api).unwrap();
+
+        let expected_alice_nodes: Vec<Tx> = vec![
+            Tx { 
+                id: 4, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                amount: Uint128::from(500_u128), 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }, 
+            Tx { 
+                id: 2, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                amount: Uint128::from(1000_u128), 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }
+        ];
+        assert_eq!(alice_nodes, expected_alice_nodes);
+
+        // now send 200 to ernie from bob
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "ernie".to_string(),
+            amount: Uint128::new(200),
+            memo: None,
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+
+        let mut env = mock_env();
+        env.block.random = Some(Binary::from(&[3u8; 32]));
+        let handle_result = execute(deps.as_mut(), env, info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+        let ernie_addr = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("ernie").as_str())
+            .unwrap();
+
+        assert_eq!(5000 - 1000 - 100 - 500 - 200, BalancesStore::load(&deps.storage, &bob_addr));
+        // alice has not been settled yet
+        assert_ne!(1500, BalancesStore::load(&deps.storage, &alice_addr));
+        // charlie has not been settled yet
+        assert_ne!(100, BalancesStore::load(&deps.storage, &charlie_addr));
+        // ernie has not been settled yet
+        assert_ne!(200, BalancesStore::load(&deps.storage, &ernie_addr));
+
+        let dwb = DWB.load(&deps.storage).unwrap();
+        println!("DWB: {dwb:?}");
+
+        // assert we have decremented empty_space_counter
+        assert_eq!(61, dwb.empty_space_counter);
+        // assert entry has correct information for ernie
+        let ernie_entry = dwb.entries[3];
+        assert_eq!(1, ernie_entry.list_len().unwrap());
+        assert_eq!(200, ernie_entry.amount().unwrap());
+        // the id of the head_node 
+        assert_eq!(8, ernie_entry.head_node().unwrap());
+        let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
+        assert_eq!(5, tx_count); 
+
+        // now alice sends 50 to dora
+        // this should settle alice and create entry for dora
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "dora".to_string(),
+            amount: Uint128::new(50),
+            memo: None,
+            padding: None,
+        };
+        let info = mock_info("alice", &[]);
+        let mut env = mock_env();
+        env.block.random = Some(Binary::from(&[4u8; 32]));
+        let handle_result = execute(deps.as_mut(), env, info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+        let dora_addr = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("dora").as_str())
+            .unwrap();
+
+        // alice has been settled
+        assert_eq!(1500 - 50, BalancesStore::load(&deps.storage, &alice_addr));
+        // dora has not been settled
+        assert_ne!(50, BalancesStore::load(&deps.storage, &dora_addr));
+
+        let dwb = DWB.load(&deps.storage).unwrap();
+        println!("DWB: {dwb:?}");
+
+        // assert we have decremented empty_space_counter
+        assert_eq!(60, dwb.empty_space_counter);
+        // assert entry has correct information for ernie
+        let dora_entry = dwb.entries[4];
+        assert_eq!(1, dora_entry.list_len().unwrap());
+        assert_eq!(50, dora_entry.amount().unwrap());
+        // the id of the head_node 
+        assert_eq!(10, dora_entry.head_node().unwrap());
+        let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
+        assert_eq!(6, tx_count);
+
+        // now we will send to 60 more addresses to fill up the buffer
+        for i in 1..=60 {
+            let recipient = format!("receipient{i}");
+            // now send 1 to recipient from bob
+            let handle_msg = ExecuteMsg::Transfer {
+                recipient,
+                amount: Uint128::new(1),
+                memo: None,
+                padding: None,
+            };
+            let info = mock_info("bob", &[]);
+            let mut env = mock_env();
+            env.block.random = Some(Binary::from(&[255-i; 32]));
+            let handle_result = execute(deps.as_mut(), env, info, handle_msg);
+
+            let result = handle_result.unwrap();
+            assert!(ensure_success(result));
+        }
+        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 60, BalancesStore::load(&deps.storage, &bob_addr));
+
+        let dwb = DWB.load(&deps.storage).unwrap();
+        println!("DWB: {dwb:?}");
+
+        // assert we have filled the buffer
+        assert_eq!(0, dwb.empty_space_counter);
+
+        let recipient = format!("receipient_over");
+        // now send 1 to recipient from bob
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient,
+            amount: Uint128::new(1),
+            memo: None,
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+        let mut env = mock_env();
+        env.block.random = Some(Binary::from(&[50; 32]));
+        let handle_result = execute(deps.as_mut(), env, info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 60 - 1, BalancesStore::load(&deps.storage, &bob_addr));
+
+        let dwb = DWB.load(&deps.storage).unwrap();
+        println!("DWB: {dwb:?}");
+
+        let recipient = format!("receipient_over_2");
+        // now send 1 to recipient from bob
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient,
+            amount: Uint128::new(1),
+            memo: None,
+            padding: None,
+        };
+        let info = mock_info("bob", &[]);
+        let mut env = mock_env();
+        env.block.random = Some(Binary::from(&[12; 32]));
+        let handle_result = execute(deps.as_mut(), env, info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 60 - 1 - 1, BalancesStore::load(&deps.storage, &bob_addr));
+
+        let dwb = DWB.load(&deps.storage).unwrap();
+        println!("DWB: {dwb:?}");
+
+        // now we send 50 transactions to alice from bob
+        for i in 1..=50 {
+            // send 1 to alice from bob
+            let handle_msg = ExecuteMsg::Transfer {
+                recipient: "alice".to_string(),
+                amount: Uint128::new(i.into()),
+                memo: None,
+                padding: None,
+            };
+
+            let info = mock_info("bob", &[]);
+            let mut env = mock_env();
+            env.block.random = Some(Binary::from(&[125-i; 32]));
+            let handle_result = execute(deps.as_mut(), env, info, handle_msg);
+
+            let result = handle_result.unwrap();
+            assert!(ensure_success(result));
+
+            // alice should not settle
+            assert_eq!(1500 - 50, BalancesStore::load(&deps.storage, &alice_addr));
+        }
+
+        // alice sends 1 to dora to settle
+        // this should settle alice and create entry for dora
+        let handle_msg = ExecuteMsg::Transfer {
+            recipient: "dora".to_string(),
+            amount: Uint128::new(1),
+            memo: None,
+            padding: None,
+        };
+        let info = mock_info("alice", &[]);
+        let mut env = mock_env();
+        env.block.random = Some(Binary::from(&[61; 32]));
+        let handle_result = execute(deps.as_mut(), env, info, handle_msg);
+
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        assert_eq!(2724, BalancesStore::load(&deps.storage, &alice_addr));
+
+        // now we send 50 more transactions to alice from bob
+        for i in 1..=50 {
+            // send 1 to alice from bob
+            let handle_msg = ExecuteMsg::Transfer {
+                recipient: "alice".to_string(),
+                amount: Uint128::new(i.into()),
+                memo: None,
+                padding: None,
+            };
+
+            let info = mock_info("bob", &[]);
+            let mut env = mock_env();
+            env.block.random = Some(Binary::from(&[200-i; 32]));
+            let handle_result = execute(deps.as_mut(), env, info, handle_msg);
+
+            let result = handle_result.unwrap();
+            assert!(ensure_success(result));
+
+            // alice should not settle
+            assert_eq!(2724, BalancesStore::load(&deps.storage, &alice_addr));
+        }
+
+        // now we use alice to check query transaction history pagination works
+        let handle_msg = ExecuteMsg::SetViewingKey {
+            key: "key".to_string(),
+            padding: None,
+        };
+        let info = mock_info("alice", &[]);
+
+        let handle_result = execute(deps.as_mut(), mock_env(), info, handle_msg);
+        let result = handle_result.unwrap();
+        assert!(ensure_success(result));
+
+        //
+        // check last 3 transactions for alice (all in dwb)
+        //
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "alice".to_string(),
+            key: "key".to_string(),
+            page: None,
+            page_size: 3,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+        println!("transfers: {transfers:?}");
+        let expected_transfers = vec![
+            TxWithCoins { 
+                id: 169, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(50u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }, 
+            TxWithCoins { 
+                id: 168, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(49u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }, TxWithCoins { 
+                id: 167, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(48u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            },
+        ];
+        assert_eq!(transfers, expected_transfers);
+
+        //
+        // check 6 transactions for alice that span over end of the 50 in dwb and settled 
+        // page: 8, page size: 6
+        // start is index 48
+        //
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "alice".to_string(),
+            key: "key".to_string(),
+            page: Some(8),
+            page_size: 6,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+        println!("transfers: {transfers:?}");
+        let expected_transfers = vec![
+            TxWithCoins { 
+                id: 121, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(2u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }, 
+            TxWithCoins { 
+                id: 120, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(1u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }, 
+            TxWithCoins { 
+                id: 119, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("alice"), 
+                    sender: Addr::unchecked("alice"), 
+                    recipient: Addr::unchecked("dora") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(1u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }, 
+            TxWithCoins { 
+                id: 118, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(50u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }, 
+            TxWithCoins { 
+                id: 117, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(49u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }, 
+            TxWithCoins { 
+                id: 116, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(48u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }
+        ];
+        assert_eq!(transfers, expected_transfers);
+
+        //
+        // check transactions for alice, starting in settled across different bundles with `end` past the last transaction
+        // there are 104 transactions total for alice
+        // page: 3, page size: 99
+        // start is index 99 (100th tx)
+        //
+        let query_msg = QueryMsg::TransactionHistory {
+            address: "alice".to_string(),
+            key: "key".to_string(),
+            page: Some(3),
+            page_size: 33,
+            //page: None,
+            //page_size: 500,
+        };
+        let query_result = query(deps.as_ref(), mock_env(), query_msg);
+        let transfers = match from_binary(&query_result.unwrap()).unwrap() {
+            QueryAnswer::TransactionHistory { txs, .. } => txs,
+            other => panic!("Unexpected: {:?}", other),
+        };
+        println!("transfers: {transfers:?}");
+        let expected_transfers = vec![
+            TxWithCoins { 
+                id: 70, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(2u128) 
+                }, 
+                memo: None, 
+                block_time: 
+                1571797419, 
+                block_height: 12345 
+            }, 
+            TxWithCoins { 
+                id: 69, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(1u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }, 
+            TxWithCoins { 
+                id: 6, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("alice"), 
+                    sender: Addr::unchecked("alice"), 
+                    recipient: Addr::unchecked("dora") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(50u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }, 
+            TxWithCoins { 
+                id: 4, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(500u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }, 
+            TxWithCoins { 
+                id: 2, 
+                action: TxAction::Transfer { 
+                    from: Addr::unchecked("bob"), 
+                    sender: Addr::unchecked("bob"), 
+                    recipient: Addr::unchecked("alice") 
+                }, 
+                coins: Coin { 
+                    denom: "SECSEC".to_string(), 
+                    amount: Uint128::from(1000u128) 
+                }, 
+                memo: None, 
+                block_time: 1571797419, 
+                block_height: 12345 
+            }
+        ];
+        let transfers_len = transfers.len();
+        println!("transfers.len(): {transfers_len}");
+        assert_eq!(transfers, expected_transfers);
+
+
+        //
+        //
+        //
+        //
+
+        // now try invalid transfer
         let handle_msg = ExecuteMsg::Transfer {
             recipient: "alice".to_string(),
             amount: Uint128::new(10000),

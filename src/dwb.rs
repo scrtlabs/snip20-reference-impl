@@ -28,7 +28,6 @@ fn store_new_tx_node(store: &mut dyn Storage, tx_node: TxNode) -> StdResult<u64>
     Ok(tx_nodes_serial_id)
 }
 
-pub const ZERO_ADDR: [u8; 20] = [0u8; 20];
 // 64 entries + 1 "dummy" entry prepended (idx: 0 in DelayedWriteBufferEntry array)
 // minimum allowable size: 3
 pub const DWB_LEN: u16 = 65;
@@ -45,7 +44,10 @@ pub struct DelayedWriteBuffer {
 
 #[inline]
 fn random_addr(rng: &mut ContractPrng) -> CanonicalAddr {
-    CanonicalAddr::from(&rng.rand_bytes()[0..20])
+    #[cfg(test)]
+    return CanonicalAddr::from(&[rng.rand_bytes(), rng.rand_bytes()].concat()[0..DWB_RECIPIENT_BYTES]); // because mock canonical addr is 54 bytes
+    #[cfg(not(test))]
+    CanonicalAddr::from(&rng.rand_bytes()[0..DWB_RECIPIENT_BYTES]) // canonical addr is 20 bytes (less than 32)
 }
 
 pub fn random_in_range(rng: &mut ContractPrng, a: u32, b: u32) -> StdResult<u32> {
@@ -193,12 +195,17 @@ impl DelayedWriteBuffer {
 const U16_BYTES: usize = 2;
 const U64_BYTES: usize = 8;
 
+#[cfg(test)]
+const DWB_RECIPIENT_BYTES: usize = 54; // because mock_api creates rando canonical addr that is 54 bytes long
+#[cfg(not(test))]
 const DWB_RECIPIENT_BYTES: usize = 20;
 const DWB_AMOUNT_BYTES: usize = 8;     // Max 16 (u128)
 const DWB_HEAD_NODE_BYTES: usize = 5;  // Max 8  (u64)
 const DWB_LIST_LEN_BYTES: usize = 2;   // u16
 
 const DWB_ENTRY_BYTES: usize = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD_NODE_BYTES + DWB_LIST_LEN_BYTES;
+
+pub const ZERO_ADDR: [u8; DWB_RECIPIENT_BYTES] = [0u8; DWB_RECIPIENT_BYTES];
 
 /// A delayed write buffer entry consists of the following bytes in this order:
 /// 
