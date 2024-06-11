@@ -312,7 +312,7 @@ pub fn append_new_stored_tx(
 }
 
 #[allow(clippy::too_many_arguments)] // We just need them
-pub fn store_transfer(
+pub fn store_transfer_action(
     store: &mut dyn Storage,
     owner: &CanonicalAddr,
     sender: &CanonicalAddr,
@@ -327,75 +327,37 @@ pub fn store_transfer(
         receiver.clone()
     );
     append_new_stored_tx(store, &action, amount, memo, block)
-/*
-    // Write to the owners history if it's different from the other two addresses
-    // TODO: check if we want to always write this. 
-    if owner != sender && owner != receiver {
-        // cosmwasm_std::debug_print("saving transaction history for owner");
-        StoredTx::append_tx(store, &tx, owner)?;
-    }
-    // Write to the sender's history if it's different from the receiver
-    if sender != receiver {
-        // cosmwasm_std::debug_print("saving transaction history for sender");
-        StoredTx::append_tx(store, &tx, sender)?;
-    }
-    // Always write to the recipient's history
-    // cosmwasm_std::debug_print("saving transaction history for receiver");
-    StoredTx::append_tx(store, &tx, receiver)?;
-*/
 }
 
-pub fn store_mint(
+pub fn store_mint_action(
     store: &mut dyn Storage,
-    api: &dyn Api,
-    minter: CanonicalAddr,
-    recipient: CanonicalAddr,
+    minter: &CanonicalAddr,
+    recipient: &CanonicalAddr,
     amount: u128,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
+) -> StdResult<u64> {
     let action = StoredTxAction::mint(
-        minter, 
-        recipient
+        minter.clone(), 
+        recipient.clone()
     );
-    let id = append_new_stored_tx(store, &action, amount, memo, block)?;
-
-/*
-    if minter != recipient {
-        StoredTx::append_tx(store, &tx, &recipient)?;
-    }
-
-    StoredTx::append_tx(store, &tx, &minter)?;
-*/
-
-    Ok(())
+    append_new_stored_tx(store, &action, amount, memo, block)
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn store_burn(
+pub fn store_burn_action(
     store: &mut dyn Storage,
-    api: &dyn Api,
     owner: CanonicalAddr,
     burner: CanonicalAddr,
     amount: u128,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
+) -> StdResult<u64> {
     let action = StoredTxAction::burn(
         owner, 
         burner
     );
-    let id = append_new_stored_tx(store, &action, amount, memo, block)?;
-
-/*
-    if burner != owner {
-        StoredTx::append_tx(store, &tx, &owner)?;
-    }
-
-    StoredTx::append_tx(store, &tx, &burner)?;
-*/
-
-    Ok(())
+    append_new_stored_tx(store, &action, amount, memo, block)
 }
 
 pub fn store_deposit(

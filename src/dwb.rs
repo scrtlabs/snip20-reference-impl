@@ -106,6 +106,7 @@ impl DelayedWriteBuffer {
     }
 
     /// settles a participant's account who may or may not have an entry in the buffer
+    /// gets balance including any amount in the buffer, and then subtracts amount spent in this tx
     pub fn settle_sender_or_owner_account(
         &mut self,
         store: &mut dyn Storage,
@@ -113,6 +114,7 @@ impl DelayedWriteBuffer {
         address: &CanonicalAddr,
         tx_id: u64,
         amount_spent: u128,
+        op_name: &str,
     ) -> StdResult<()> {
         // release the address from the buffer
         let (balance, mut entry) = self.constant_time_release(
@@ -134,7 +136,7 @@ impl DelayedWriteBuffer {
             balance_after_sub
         } else {
             return Err(StdError::generic_err(format!(
-                "insufficient funds to transfer: balance={balance}, required={amount_spent}",
+                "insufficient funds to {op_name}: balance={balance}, required={amount_spent}",
             )));
         };
         BalancesStore::save(store, address, new_balance)?;
@@ -188,6 +190,77 @@ impl DelayedWriteBuffer {
             matched_index |= idx * equals;
         }
         matched_index
+    }
+
+    pub fn add_recipient(
+        &mut self,
+        store: &mut dyn Storage,
+        rng: &mut ContractPrng,
+        recipient: &CanonicalAddr,
+        tx_id: u64,
+        amount: u128
+    ) -> StdResult<()> {
+        // check if `recipient` is already a recipient in the delayed write buffer
+        let recipient_index = self.recipient_match(recipient);
+
+        // the new entry will either derive from a prior entry for the recipient or the dummy entry
+        let mut new_entry = self.entries[recipient_index].clone();
+        new_entry.set_recipient(recipient)?;
+        new_entry.add_tx_node(store, tx_id)?;
+        new_entry.add_amount(amount)?;
+
+        // whether or not recipient is in the buffer (non-zero index)
+        // casting to i32 will never overflow, so long as dwb length is limited to a u16 value
+        let if_recipient_in_buffer = constant_time_is_not_zero(recipient_index as i32);
+
+        // randomly pick an entry to exclude in case the recipient is not in the buffer
+        let random_exclude_index = random_in_range(rng, 1, DWB_LEN as u32)? as usize;
+        println!("random_exclude_index: {random_exclude_index}");
+
+        // index of entry to exclude from selection
+        let exclude_index = constant_time_if_else(if_recipient_in_buffer, recipient_index, random_exclude_index);
+
+        // randomly select any other entry to settle in constant-time (avoiding the reserved 0th position)
+        let random_settle_index = (((random_in_range(rng, 0, DWB_LEN as u32 - 2)? + exclude_index as u32) % (DWB_LEN as u32 - 1)) + 1) as usize;
+        println!("random_settle_index: {random_settle_index}");
+
+        // whether or not the buffer is fully saturated yet
+        let if_undersaturated = constant_time_is_not_zero(self.empty_space_counter as i32);
+
+        // find the next empty entry in the buffer
+        let next_empty_index = (DWB_LEN - self.empty_space_counter) as usize;
+
+        // if buffer is not yet saturated, settle the address at the next empty index
+        let bounded_settle_index = constant_time_if_else(if_undersaturated, next_empty_index, random_settle_index);
+
+        // check if we have any open slots in the linked list
+        let if_list_can_grow = constant_time_is_not_zero((DWB_MAX_TX_EVENTS - self.entries[recipient_index].list_len()?) as i32);
+
+        // if we would overflow the list, just settle recipient
+        // TODO: see docs for attack analysis
+        let actual_settle_index = constant_time_if_else(if_list_can_grow, bounded_settle_index, recipient_index);
+
+        // settle the entry
+        self.settle_entry(store, actual_settle_index)?;
+
+        // replace it with a randomly generated address (that is not currently in the buffer) and 0 amount and nil events pointer
+        let replacement_entry = self.unique_random_entry(rng)?;
+        self.entries[actual_settle_index] = replacement_entry;
+
+        // pick the index to where the recipient's entry should be written
+        let write_index = constant_time_if_else(if_recipient_in_buffer, recipient_index, actual_settle_index);
+
+        // either updates the existing recipient entry, or overwrites the random replacement entry in the settled index
+        self.entries[write_index] = new_entry;
+
+        // decrement empty space counter if it is undersaturated and the recipient was not already in the buffer
+        self.empty_space_counter -= constant_time_if_else(
+            if_undersaturated,
+            constant_time_if_else(if_recipient_in_buffer, 0, 1),
+            0
+        ) as u16;
+
+        Ok(())
     }
 
 }
@@ -469,6 +542,15 @@ impl AccountTxsStore {
     }
 }
 
+#[inline]
+fn constant_time_is_not_zero(value: i32) -> u32 {
+    return (((value | -value) >> 31) & 1) as u32;
+}
+
+#[inline]
+fn constant_time_if_else(condition: u32, then: usize, els: usize) -> usize {
+    return (then * condition as usize) | (els * (1 - condition as usize));
+}
 
 #[cfg(test)]
 mod tests {

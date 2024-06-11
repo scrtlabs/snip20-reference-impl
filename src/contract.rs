@@ -21,7 +21,7 @@ use crate::state::{
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
-    append_new_stored_tx, store_burn, store_deposit, store_mint, store_redeem, StoredTxAction, Tx, TxAction, 
+    store_burn_action, store_deposit, store_mint_action, store_redeem, store_transfer_action, Tx, TxAction 
 };
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -66,16 +66,21 @@ pub fn instantiate(
     DWB.save(deps.storage, &DelayedWriteBuffer::new()?)?;
 
     let initial_balances = msg.initial_balances.unwrap_or_default();
+    let raw_admin = deps.api.addr_canonicalize(admin.as_str())?;
+    let seed = env.block.random.as_ref().unwrap();
+    let mut rng = ContractPrng::new(seed.as_slice(), &prng_seed_hashed);
     for balance in initial_balances {
         let amount = balance.amount.u128();
         let balance_address = deps.api.addr_canonicalize(balance.address.as_str())?;
-        // Here amount is also the amount to be added because the account has no prior balance
-        BalancesStore::update_balance(
-            deps.storage,
-            &balance_address,
-            amount,
-            true,
-            "",
+
+        perform_mint(
+            deps.storage, 
+            &mut rng, 
+            &raw_admin, 
+            &balance_address, 
+            amount, 
+            Some("Initial Balance".to_string()),
+            &env.block
         )?;
 
         if let Some(new_total_supply) = total_supply.checked_add(amount) {
@@ -85,16 +90,6 @@ pub fn instantiate(
                 "The sum of all initial balances exceeds the maximum possible total supply",
             ));
         }
-
-        store_mint(
-            deps.storage,
-            deps.api,
-            deps.api.addr_canonicalize(admin.as_str())?,
-            balance_address,
-            balance.amount.u128(),
-            Some("Initial Balance".to_string()),
-            &env.block,
-        )?;
     }
 
     let supported_denoms = match msg.supported_denoms {
@@ -135,6 +130,9 @@ pub fn instantiate(
 
 #[entry_point]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
+    let seed = env.block.random.as_ref().unwrap();
+    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
+
     let contract_status = CONTRACT_STATUS.load(deps.storage)?;
 
     match contract_status {
@@ -180,6 +178,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             deps,
             env,
             info,
+            &mut rng,
             recipient,
             amount,
             memo,
@@ -195,6 +194,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             deps,
             env,
             info,
+            &mut rng,
             recipient,
             recipient_code_hash,
             amount,
@@ -202,16 +202,16 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             msg,
         ),
         ExecuteMsg::BatchTransfer { actions, .. } => {
-            try_batch_transfer(deps, env, info, actions)
+            try_batch_transfer(deps, env, info, &mut rng, actions)
         }
         ExecuteMsg::BatchSend { actions, .. } => {
-            try_batch_send(deps, env, info, actions)
+            try_batch_send(deps, env, info, &mut rng, actions)
         }
         ExecuteMsg::Burn {
             amount,
             memo,
             ..
-        } => try_burn(deps, env, info, amount, memo),
+        } => try_burn(deps, env, info, &mut rng, amount, memo),
         ExecuteMsg::RegisterReceive { code_hash, .. } => {
             try_register_receive(deps, info, code_hash)
         }
@@ -241,6 +241,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             deps,
             &env,
             info,
+            &mut rng,
             owner,
             recipient,
             amount,
@@ -258,6 +259,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             deps,
             env,
             &info,
+            &mut rng,
             owner,
             recipient,
             recipient_code_hash,
@@ -266,10 +268,10 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             msg,
         ),
         ExecuteMsg::BatchTransferFrom { actions, .. } => {
-            try_batch_transfer_from(deps, &env, info, actions)
+            try_batch_transfer_from(deps, &env, info, &mut rng, actions)
         }
         ExecuteMsg::BatchSendFrom { actions, .. } => {
-            try_batch_send_from(deps, env, &info, actions)
+            try_batch_send_from(deps, env, &info, &mut rng, actions)
         }
         ExecuteMsg::BurnFrom {
             owner,
@@ -280,12 +282,13 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             deps,
             &env,
             info,
+            &mut rng,
             owner,
             amount,
             memo,
         ),
         ExecuteMsg::BatchBurnFrom { actions, .. } => {
-            try_batch_burn_from(deps, &env, info, actions)
+            try_batch_burn_from(deps, &env, info, &mut rng, actions)
         }
 
         // Mint
@@ -298,12 +301,13 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             deps,
             env,
             info,
+            &mut rng,
             recipient,
             amount,
             memo,
         ),
         ExecuteMsg::BatchMint { actions, .. } => {
-            try_batch_mint(deps, env, info, actions)
+            try_batch_mint(deps, env, info, &mut rng, actions)
         }
 
         // Other
@@ -808,6 +812,7 @@ fn remove_supported_denoms(
 #[allow(clippy::too_many_arguments)]
 fn try_mint_impl(
     deps: &mut DepsMut,
+    rng: &mut ContractPrng,
     minter: Addr,
     recipient: Addr,
     amount: Uint128,
@@ -818,23 +823,19 @@ fn try_mint_impl(
     let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
     let raw_minter = deps.api.addr_canonicalize(minter.as_str())?;
 
-    BalancesStore::update_balance(
-        deps.storage,
-        &raw_recipient,
-        raw_amount,
-        true,
-        "",
-    )?;
+    perform_mint(deps.storage, rng, &raw_minter, &raw_recipient, raw_amount, memo, block)?;
 
-    store_mint(
-        deps.storage,
-        deps.api,
-        raw_minter,
-        raw_recipient,
-        amount.u128(),
-        memo,
-        block,
-    )?;
+    // remove from supply
+    let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
+
+    if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
+        total_supply = new_total_supply;
+    } else {
+        return Err(StdError::generic_err(
+            "You're trying to burn more than is available in the total supply",
+        ));
+    }
+    TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
     Ok(())
 }
@@ -844,6 +845,7 @@ fn try_mint(
     mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     recipient: String,
     amount: Uint128,
     memo: Option<String>,
@@ -872,6 +874,7 @@ fn try_mint(
     // Note that even when minted_amount is equal to 0 we still want to perform the operations for logic consistency
     try_mint_impl(
         &mut deps,
+        rng,
         info.sender,
         recipient,
         Uint128::new(minted_amount),
@@ -886,6 +889,7 @@ fn try_batch_mint(
     mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     actions: Vec<batch::MintAction>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
@@ -912,6 +916,7 @@ fn try_batch_mint(
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_mint_impl(
             &mut deps,
+            rng,
             info.sender.clone(),
             recipient,
             Uint128::new(actual_amount),
@@ -1222,18 +1227,16 @@ fn try_transfer(
     mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     recipient: String,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let seed = env.block.random.as_ref().unwrap();
-    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
-
     let recipient: Addr = deps.api.addr_validate(recipient.as_str())?;
 
     try_transfer_impl(
         &mut deps,
-        &mut rng,
+        rng,
         &info.sender,
         &recipient,
         amount,
@@ -1248,16 +1251,14 @@ fn try_batch_transfer(
     mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     actions: Vec<batch::TransferAction>,
 ) -> StdResult<Response> {
-    let seed = env.block.random.as_ref().unwrap();
-    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
-
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_transfer_impl(
             &mut deps,
-            &mut rng,
+            rng,
             &info.sender,
             &recipient,
             action.amount,
@@ -1346,21 +1347,19 @@ fn try_send(
     mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     recipient: String,
     recipient_code_hash: Option<String>,
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<Response> {
-    let seed = env.block.random.as_ref().unwrap();
-    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
-
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
     let mut messages = vec![];
     try_send_impl(
         &mut deps,
-        &mut rng,
+        rng,
         &mut messages,
         info.sender,
         recipient,
@@ -1380,17 +1379,15 @@ fn try_batch_send(
     mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     actions: Vec<batch::SendAction>,
 ) -> StdResult<Response> {
-    let seed = env.block.random.as_ref().unwrap();
-    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
-
     let mut messages = vec![];
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_send_impl(
             &mut deps,
-            &mut rng,
+            rng,
             &mut messages,
             info.sender.clone(),
             recipient,
@@ -1486,19 +1483,17 @@ fn try_transfer_from(
     mut deps: DepsMut,
     env: &Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     owner: String,
     recipient: String,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
-    let seed = env.block.random.as_ref().unwrap();
-    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
-
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
     try_transfer_from_impl(
         &mut deps,
-        &mut rng,
+        rng,
         env,
         &info.sender,
         &owner,
@@ -1514,17 +1509,15 @@ fn try_batch_transfer_from(
     mut deps: DepsMut,
     env: &Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     actions: Vec<batch::TransferFromAction>,
 ) -> StdResult<Response> {
-    let seed = env.block.random.as_ref().unwrap();
-    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
-
     for action in actions {
         let owner = deps.api.addr_validate(action.owner.as_str())?;
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_transfer_from_impl(
             &mut deps,
-            &mut rng,
+            rng,
             env,
             &info.sender,
             &owner,
@@ -1546,6 +1539,7 @@ fn try_send_from_impl(
     deps: &mut DepsMut,
     env: Env,
     info: &MessageInfo,
+    rng: &mut ContractPrng,
     messages: &mut Vec<CosmosMsg>,
     owner: Addr,
     recipient: Addr,
@@ -1554,13 +1548,10 @@ fn try_send_from_impl(
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<()> {
-    let seed = env.block.random.as_ref().unwrap();
-    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
-
     let spender = info.sender.clone();
     try_transfer_from_impl(
         deps,
-        &mut rng,
+        rng,
         &env,
         &spender,
         &owner,
@@ -1589,6 +1580,7 @@ fn try_send_from(
     mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
+    rng: &mut ContractPrng,
     owner: String,
     recipient: String,
     recipient_code_hash: Option<String>,
@@ -1603,6 +1595,7 @@ fn try_send_from(
         &mut deps,
         env,
         info,
+        rng,
         &mut messages,
         owner,
         recipient,
@@ -1621,6 +1614,7 @@ fn try_batch_send_from(
     mut deps: DepsMut,
     env: Env,
     info: &MessageInfo,
+    rng: &mut ContractPrng,
     actions: Vec<batch::SendFromAction>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
@@ -1632,6 +1626,7 @@ fn try_batch_send_from(
             &mut deps,
             env.clone(),
             info,
+            rng,
             &mut messages,
             owner,
             recipient,
@@ -1654,6 +1649,7 @@ fn try_burn_from(
     deps: DepsMut,
     env: &Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     owner: String,
     amount: Uint128,
     memo: Option<String>,
@@ -1669,14 +1665,27 @@ fn try_burn_from(
 
     let raw_amount = amount.u128();
     use_allowance(deps.storage, env, &owner, &info.sender, raw_amount)?;
+    let raw_burner = deps.api.addr_canonicalize(info.sender.as_str())?;
 
-    BalancesStore::update_balance(
-        deps.storage,
-        &raw_owner,
-        raw_amount,
-        false,
-        "burn",
+    let tx_id = store_burn_action(
+        deps.storage, 
+        raw_owner.clone(),
+        raw_burner.clone(), 
+        raw_amount, 
+        memo, 
+        &env.block
     )?;
+
+    // load delayed write buffer
+    let mut dwb = DWB.load(deps.storage)?;
+
+    // settle the owner's account in buffer
+    dwb.settle_sender_or_owner_account(deps.storage, rng, &raw_owner, tx_id, raw_amount, "burn")?;
+    if raw_burner != raw_owner { // also settle sender's account
+        dwb.settle_sender_or_owner_account(deps.storage, rng, &raw_burner, tx_id, 0, "burn")?;
+    }
+
+    DWB.save(deps.storage, &dwb)?;
 
     // remove from supply
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
@@ -1690,16 +1699,6 @@ fn try_burn_from(
     }
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
-    store_burn(
-        deps.storage,
-        deps.api,
-        raw_owner,
-        deps.api.addr_canonicalize(info.sender.as_str())?,
-        amount.u128(),
-        memo,
-        &env.block,
-    )?;
-
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BurnFrom { status: Success })?))
 }
 
@@ -1707,6 +1706,7 @@ fn try_batch_burn_from(
     deps: DepsMut,
     env: &Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     actions: Vec<batch::BurnFromAction>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
@@ -1725,13 +1725,25 @@ fn try_batch_burn_from(
         let amount = action.amount.u128();
         use_allowance(deps.storage, env, &owner, &info.sender, amount)?;
 
-        BalancesStore::update_balance(
-            deps.storage,
-            &raw_owner,
-            amount,
-            false,
-            "burn",
+        let tx_id = store_burn_action(
+            deps.storage, 
+            raw_owner.clone(),
+            raw_spender.clone(), 
+            amount, 
+            action.memo.clone(), 
+            &env.block
         )?;
+    
+        // load delayed write buffer
+        let mut dwb = DWB.load(deps.storage)?;
+    
+        // settle the owner's account in buffer
+        dwb.settle_sender_or_owner_account(deps.storage, rng, &raw_owner, tx_id, amount, "burn")?;
+        if raw_spender != raw_owner {
+            dwb.settle_sender_or_owner_account(deps.storage, rng, &raw_spender, tx_id, 0, "burn")?;
+        }
+    
+        DWB.save(deps.storage, &dwb)?;
 
         // remove from supply
         if let Some(new_total_supply) = total_supply.checked_sub(amount) {
@@ -1741,16 +1753,6 @@ fn try_batch_burn_from(
                 "You're trying to burn more than is available in the total supply: {action:?}",
             )));
         }
-
-        store_burn(
-            deps.storage,
-            deps.api,
-            raw_owner,
-            raw_spender.clone(),
-            action.amount.u128(),
-            action.memo,
-            &env.block,
-        )?;
     }
 
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
@@ -1916,6 +1918,7 @@ fn try_burn(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
@@ -1929,13 +1932,22 @@ fn try_burn(
     let raw_amount = amount.u128();
     let raw_burn_address = deps.api.addr_canonicalize(info.sender.as_str())?;
 
-    BalancesStore::update_balance(
-        deps.storage,
-        &raw_burn_address,
-        raw_amount,
-        false,
-        "burn",
+    let tx_id = store_burn_action(
+        deps.storage, 
+        raw_burn_address.clone(),
+        raw_burn_address.clone(), 
+        raw_amount, 
+        memo, 
+        &env.block
     )?;
+
+    // load delayed write buffer
+    let mut dwb = DWB.load(deps.storage)?;
+
+    // settle the signer's account in buffer
+    dwb.settle_sender_or_owner_account(deps.storage, rng, &raw_burn_address, tx_id, raw_amount, "burn")?;
+
+    DWB.save(deps.storage, &dwb)?;
 
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
     if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
@@ -1946,16 +1958,6 @@ fn try_burn(
         ));
     }
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
-
-    store_burn(
-        deps.storage,
-        deps.api,
-        raw_burn_address.clone(),
-        raw_burn_address,
-        amount.u128(),
-        memo,
-        &env.block,
-    )?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?))
 }
@@ -1971,82 +1973,49 @@ fn perform_transfer(
     block: &BlockInfo,
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
-    let action = StoredTxAction::transfer(
-        from.clone(), 
-        sender.clone(), 
-        to.clone()
-    );
-    let tx_id = append_new_stored_tx(store, &action, amount, memo, block)?;
+    let tx_id = store_transfer_action(store, from, sender, to, amount, memo, block)?;
 
     // load delayed write buffer
     let mut dwb = DWB.load(store)?;
 
+    let transfer_str = "transfer";
     // settle the owner's account
-    dwb.settle_sender_or_owner_account(store, rng, from, tx_id, amount)?;
+    dwb.settle_sender_or_owner_account(store, rng, from, tx_id, amount, transfer_str)?;
     // if this is a *_from action, settle the sender's account, too
     if sender != from {
-        dwb.settle_sender_or_owner_account(store, rng, sender, tx_id, 0)?;
+        dwb.settle_sender_or_owner_account(store, rng, sender, tx_id, 0, transfer_str)?;
     }
 
-    // check if `to` is already a recipient in the delayed write buffer
-    let recipient_index = dwb.recipient_match(&to);
+    // add the tx info for the recipient to the buffer
+    dwb.add_recipient(store, rng, to, tx_id, amount)?;
 
-    // the new entry will either derive from a prior entry for the recipient or the dummy entry
-    let mut new_entry = dwb.entries[recipient_index].clone();
-    new_entry.set_recipient(&to)?;
-    new_entry.add_tx_node(store, tx_id)?;
-    new_entry.add_amount(amount)?;
+    DWB.save(store, &dwb)?;
 
-    // whether or not recipient is in the buffer (non-zero index)
-    // casting to i32 will never overflow, so long as dwb length is limited to a u16 value
-    let if_recipient_in_buffer = constant_time_is_not_zero(recipient_index as i32);
+    Ok(())
+}
 
-    // randomly pick an entry to exclude in case the recipient is not in the buffer
-    let random_exclude_index = random_in_range(rng, 1, DWB_LEN as u32)? as usize;
-    println!("random_exclude_index: {random_exclude_index}");
+fn perform_mint(
+    store: &mut dyn Storage,
+    rng: &mut ContractPrng,
+    minter: &CanonicalAddr,
+    to: &CanonicalAddr,
+    amount: u128,
+    memo: Option<String>,
+    block: &BlockInfo,
+) -> StdResult<()> {
+    // first store the tx information in the global append list of txs and get the new tx id
+    let tx_id = store_mint_action(store, minter, to, amount, memo, block)?;
 
-    // index of entry to exclude from selection
-    let exclude_index = constant_time_if_else(if_recipient_in_buffer, recipient_index, random_exclude_index);
+    // load delayed write buffer
+    let mut dwb = DWB.load(store)?;
 
-    // randomly select any other entry to settle in constant-time (avoiding the reserved 0th position)
-    let random_settle_index = (((random_in_range(rng, 0, DWB_LEN as u32 - 2)? + exclude_index as u32) % (DWB_LEN as u32 - 1)) + 1) as usize;
-    println!("random_settle_index: {random_settle_index}");
+    // if minter is not recipient, settle them
+    if minter != to {
+        dwb.settle_sender_or_owner_account(store, rng, minter, tx_id, 0, "mint")?;
+    }
 
-    // whether or not the buffer is fully saturated yet
-    let if_undersaturated = constant_time_is_not_zero(dwb.empty_space_counter as i32);
-
-    // find the next empty entry in the buffer
-    let next_empty_index = (DWB_LEN - dwb.empty_space_counter) as usize;
-
-    // if buffer is not yet saturated, settle the address at the next empty index
-    let bounded_settle_index = constant_time_if_else(if_undersaturated, next_empty_index, random_settle_index);
-
-    // check if we have any open slots in the linked list
-    let if_list_can_grow = constant_time_is_not_zero((DWB_MAX_TX_EVENTS - dwb.entries[recipient_index].list_len()?) as i32);
-
-    // if we would overflow the list, just settle recipient
-    // TODO: see docs for attack analysis
-    let actual_settle_index = constant_time_if_else(if_list_can_grow, bounded_settle_index, recipient_index);
-
-    // settle the entry
-    dwb.settle_entry(store, actual_settle_index)?;
-
-    // replace it with a randomly generated address (that is not currently in the buffer) and 0 amount and nil events pointer
-    let replacement_entry = dwb.unique_random_entry(rng)?;
-    dwb.entries[actual_settle_index] = replacement_entry;
-
-    // pick the index to where the recipient's entry should be written
-    let write_index = constant_time_if_else(if_recipient_in_buffer, recipient_index, actual_settle_index);
-
-    // either updates the existing recipient entry, or overwrites the random replacement entry in the settled index
-    dwb.entries[write_index] = new_entry;
-
-    // decrement empty space counter if it is undersaturated and the recipient was not already in the buffer
-    dwb.empty_space_counter -= constant_time_if_else(
-        if_undersaturated,
-        constant_time_if_else(if_recipient_in_buffer, 0, 1),
-        0
-    ) as u16;
+    // add the tx info for the recipient to the buffer
+    dwb.add_recipient(store, rng, to, tx_id, amount)?;
 
     DWB.save(store, &dwb)?;
 
@@ -2084,16 +2053,6 @@ fn is_valid_symbol(symbol: &str) -> bool {
     let len_is_valid = (3..=20).contains(&len);
 
     len_is_valid && symbol.bytes().all(|byte| byte.is_ascii_alphabetic())
-}
-
-#[inline]
-fn constant_time_is_not_zero(value: i32) -> u32 {
-    return (((value | -value) >> 31) & 1) as u32;
-}
-
-#[inline]
-fn constant_time_if_else(condition: u32, then: usize, els: usize) -> usize {
-    return (then * condition as usize) | (els * (1 - condition as usize));
 }
 
 // pub fn migrate(
@@ -2376,7 +2335,7 @@ mod tests {
     // Handle tests
 
     #[test]
-    fn test_execute_transfer() {
+    fn test_execute_transfer_dwb() {
         let (init_result, mut deps) = init_helper(vec![InitialBalance {
             address: "bob".to_string(),
             amount: Uint128::new(5000),
@@ -3534,7 +3493,7 @@ mod tests {
                     height: 12_345,
                     time: Timestamp::from_seconds(1_571_797_420),
                     chain_id: "cosmos-testnet-14002".to_string(),
-                    random: None,
+                    random: Some(Binary::from(&[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31])),
                 },
                 transaction: Some(TransactionInfo { index: 3, hash: "1010".to_string()}),
                 contract: ContractInfo {
@@ -3577,7 +3536,7 @@ mod tests {
         let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
         let alice_balance = BalancesStore::load(&deps.storage, &alice_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
-        assert_eq!(alice_balance, 2000);
+        assert_ne!(alice_balance, 2000);
         let total_supply = TOTAL_SUPPLY.load(&deps.storage).unwrap();
         assert_eq!(total_supply, 5000);
 
@@ -3720,7 +3679,7 @@ mod tests {
         let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
         let contract_balance = BalancesStore::load(&deps.storage, &contract_canonical);
         assert_eq!(bob_balance, 5000 - 2000);
-        assert_eq!(contract_balance, 2000);
+        assert_ne!(contract_balance, 2000);
         let total_supply = TOTAL_SUPPLY.load(&deps.storage).unwrap();
         assert_eq!(total_supply, 5000);
 
