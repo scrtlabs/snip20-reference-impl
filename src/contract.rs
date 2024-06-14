@@ -2357,7 +2357,8 @@ mod tests {
         );
 
         let tx_nodes_count = TX_NODES_COUNT.load(&deps.storage).unwrap_or_default();
-        assert_eq!(0, tx_nodes_count);
+        // should be 2 because we minted 5000 to bob at initialization
+        assert_eq!(2, tx_nodes_count);
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
         assert_eq!(1, tx_count); // due to mint
 
@@ -2390,13 +2391,13 @@ mod tests {
         let dwb = DWB.load(&deps.storage).unwrap();
         println!("DWB: {dwb:?}");
         // assert we have decremented empty_space_counter
-        assert_eq!(63, dwb.empty_space_counter);
+        assert_eq!(62, dwb.empty_space_counter);
         // assert first entry has correct information for alice
-        let alice_entry = dwb.entries[1];
+        let alice_entry = dwb.entries[2];
         assert_eq!(1, alice_entry.list_len().unwrap());
         assert_eq!(1000, alice_entry.amount().unwrap());
         // the id of the head_node 
-        assert_eq!(2, alice_entry.head_node().unwrap());
+        assert_eq!(4, alice_entry.head_node().unwrap());
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
         assert_eq!(2, tx_count); 
 
@@ -2434,13 +2435,13 @@ mod tests {
         let dwb = DWB.load(&deps.storage).unwrap();
         println!("DWB: {dwb:?}");
         // assert we have decremented empty_space_counter
-        assert_eq!(62, dwb.empty_space_counter);
-        // assert entry has correct information for alice
-        let charlie_entry = dwb.entries[2];
+        assert_eq!(61, dwb.empty_space_counter);
+        // assert entry has correct information for charlie
+        let charlie_entry = dwb.entries[3];
         assert_eq!(1, charlie_entry.list_len().unwrap());
         assert_eq!(100, charlie_entry.amount().unwrap());
         // the id of the head_node 
-        assert_eq!(4, charlie_entry.head_node().unwrap());
+        assert_eq!(6, charlie_entry.head_node().unwrap());
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
         assert_eq!(3, tx_count); 
 
@@ -2466,13 +2467,13 @@ mod tests {
         let dwb = DWB.load(&deps.storage).unwrap();
         println!("DWB: {dwb:?}");
         // assert we have not decremented empty_space_counter
-        assert_eq!(62, dwb.empty_space_counter);
+        assert_eq!(61, dwb.empty_space_counter);
         // assert entry has correct information for alice
-        let alice_entry = dwb.entries[1];
+        let alice_entry = dwb.entries[2];
         assert_eq!(2, alice_entry.list_len().unwrap());
         assert_eq!(1500, alice_entry.amount().unwrap());
         // the id of the head_node 
-        assert_eq!(6, alice_entry.head_node().unwrap());
+        assert_eq!(8, alice_entry.head_node().unwrap());
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
         assert_eq!(4, tx_count); 
 
@@ -2549,13 +2550,13 @@ mod tests {
         println!("DWB: {dwb:?}");
 
         // assert we have decremented empty_space_counter
-        assert_eq!(61, dwb.empty_space_counter);
+        assert_eq!(60, dwb.empty_space_counter);
         // assert entry has correct information for ernie
-        let ernie_entry = dwb.entries[3];
+        let ernie_entry = dwb.entries[4];
         assert_eq!(1, ernie_entry.list_len().unwrap());
         assert_eq!(200, ernie_entry.amount().unwrap());
         // the id of the head_node 
-        assert_eq!(8, ernie_entry.head_node().unwrap());
+        assert_eq!(10, ernie_entry.head_node().unwrap());
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
         assert_eq!(5, tx_count); 
 
@@ -2588,18 +2589,18 @@ mod tests {
         println!("DWB: {dwb:?}");
 
         // assert we have decremented empty_space_counter
-        assert_eq!(60, dwb.empty_space_counter);
+        assert_eq!(59, dwb.empty_space_counter);
         // assert entry has correct information for ernie
-        let dora_entry = dwb.entries[4];
+        let dora_entry = dwb.entries[5];
         assert_eq!(1, dora_entry.list_len().unwrap());
         assert_eq!(50, dora_entry.amount().unwrap());
         // the id of the head_node 
-        assert_eq!(10, dora_entry.head_node().unwrap());
+        assert_eq!(12, dora_entry.head_node().unwrap());
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
         assert_eq!(6, tx_count);
 
         // now we will send to 60 more addresses to fill up the buffer
-        for i in 1..=60 {
+        for i in 1..=59 {
             let recipient = format!("receipient{i}");
             // now send 1 to recipient from bob
             let handle_msg = ExecuteMsg::Transfer {
@@ -2616,7 +2617,7 @@ mod tests {
             let result = handle_result.unwrap();
             assert!(ensure_success(result));
         }
-        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 60, BalancesStore::load(&deps.storage, &bob_addr));
+        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59, BalancesStore::load(&deps.storage, &bob_addr));
 
         let dwb = DWB.load(&deps.storage).unwrap();
         println!("DWB: {dwb:?}");
@@ -2640,7 +2641,7 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 60 - 1, BalancesStore::load(&deps.storage, &bob_addr));
+        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59 - 1, BalancesStore::load(&deps.storage, &bob_addr));
 
         let dwb = DWB.load(&deps.storage).unwrap();
         println!("DWB: {dwb:?}");
@@ -2661,7 +2662,7 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 60 - 1 - 1, BalancesStore::load(&deps.storage, &bob_addr));
+        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59 - 1 - 1, BalancesStore::load(&deps.storage, &bob_addr));
 
         let dwb = DWB.load(&deps.storage).unwrap();
         println!("DWB: {dwb:?}");
@@ -2772,7 +2773,7 @@ mod tests {
         println!("transfers: {transfers:?}");
         let expected_transfers = vec![
             Tx { 
-                id: 169, 
+                id: 168, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
                     sender: Addr::unchecked("bob"), 
@@ -2787,7 +2788,7 @@ mod tests {
                 block_height: 12345 
             }, 
             Tx { 
-                id: 168, 
+                id: 167, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
                     sender: Addr::unchecked("bob"), 
@@ -2802,7 +2803,7 @@ mod tests {
                 block_height: 12345 
             }, 
             Tx { 
-                id: 167, 
+                id: 166, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
                     sender: Addr::unchecked("bob"), 
@@ -2837,7 +2838,7 @@ mod tests {
         println!("transfers: {transfers:?}");
         let expected_transfers = vec![
             Tx { 
-                id: 121, 
+                id: 120, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
                     sender: Addr::unchecked("bob"), 
@@ -2852,7 +2853,7 @@ mod tests {
                 block_height: 12345 
             }, 
             Tx { 
-                id: 120, 
+                id: 119, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
                     sender: Addr::unchecked("bob"), 
@@ -2867,7 +2868,7 @@ mod tests {
                 block_height: 12345 
             }, 
             Tx { 
-                id: 119, 
+                id: 118, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("alice"), 
                     sender: Addr::unchecked("alice"), 
@@ -2882,7 +2883,7 @@ mod tests {
                 block_height: 12345 
             }, 
             Tx { 
-                id: 118, 
+                id: 117, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
                     sender: Addr::unchecked("bob"), 
@@ -2897,7 +2898,7 @@ mod tests {
                 block_height: 12345 
             }, 
             Tx { 
-                id: 117, 
+                id: 116, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
                     sender: Addr::unchecked("bob"), 
@@ -2912,7 +2913,7 @@ mod tests {
                 block_height: 12345 
             }, 
             Tx { 
-                id: 116, 
+                id: 115, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
                     sender: Addr::unchecked("bob"), 
@@ -2951,7 +2952,7 @@ mod tests {
         println!("transfers: {transfers:?}");
         let expected_transfers = vec![
             Tx { 
-                id: 70, 
+                id: 69, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
                     sender: Addr::unchecked("bob"), 
@@ -2967,7 +2968,7 @@ mod tests {
                 block_height: 12345 
             }, 
             Tx { 
-                id: 69, 
+                id: 68, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
                     sender: Addr::unchecked("bob"), 
