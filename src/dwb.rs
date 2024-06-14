@@ -83,7 +83,7 @@ impl DelayedWriteBuffer {
     }
 
     /// settles an entry at a given index in the buffer
-    pub fn settle_entry(
+    fn settle_entry(
         &mut self,
         store: &mut dyn Storage,
         index: usize,
@@ -146,7 +146,7 @@ impl DelayedWriteBuffer {
 
     /// "releases" a given recipient from the buffer, removing their entry if one exists, in constant-time
     /// returns the new balance and the buffer entry
-    pub fn constant_time_release(
+    fn constant_time_release(
         &mut self, 
         store: &mut dyn Storage, 
         rng: &mut ContractPrng, 
@@ -170,7 +170,7 @@ impl DelayedWriteBuffer {
         Ok((balance, entry))
     }
 
-    pub fn unique_random_entry(&self, rng: &mut ContractPrng) -> StdResult<DelayedWriteBufferEntry> {
+    fn unique_random_entry(&self, rng: &mut ContractPrng) -> StdResult<DelayedWriteBufferEntry> {
         // produce a new random address
         let mut replacement_address = random_addr(rng);
         // ensure random addr is not already in dwb (extremely unlikely!!)
@@ -324,7 +324,7 @@ impl DelayedWriteBufferEntry {
         Ok(result)
     }
 
-    pub fn set_recipient(&mut self, val: &CanonicalAddr) -> StdResult<()> {
+    fn set_recipient(&mut self, val: &CanonicalAddr) -> StdResult<()> {
         let val_slice = val.as_slice();
         if val_slice.len() != DWB_RECIPIENT_BYTES {
             return Err(StdError::generic_err("Set dwb recipient error"));
@@ -398,7 +398,7 @@ impl DelayedWriteBufferEntry {
 
     /// adds a tx node to the linked list
     /// returns: the new head node
-    pub fn add_tx_node(&mut self, store: &mut dyn Storage, tx_id: u64) -> StdResult<u64> {
+    fn add_tx_node(&mut self, store: &mut dyn Storage, tx_id: u64) -> StdResult<u64> {
         let tx_node = TxNode {
             tx_id,
             next: self.head_node()?,
@@ -416,7 +416,7 @@ impl DelayedWriteBufferEntry {
 
     // adds some amount to the total amount for all txs in the entry linked list
     // returns: the new amount
-    pub fn add_amount(&mut self, add_tx_amount: u128) -> StdResult<u64> {
+    fn add_amount(&mut self, add_tx_amount: u128) -> StdResult<u64> {
         // change this to safe_add if your coin needs to store amount in buffer as u128 (e.g. 18 decimals)
         let mut amount = self.amount()?;
         let add_tx_amount_u64 = add_tx_amount
@@ -544,28 +544,19 @@ impl AccountTxsStore {
 
 #[inline]
 fn constant_time_is_not_zero(value: i32) -> u32 {
-    return (((value | -value) >> 31) & 1) as u32;
+    (((value | -value) >> 31) & 1) as u32
 }
 
 #[inline]
 fn constant_time_if_else(condition: u32, then: usize, els: usize) -> usize {
-    return (then * condition as usize) | (els * (1 - condition as usize));
+    (then * condition as usize) | (els * (1 - condition as usize))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::any::Any;
-
-    use cosmwasm_std::{testing::*, Api, Binary, Response, Uint128};
-    use cosmwasm_std::{
-        from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
-        SubMsg, Timestamp, TransactionInfo, WasmMsg,
-    };
-    use secret_toolkit::permit::{PermitParams, PermitSignature, PubKey};
-
+    use cosmwasm_std::{testing::*, Binary, Response, Uint128, OwnedDeps};
     use crate::contract::instantiate;
-    use crate::msg::{InstantiateMsg, ResponseStatus};
-    use crate::msg::{InitConfig, InitialBalance};
+    use crate::msg::{InstantiateMsg, InitialBalance};
     use crate::transaction_history::{append_new_stored_tx, StoredTxAction};
 
     use super::*;
@@ -606,7 +597,7 @@ mod tests {
             init_result.err().unwrap()
         );
         let env = mock_env();
-        let info = mock_info("bob", &[]);
+        let _info = mock_info("bob", &[]);
 
         let recipient = CanonicalAddr::from(ZERO_ADDR);
         let mut dwb_entry = DelayedWriteBufferEntry::new(recipient).unwrap();
@@ -629,7 +620,7 @@ mod tests {
         assert_eq!(dwb_entry.list_len().unwrap(), 1u16);
 
         // first store the tx information in the global append list of txs and get the new tx id
-        let mut storage = deps.as_mut().storage;
+        let storage = deps.as_mut().storage;
         let from = CanonicalAddr::from(&[2u8; 20]);
         let sender = CanonicalAddr::from(&[2u8; 20]);
         let to = CanonicalAddr::from(&[1u8;20]);
@@ -638,7 +629,7 @@ mod tests {
             sender.clone(), 
             to.clone()
         );
-        let tx_id = append_new_stored_tx(storage, &action, 1000u128, Some("memo".to_string()), &env.block).unwrap();
+        let tx_id = append_new_stored_tx(storage, &action, 1000u128, "uscrt".to_string(), Some("memo".to_string()), &env.block).unwrap();
 
         let result = dwb_entry.add_tx_node(storage, tx_id).unwrap();
         assert_eq!(dwb_entry.head_node().unwrap(), result);

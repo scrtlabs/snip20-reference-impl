@@ -3,8 +3,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{batch, transaction_history::TxAction};
-use cosmwasm_std::{Addr, Api, Binary, Coin, StdError, StdResult, Uint128};
+use crate::{batch, transaction_history::Tx};
+use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
@@ -495,7 +495,7 @@ pub enum QueryAnswer {
         amount: Uint128,
     },
     TransactionHistory {
-        txs: Vec<TxWithCoins>,
+        txs: Vec<Tx>,
         total: Option<u64>,
     },
     ViewingKeyError {
@@ -504,18 +504,6 @@ pub enum QueryAnswer {
     Minters {
         minters: Vec<Addr>,
     },
-}
-
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct TxWithCoins {
-    pub id: u64,
-    pub action: TxAction,
-    pub coins: Coin,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub memo: Option<String>,
-    pub block_time: u64,
-    pub block_height: u64,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]

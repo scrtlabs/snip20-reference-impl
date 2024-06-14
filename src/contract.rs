@@ -9,8 +9,7 @@ use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
-use crate::dwb::{random_in_range, AccountTxsStore, DelayedWriteBuffer, ACCOUNT_TXS, ACCOUNT_TX_COUNT, DWB, DWB_LEN, DWB_MAX_TX_EVENTS, TX_NODES};
-use crate::msg::TxWithCoins;
+use crate::dwb::{AccountTxsStore, DelayedWriteBuffer, ACCOUNT_TXS, ACCOUNT_TX_COUNT, DWB, TX_NODES};
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
@@ -21,7 +20,7 @@ use crate::state::{
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
-    store_burn_action, store_deposit, store_mint_action, store_redeem, store_transfer_action, Tx, TxAction 
+    store_burn_action, store_deposit, store_mint_action, store_redeem, store_transfer_action, Tx,  
 };
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -78,7 +77,8 @@ pub fn instantiate(
             &mut rng, 
             &raw_admin, 
             &balance_address, 
-            amount, 
+            amount,
+            msg.symbol.clone(),
             Some("Initial Balance".to_string()),
             &env.block
         )?;
@@ -146,7 +146,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
                     denom,
                     ..
                 } if contract_status == ContractStatusLevel::StopAllButRedeems => {
-                    try_redeem(deps, env, info, amount, denom)
+                    try_redeem(deps, env, info, &mut rng, amount, denom)
                 }
                 _ => Err(StdError::generic_err(
                     "This contract is stopped and this action is not allowed",
@@ -166,7 +166,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             denom,
             ..
-        } => try_redeem(deps, env, info, amount, denom),
+        } => try_redeem(deps, env, info, &mut rng, amount, denom),
 
         // Base
         ExecuteMsg::Transfer {
@@ -688,26 +688,6 @@ pub fn query_transactions(
         }
     }
 
-    // TODO handle deposit denom
-    let symbol = CONFIG.load(deps.storage)?.symbol;
-    let txs = txs.iter().map(|tx| {
-        let denom = match tx.action {
-            TxAction::Deposit {  } => "uscrt".to_string(),
-            _ => symbol.clone()
-        };
-        TxWithCoins {
-            id: tx.id,
-            action: tx.action.clone(),
-            coins: Coin {
-                denom,
-                amount: tx.amount,
-            },
-            memo: tx.memo.clone(),
-            block_height: tx.block_height,
-            block_time: tx.block_time,
-        }
-    }).collect();
-
     let result = QueryAnswer::TransactionHistory {
         txs,
         total: Some(total as u64),
@@ -816,6 +796,7 @@ fn try_mint_impl(
     minter: Addr,
     recipient: Addr,
     amount: Uint128,
+    denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
@@ -823,7 +804,7 @@ fn try_mint_impl(
     let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
     let raw_minter = deps.api.addr_canonicalize(minter.as_str())?;
 
-    perform_mint(deps.storage, rng, &raw_minter, &raw_recipient, raw_amount, memo, block)?;
+    perform_mint(deps.storage, rng, &raw_minter, &raw_recipient, raw_amount, denom, memo, block)?;
 
     // remove from supply
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
@@ -878,6 +859,7 @@ fn try_mint(
         info.sender,
         recipient,
         Uint128::new(minted_amount),
+        constants.symbol,
         memo,
         &env.block,
     )?;
@@ -920,6 +902,7 @@ fn try_batch_mint(
             info.sender.clone(),
             recipient,
             Uint128::new(actual_amount),
+            constants.symbol.clone(),
             action.memo,
             &env.block,
         )?;
@@ -1104,9 +1087,8 @@ fn try_deposit(
 
     store_deposit(
         deps.storage,
-        &sender_address,
         raw_amount,
-        //"uscrt".to_string(),
+        "uscrt".to_string(),
         &env.block,
     )?;
 
@@ -1117,6 +1099,7 @@ fn try_redeem(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
     amount: Uint128,
     denom: Option<String>,
 ) -> StdResult<Response> {
@@ -1147,13 +1130,20 @@ fn try_redeem(
     let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
     let amount_raw = amount.u128();
 
-    BalancesStore::update_balance(
+    let tx_id = store_redeem(
         deps.storage,
-        &sender_address,
-        amount_raw,
-        false,
-        "redeem",
+        amount.u128(),
+        constants.symbol,
+        &env.block,
     )?;
+
+    // load delayed write buffer
+    let mut dwb = DWB.load(deps.storage)?;
+
+    // settle the signer's account in buffer
+    dwb.settle_sender_or_owner_account(deps.storage, rng, &sender_address, tx_id, amount_raw, "redeem")?;
+
+    DWB.save(deps.storage, &dwb)?;
 
     let total_supply = TOTAL_SUPPLY.load(deps.storage)?;
     if let Some(total_supply) = total_supply.checked_sub(amount_raw) {
@@ -1179,13 +1169,6 @@ fn try_redeem(
         amount,
     }];
 
-    store_redeem(
-        deps.storage,
-        &sender_address,
-        amount.u128(),
-        &env.block,
-    )?;
-
     let message = CosmosMsg::Bank(BankMsg::Send {
         to_address: info.sender.clone().into_string(),
         amount: withdrawal_coins,
@@ -1202,6 +1185,7 @@ fn try_transfer_impl(
     sender: &Addr,
     recipient: &Addr,
     amount: Uint128,
+    denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<()> {
@@ -1215,6 +1199,7 @@ fn try_transfer_impl(
         &raw_recipient,
         &raw_sender,
         amount.u128(),
+        denom,
         memo,
         block,
     )?;
@@ -1234,12 +1219,14 @@ fn try_transfer(
 ) -> StdResult<Response> {
     let recipient: Addr = deps.api.addr_validate(recipient.as_str())?;
 
+    let symbol = CONFIG.load(deps.storage)?.symbol;
     try_transfer_impl(
         &mut deps,
         rng,
         &info.sender,
         &recipient,
         amount,
+        symbol,
         memo,
         &env.block,
     )?;
@@ -1254,6 +1241,8 @@ fn try_batch_transfer(
     rng: &mut ContractPrng,
     actions: Vec<batch::TransferAction>,
 ) -> StdResult<Response> {
+    let symbol = CONFIG.load(deps.storage)?.symbol;
+
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_transfer_impl(
@@ -1262,6 +1251,7 @@ fn try_batch_transfer(
             &info.sender,
             &recipient,
             action.amount,
+            symbol.clone(),
             action.memo,
             &env.block,
         )?;
@@ -1313,6 +1303,7 @@ fn try_send_impl(
     recipient: Addr,
     recipient_code_hash: Option<String>,
     amount: Uint128,
+    denom: String,
     memo: Option<String>,
     msg: Option<Binary>,
     block: &cosmwasm_std::BlockInfo,
@@ -1323,6 +1314,7 @@ fn try_send_impl(
         &sender,
         &recipient,
         amount,
+        denom,
         memo.clone(),
         block,
     )?;
@@ -1357,6 +1349,8 @@ fn try_send(
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
     let mut messages = vec![];
+    let symbol = CONFIG.load(deps.storage)?.symbol;
+
     try_send_impl(
         &mut deps,
         rng,
@@ -1365,6 +1359,7 @@ fn try_send(
         recipient,
         recipient_code_hash,
         amount,
+        symbol,
         memo,
         msg,
         &env.block,
@@ -1383,6 +1378,7 @@ fn try_batch_send(
     actions: Vec<batch::SendAction>,
 ) -> StdResult<Response> {
     let mut messages = vec![];
+    let symbol = CONFIG.load(deps.storage)?.symbol;
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
         try_send_impl(
@@ -1393,6 +1389,7 @@ fn try_batch_send(
             recipient,
             action.recipient_code_hash,
             action.amount,
+            symbol.clone(),
             action.memo,
             action.msg,
             &env.block,
@@ -1455,6 +1452,7 @@ fn try_transfer_from_impl(
     owner: &Addr,
     recipient: &Addr,
     amount: Uint128,
+    denom: String,
     memo: Option<String>,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
@@ -1471,6 +1469,7 @@ fn try_transfer_from_impl(
         &raw_recipient,
         &raw_spender,
         raw_amount,
+        denom,
         memo,
         &env.block,
     )?;
@@ -1491,6 +1490,7 @@ fn try_transfer_from(
 ) -> StdResult<Response> {
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
+    let symbol = CONFIG.load(deps.storage)?.symbol;
     try_transfer_from_impl(
         &mut deps,
         rng,
@@ -1499,6 +1499,7 @@ fn try_transfer_from(
         &owner,
         &recipient,
         amount,
+        symbol,
         memo,
     )?;
 
@@ -1512,6 +1513,7 @@ fn try_batch_transfer_from(
     rng: &mut ContractPrng,
     actions: Vec<batch::TransferFromAction>,
 ) -> StdResult<Response> {
+    let symbol = CONFIG.load(deps.storage)?.symbol;
     for action in actions {
         let owner = deps.api.addr_validate(action.owner.as_str())?;
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
@@ -1523,6 +1525,7 @@ fn try_batch_transfer_from(
             &owner,
             &recipient,
             action.amount,
+            symbol.clone(),
             action.memo,
         )?;
     }
@@ -1549,6 +1552,7 @@ fn try_send_from_impl(
     msg: Option<Binary>,
 ) -> StdResult<()> {
     let spender = info.sender.clone();
+    let symbol = CONFIG.load(deps.storage)?.symbol;
     try_transfer_from_impl(
         deps,
         rng,
@@ -1557,6 +1561,7 @@ fn try_send_from_impl(
         &owner,
         &recipient,
         amount,
+        symbol,
         memo.clone(),
     )?;
 
@@ -1671,7 +1676,8 @@ fn try_burn_from(
         deps.storage, 
         raw_owner.clone(),
         raw_burner.clone(), 
-        raw_amount, 
+        raw_amount,
+        constants.symbol,
         memo, 
         &env.block
     )?;
@@ -1729,7 +1735,8 @@ fn try_batch_burn_from(
             deps.storage, 
             raw_owner.clone(),
             raw_spender.clone(), 
-            amount, 
+            amount,
+            constants.symbol.clone(),
             action.memo.clone(), 
             &env.block
         )?;
@@ -1936,7 +1943,8 @@ fn try_burn(
         deps.storage, 
         raw_burn_address.clone(),
         raw_burn_address.clone(), 
-        raw_amount, 
+        raw_amount,
+        constants.symbol,
         memo, 
         &env.block
     )?;
@@ -1969,11 +1977,12 @@ fn perform_transfer(
     to: &CanonicalAddr,
     sender: &CanonicalAddr,
     amount: u128,
+    denom: String,
     memo: Option<String>,
     block: &BlockInfo,
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
-    let tx_id = store_transfer_action(store, from, sender, to, amount, memo, block)?;
+    let tx_id = store_transfer_action(store, from, sender, to, amount, denom, memo, block)?;
 
     // load delayed write buffer
     let mut dwb = DWB.load(store)?;
@@ -2000,11 +2009,12 @@ fn perform_mint(
     minter: &CanonicalAddr,
     to: &CanonicalAddr,
     amount: u128,
+    denom: String,
     memo: Option<String>,
     block: &BlockInfo,
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
-    let tx_id = store_mint_action(store, minter, to, amount, memo, block)?;
+    let tx_id = store_mint_action(store, minter, to, amount, denom, memo, block)?;
 
     // load delayed write buffer
     let mut dwb = DWB.load(store)?;
@@ -2076,9 +2086,9 @@ mod tests {
     use secret_toolkit::permit::{PermitParams, PermitSignature, PubKey};
 
     use crate::dwb::TX_NODES_COUNT;
-    use crate::msg::{ResponseStatus, TxWithCoins};
-    use crate::msg::{InitConfig, InitialBalance};
+    use crate::msg::{InitConfig, InitialBalance, ResponseStatus};
     use crate::state::TX_COUNT;
+    use crate::transaction_history::TxAction;
 
     use super::*;
 
@@ -2481,7 +2491,10 @@ mod tests {
                     sender: Addr::unchecked("bob"),
                     recipient: Addr::unchecked("alice") 
                 }, 
-                amount: Uint128::from(500_u128), 
+                coins: Coin {
+                    amount: Uint128::from(500_u128), 
+                    denom: "SECSEC".to_string(),
+                },
                 memo: None, 
                 block_time: 1571797419, 
                 block_height: 12345 
@@ -2492,8 +2505,11 @@ mod tests {
                     from: Addr::unchecked("bob"), 
                     sender: Addr::unchecked("bob"), 
                     recipient: Addr::unchecked("alice") 
-                }, 
-                amount: Uint128::from(1000_u128), 
+                },
+                coins: Coin {
+                    amount: Uint128::from(1000_u128), 
+                    denom: "SECSEC".to_string(),
+                },
                 memo: None, 
                 block_time: 1571797419, 
                 block_height: 12345 
@@ -2755,7 +2771,7 @@ mod tests {
         };
         println!("transfers: {transfers:?}");
         let expected_transfers = vec![
-            TxWithCoins { 
+            Tx { 
                 id: 169, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
@@ -2770,7 +2786,7 @@ mod tests {
                 block_time: 1571797419, 
                 block_height: 12345 
             }, 
-            TxWithCoins { 
+            Tx { 
                 id: 168, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
@@ -2784,7 +2800,8 @@ mod tests {
                 memo: None, 
                 block_time: 1571797419, 
                 block_height: 12345 
-            }, TxWithCoins { 
+            }, 
+            Tx { 
                 id: 167, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
@@ -2819,7 +2836,7 @@ mod tests {
         };
         println!("transfers: {transfers:?}");
         let expected_transfers = vec![
-            TxWithCoins { 
+            Tx { 
                 id: 121, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
@@ -2834,7 +2851,7 @@ mod tests {
                 block_time: 1571797419, 
                 block_height: 12345 
             }, 
-            TxWithCoins { 
+            Tx { 
                 id: 120, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
@@ -2849,7 +2866,7 @@ mod tests {
                 block_time: 1571797419, 
                 block_height: 12345 
             }, 
-            TxWithCoins { 
+            Tx { 
                 id: 119, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("alice"), 
@@ -2864,7 +2881,7 @@ mod tests {
                 block_time: 1571797419, 
                 block_height: 12345 
             }, 
-            TxWithCoins { 
+            Tx { 
                 id: 118, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
@@ -2879,7 +2896,7 @@ mod tests {
                 block_time: 1571797419, 
                 block_height: 12345 
             }, 
-            TxWithCoins { 
+            Tx { 
                 id: 117, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
@@ -2894,7 +2911,7 @@ mod tests {
                 block_time: 1571797419, 
                 block_height: 12345 
             }, 
-            TxWithCoins { 
+            Tx { 
                 id: 116, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
@@ -2933,7 +2950,7 @@ mod tests {
         };
         println!("transfers: {transfers:?}");
         let expected_transfers = vec![
-            TxWithCoins { 
+            Tx { 
                 id: 70, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
@@ -2949,7 +2966,7 @@ mod tests {
                 1571797419, 
                 block_height: 12345 
             }, 
-            TxWithCoins { 
+            Tx { 
                 id: 69, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
@@ -2964,7 +2981,7 @@ mod tests {
                 block_time: 1571797419, 
                 block_height: 12345 
             }, 
-            TxWithCoins { 
+            Tx { 
                 id: 6, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("alice"), 
@@ -2979,7 +2996,7 @@ mod tests {
                 block_time: 1571797419, 
                 block_height: 12345 
             }, 
-            TxWithCoins { 
+            Tx { 
                 id: 4, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"),
@@ -2994,7 +3011,7 @@ mod tests {
                 block_time: 1571797419, 
                 block_height: 12345 
             }, 
-            TxWithCoins { 
+            Tx { 
                 id: 2, 
                 action: TxAction::Transfer { 
                     from: Addr::unchecked("bob"), 
@@ -6002,7 +6019,7 @@ mod tests {
 
         use crate::transaction_history::TxAction;
         let expected_transfers = [
-            TxWithCoins {
+            Tx {
                 id: 8,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -6017,7 +6034,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            TxWithCoins {
+            Tx {
                 id: 7,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -6032,7 +6049,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            TxWithCoins {
+            Tx {
                 id: 6,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
@@ -6047,7 +6064,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            TxWithCoins {
+            Tx {
                 id: 5,
                 action: TxAction::Deposit {},
                 coins: Coin {
@@ -6058,7 +6075,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            TxWithCoins {
+            Tx {
                 id: 4,
                 action: TxAction::Mint {
                     minter: Addr::unchecked("admin".to_string()),
@@ -6072,7 +6089,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            TxWithCoins {
+            Tx {
                 id: 3,
                 action: TxAction::Redeem {},
                 coins: Coin {
@@ -6083,7 +6100,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            TxWithCoins {
+            Tx {
                 id: 2,
                 action: TxAction::Burn {
                     burner: Addr::unchecked("bob".to_string()),
@@ -6097,7 +6114,7 @@ mod tests {
                 block_time: 1571797419,
                 block_height: 12345,
             },
-            TxWithCoins {
+            Tx {
                 id: 1,
                 action: TxAction::Mint {
                     minter: Addr::unchecked("admin".to_string()),

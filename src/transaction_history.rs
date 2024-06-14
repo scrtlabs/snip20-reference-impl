@@ -30,17 +30,16 @@ pub enum TxAction {
 }
 
 // Note that id is a globally incrementing counter.
-// Since it's 64 bits long, even at 50 tx/s it would take
-// over 11 billion years for it to rollback. I'm pretty sure
-// we'll have bigger issues by then.
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct Tx {
     pub id: u64,
     pub action: TxAction,
-    pub amount: Uint128,
+    pub coins: Coin,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memo: Option<String>,
+    // The block time and block height are optional so that the JSON schema
+    // reflects that some SNIP-20 contracts may not include this info.
     pub block_time: u64,
     pub block_height: u64,
 }
@@ -210,7 +209,7 @@ pub static TRANSACTIONS: Item<StoredTx> = Item::new(PREFIX_TXS);
 #[serde(rename_all = "snake_case")]
 pub struct StoredTx {
     action: StoredTxAction,
-    amount: u128,
+    coins: StoredCoin,
     memo: Option<String>,
     block_time: u64,
     block_height: u64,
@@ -218,15 +217,14 @@ pub struct StoredTx {
 
 impl StoredTx {
     fn new(
-        id: u64,
         action: StoredTxAction,
-        amount: Uint128,
+        coins: StoredCoin,
         memo: Option<String>,
         block: &cosmwasm_std::BlockInfo,
     ) -> Self {
         Self {
             action,
-            amount: amount.u128(),
+            coins,
             memo,
             block_time: block.time.seconds(),
             block_height: block.height,
@@ -237,7 +235,7 @@ impl StoredTx {
         Ok(Tx {
             id,
             action: self.action.into_tx_action(api)?,
-            amount: Uint128::from(self.amount),
+            coins: self.coins.into(),
             memo: self.memo,
             block_time: self.block_time,
             block_height: self.block_height,
@@ -283,24 +281,20 @@ impl StoredTx {
 
 // Storage functions:
 
-fn increment_tx_count(store: &mut dyn Storage) -> StdResult<u64> {
-    let id = TX_COUNT.load(store).unwrap_or_default() + 1;
-    TX_COUNT.save(store, &id)?;
-    Ok(id)
-}
-
 pub fn append_new_stored_tx(
     store: &mut dyn Storage,
     action: &StoredTxAction,
     amount: u128,
+    denom: String,
     memo: Option<String>,
     block: &BlockInfo,
 ) -> StdResult<u64> {
     // tx ids are serialized starting at 1
     let serial_id = TX_COUNT.load(store).unwrap_or_default() + 1;
+    let coins = StoredCoin { denom, amount };
     let stored_tx = StoredTx {
         action: action.clone(),
-        amount,
+        coins,
         memo,
         block_time: block.time.seconds(),
         block_height: block.height,
@@ -318,6 +312,7 @@ pub fn store_transfer_action(
     sender: &CanonicalAddr,
     receiver: &CanonicalAddr,
     amount: u128,
+    denom: String,
     memo: Option<String>,
     block: &BlockInfo,
 ) -> StdResult<u64> {
@@ -326,7 +321,7 @@ pub fn store_transfer_action(
         sender.clone(), 
         receiver.clone()
     );
-    append_new_stored_tx(store, &action, amount, memo, block)
+    append_new_stored_tx(store, &action, amount, denom, memo, block)
 }
 
 pub fn store_mint_action(
@@ -334,6 +329,7 @@ pub fn store_mint_action(
     minter: &CanonicalAddr,
     recipient: &CanonicalAddr,
     amount: u128,
+    denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<u64> {
@@ -341,7 +337,7 @@ pub fn store_mint_action(
         minter.clone(), 
         recipient.clone()
     );
-    append_new_stored_tx(store, &action, amount, memo, block)
+    append_new_stored_tx(store, &action, amount, denom, memo, block)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -350,6 +346,7 @@ pub fn store_burn_action(
     owner: CanonicalAddr,
     burner: CanonicalAddr,
     amount: u128,
+    denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<u64> {
@@ -357,37 +354,25 @@ pub fn store_burn_action(
         owner, 
         burner
     );
-    append_new_stored_tx(store, &action, amount, memo, block)
+    append_new_stored_tx(store, &action, amount, denom, memo, block)
 }
 
 pub fn store_deposit(
     store: &mut dyn Storage,
-    recipient: &CanonicalAddr,
     amount: u128,
+    denom: String,
     block: &cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
+) -> StdResult<u64> {
     let action = StoredTxAction::deposit();
-    let id = append_new_stored_tx(store, &action, amount, None, block)?;
-
-/*
-    StoredTx::append_tx(store, &tx, recipient)?;
-*/
-
-    Ok(())
+    append_new_stored_tx(store, &action, amount, denom, None, block)
 }
 
 pub fn store_redeem(
     store: &mut dyn Storage,
-    redeemer: &CanonicalAddr,
     amount: u128,
+    denom: String,
     block: &cosmwasm_std::BlockInfo,
-) -> StdResult<()> {
+) -> StdResult<u64> {
     let action = StoredTxAction::redeem();
-    let id = append_new_stored_tx(store, &action, amount, None, block)?;
-
-/*
-    StoredTx::append_tx(store, &tx, redeemer)?;
-*/
-
-    Ok(())
+    append_new_stored_tx(store, &action, amount, denom, None, block)
 }
