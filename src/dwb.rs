@@ -1,7 +1,7 @@
-use crypto::util::fixed_time_eq;
+use constant_time_eq::constant_time_eq;
 use rand::RngCore;
 use secret_toolkit_crypto::ContractPrng;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Deserialize,};
 use serde_big_array::BigArray;
 use cosmwasm_std::{Api, CanonicalAddr, StdError, StdResult, Storage};
 use secret_toolkit::storage::{AppendStore, Item};
@@ -180,7 +180,7 @@ impl DelayedWriteBuffer {
         let mut matched_index: usize = 0;
         let address = address.as_slice();
         for (idx, entry) in self.entries.iter().enumerate().skip(1) {
-            let equals = fixed_time_eq(address, entry.recipient_slice()) as usize;
+            let equals = constant_time_eq(address, entry.recipient_slice()) as usize;
             // an address can only occur once in the buffer
             matched_index |= idx * equals;
         }
@@ -210,14 +210,14 @@ impl DelayedWriteBuffer {
 
         // randomly pick an entry to exclude in case the recipient is not in the buffer
         let random_exclude_index = random_in_range(rng, 1, DWB_LEN as u32)? as usize;
-        println!("random_exclude_index: {random_exclude_index}");
+        //println!("random_exclude_index: {random_exclude_index}");
 
         // index of entry to exclude from selection
         let exclude_index = constant_time_if_else(if_recipient_in_buffer, recipient_index, random_exclude_index);
 
         // randomly select any other entry to settle in constant-time (avoiding the reserved 0th position)
         let random_settle_index = (((random_in_range(rng, 0, DWB_LEN as u32 - 2)? + exclude_index as u32) % (DWB_LEN as u32 - 1)) + 1) as usize;
-        println!("random_settle_index: {random_settle_index}");
+        //println!("random_settle_index: {random_settle_index}");
 
         // whether or not the buffer is fully saturated yet
         let if_undersaturated = constant_time_is_not_zero(self.empty_space_counter as i32);

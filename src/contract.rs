@@ -603,12 +603,12 @@ pub fn query_transactions(
     let txs_in_dwb_count = txs_in_dwb_count as u32;
     if start < txs_in_dwb_count && end < txs_in_dwb_count {
         // option 1, start and end are both in dwb
-        println!("OPTION 1");
+        //println!("OPTION 1");
         txs = txs_in_dwb[start as usize..end as usize].to_vec(); // reverse chronological
     } else if start < txs_in_dwb_count && end >= txs_in_dwb_count {
         // option 2, start is in dwb and end is in settled txs
         // in this case, we do not need to search for txs, just begin at last bundle and move backwards
-        println!("OPTION 2");
+        //println!("OPTION 2");
         txs = txs_in_dwb[start as usize..].to_vec(); // reverse chronological
         let mut txs_left = (end - start).saturating_sub(txs.len() as u32);
         let tx_bundles_store = ACCOUNT_TXS.add_suffix(account_slice);
@@ -638,11 +638,8 @@ pub fn query_transactions(
 
         // bundle tx offsets are chronological, but we need reverse chronological
         // so get the settled start index as if order is reversed
-        println!("OPTION 3");
-        println!("start: {start}");
-        println!("txs_in_dwb_count: {txs_in_dwb_count}");
+        //println!("OPTION 3");
         let settled_start = settled_tx_count.saturating_sub(start - txs_in_dwb_count).saturating_sub(1);
-        println!("settled_start: {settled_start}");
         
         if let Some((bundle_idx, tx_bundle, start_at)) = AccountTxsStore::find_start_bundle(
             deps.storage, 
@@ -650,7 +647,6 @@ pub fn query_transactions(
             settled_start
         )? {
             let mut txs_left = end - start;
-            println!("txs_left: {txs_left}");
 
             let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
             let list_len = tx_bundle.list_len as u32;
@@ -661,7 +657,6 @@ pub fn query_transactions(
                 // get the rest of the txs in this bundle and then go back through history
                 txs = head_node.to_vec(deps.storage, deps.api)?[start_at as usize..].to_vec();
                 txs_left = txs_left.saturating_sub(list_len - start_at);
-                println!("txs_left: {txs_left}");
 
                 if bundle_idx > 0 && txs_left > 0 {
                     // get the next earlier bundle
@@ -2391,7 +2386,7 @@ mod tests {
         assert_ne!(1000, BalancesStore::load(&deps.storage, &alice_addr));
 
         let dwb = DWB.load(&deps.storage).unwrap();
-        println!("DWB: {dwb:?}");
+        //println!("DWB: {dwb:?}");
         // assert we have decremented empty_space_counter
         assert_eq!(62, dwb.empty_space_counter);
         // assert first entry has correct information for alice
@@ -2403,10 +2398,10 @@ mod tests {
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
         assert_eq!(2, tx_count); 
 
-        let tx_node1 = TX_NODES.add_suffix(&1u64.to_be_bytes()).load(&deps.storage).unwrap();
-        println!("tx node 1: {tx_node1:?}");
-        let tx_node2 = TX_NODES.add_suffix(&2u64.to_be_bytes()).load(&deps.storage).unwrap();
-        println!("tx node 2: {tx_node2:?}");
+        //let tx_node1 = TX_NODES.add_suffix(&1u64.to_be_bytes()).load(&deps.storage).unwrap();
+        //println!("tx node 1: {tx_node1:?}");
+        //let tx_node2 = TX_NODES.add_suffix(&2u64.to_be_bytes()).load(&deps.storage).unwrap();
+        //println!("tx node 2: {tx_node2:?}");
 
         // now send 100 to charlie from bob
         let handle_msg = ExecuteMsg::Transfer {
@@ -2435,7 +2430,7 @@ mod tests {
         assert_ne!(100, BalancesStore::load(&deps.storage, &charlie_addr));
 
         let dwb = DWB.load(&deps.storage).unwrap();
-        println!("DWB: {dwb:?}");
+        //println!("DWB: {dwb:?}");
         // assert we have decremented empty_space_counter
         assert_eq!(61, dwb.empty_space_counter);
         // assert entry has correct information for charlie
@@ -2467,7 +2462,7 @@ mod tests {
         assert_ne!(1500, BalancesStore::load(&deps.storage, &alice_addr));
 
         let dwb = DWB.load(&deps.storage).unwrap();
-        println!("DWB: {dwb:?}");
+        //println!("DWB: {dwb:?}");
         // assert we have not decremented empty_space_counter
         assert_eq!(61, dwb.empty_space_counter);
         // assert entry has correct information for alice
@@ -2549,7 +2544,7 @@ mod tests {
         assert_ne!(200, BalancesStore::load(&deps.storage, &ernie_addr));
 
         let dwb = DWB.load(&deps.storage).unwrap();
-        println!("DWB: {dwb:?}");
+        //println!("DWB: {dwb:?}");
 
         // assert we have decremented empty_space_counter
         assert_eq!(60, dwb.empty_space_counter);
@@ -2588,7 +2583,7 @@ mod tests {
         assert_ne!(50, BalancesStore::load(&deps.storage, &dora_addr));
 
         let dwb = DWB.load(&deps.storage).unwrap();
-        println!("DWB: {dwb:?}");
+        //println!("DWB: {dwb:?}");
 
         // assert we have decremented empty_space_counter
         assert_eq!(59, dwb.empty_space_counter);
@@ -2622,7 +2617,7 @@ mod tests {
         assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59, BalancesStore::load(&deps.storage, &bob_addr));
 
         let dwb = DWB.load(&deps.storage).unwrap();
-        println!("DWB: {dwb:?}");
+        //println!("DWB: {dwb:?}");
 
         // assert we have filled the buffer
         assert_eq!(0, dwb.empty_space_counter);
@@ -2645,8 +2640,8 @@ mod tests {
 
         assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59 - 1, BalancesStore::load(&deps.storage, &bob_addr));
 
-        let dwb = DWB.load(&deps.storage).unwrap();
-        println!("DWB: {dwb:?}");
+        //let dwb = DWB.load(&deps.storage).unwrap();
+        //println!("DWB: {dwb:?}");
 
         let recipient = format!("receipient_over_2");
         // now send 1 to recipient from bob
@@ -2666,8 +2661,8 @@ mod tests {
 
         assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59 - 1 - 1, BalancesStore::load(&deps.storage, &bob_addr));
 
-        let dwb = DWB.load(&deps.storage).unwrap();
-        println!("DWB: {dwb:?}");
+        //let dwb = DWB.load(&deps.storage).unwrap();
+        //println!("DWB: {dwb:?}");
 
         // now we send 50 transactions to alice from bob
         for i in 1..=50 {
@@ -2772,7 +2767,7 @@ mod tests {
             QueryAnswer::TransactionHistory { txs, .. } => txs,
             other => panic!("Unexpected: {:?}", other),
         };
-        println!("transfers: {transfers:?}");
+        //println!("transfers: {transfers:?}");
         let expected_transfers = vec![
             Tx { 
                 id: 168, 
@@ -2837,7 +2832,7 @@ mod tests {
             QueryAnswer::TransactionHistory { txs, .. } => txs,
             other => panic!("Unexpected: {:?}", other),
         };
-        println!("transfers: {transfers:?}");
+        //println!("transfers: {transfers:?}");
         let expected_transfers = vec![
             Tx { 
                 id: 120, 
@@ -2951,7 +2946,7 @@ mod tests {
             QueryAnswer::TransactionHistory { txs, .. } => txs,
             other => panic!("Unexpected: {:?}", other),
         };
-        println!("transfers: {transfers:?}");
+        //println!("transfers: {transfers:?}");
         let expected_transfers = vec![
             Tx { 
                 id: 69, 
@@ -3030,8 +3025,8 @@ mod tests {
                 block_height: 12345 
             }
         ];
-        let transfers_len = transfers.len();
-        println!("transfers.len(): {transfers_len}");
+        //let transfers_len = transfers.len();
+        //println!("transfers.len(): {transfers_len}");
         assert_eq!(transfers, expected_transfers);
 
         //
