@@ -3,10 +3,10 @@ use rand::RngCore;
 use secret_toolkit_crypto::ContractPrng;
 use serde::{Serialize, Deserialize,};
 use serde_big_array::BigArray;
-use cosmwasm_std::{Api, CanonicalAddr, StdError, StdResult, Storage};
+use cosmwasm_std::{to_binary, Api, Binary, CanonicalAddr, StdError, StdResult, Storage};
 use secret_toolkit::storage::{AppendStore, Item};
 
-use crate::{state::{safe_add, safe_add_u64, BalancesStore,}, transaction_history::{Tx, TRANSACTIONS}};
+use crate::{msg::QueryAnswer, state::{safe_add, safe_add_u64, BalancesStore,}, transaction_history::{Tx, TRANSACTIONS}};
 
 pub const KEY_DWB: &[u8] = b"dwb";
 pub const KEY_TX_NODES_COUNT: &[u8] = b"dwb-node-cnt";
@@ -545,6 +545,12 @@ fn constant_time_is_not_zero(value: i32) -> u32 {
 #[inline]
 fn constant_time_if_else(condition: u32, then: usize, els: usize) -> usize {
     (then * condition as usize) | (els * (1 - condition as usize))
+}
+
+/// FOR TESTING ONLY! REMOVE
+pub fn log_dwb(storage: &dyn Storage) -> StdResult<Binary> {
+    let dwb = DWB.load(storage)?;
+    to_binary(&QueryAnswer::Dwb { dwb: format!("{:?}", dwb) })
 }
 
 #[cfg(test)]

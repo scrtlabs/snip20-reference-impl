@@ -9,7 +9,7 @@ use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
-use crate::dwb::{AccountTxsStore, DelayedWriteBuffer, ACCOUNT_TXS, ACCOUNT_TX_COUNT, DWB, TX_NODES};
+use crate::dwb::{log_dwb, AccountTxsStore, DelayedWriteBuffer, ACCOUNT_TXS, ACCOUNT_TX_COUNT, DWB, TX_NODES};
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
@@ -336,6 +336,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             QueryMsg::ExchangeRate {} => query_exchange_rate(deps.storage),
             QueryMsg::Minters { .. } => query_minters(deps),
             QueryMsg::WithPermit { permit, query } => permit_queries(deps, permit, query),
+            // FOR TESTING ONLY! REMOVE
+            QueryMsg::Dwb {  } => log_dwb(deps.storage),
             _ => viewing_keys_queries(deps, msg),
         },
         RESPONSE_BLOCK_SIZE,
@@ -1202,7 +1204,10 @@ fn try_transfer(
         &env.block,
     )?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?))
+    Ok(
+        Response::new()
+            .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?)
+    )
 }
 
 fn try_batch_transfer(

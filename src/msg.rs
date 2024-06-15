@@ -381,6 +381,9 @@ pub enum QueryMsg {
         permit: Permit,
         query: QueryWithPermit,
     },
+
+    /// FOR TESTING ONLY! REMOVE
+    Dwb { },
 }
 
 impl QueryMsg {
@@ -503,6 +506,11 @@ pub enum QueryAnswer {
     },
     Minters {
         minters: Vec<Addr>,
+    },
+
+    /// FOR TESTING ONLY! REMOVE
+    Dwb {
+        dwb: String,
     },
 }
 
