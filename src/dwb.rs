@@ -77,11 +77,6 @@ impl DelayedWriteBuffer {
         })
     }
 
-    #[inline]
-    pub fn saturated(&self) -> bool {
-        self.empty_space_counter == 0
-    }
-
     /// settles an entry at a given index in the buffer
     fn settle_entry(
         &mut self,
@@ -608,13 +603,13 @@ mod tests {
         assert_eq!(dwb_entry.head_node().unwrap(), 0u64);
         assert_eq!(dwb_entry.list_len().unwrap(), 0u16);
 
-        let canonical_addr = CanonicalAddr::from(&[1u8; 20]);
+        let canonical_addr = CanonicalAddr::from(&[1u8; DWB_RECIPIENT_BYTES]);
         dwb_entry.set_recipient(&canonical_addr).unwrap();
         dwb_entry.set_amount(1).unwrap();
         dwb_entry.set_head_node(1).unwrap();
         dwb_entry.set_list_len(1).unwrap();
 
-        assert_eq!(dwb_entry.recipient().unwrap(), CanonicalAddr::from(&[1u8; 20]));
+        assert_eq!(dwb_entry.recipient().unwrap(), CanonicalAddr::from(&[1u8; DWB_RECIPIENT_BYTES]));
         assert_eq!(dwb_entry.amount().unwrap(), 1u64);
         assert_eq!(dwb_entry.head_node().unwrap(), 1u64);
         assert_eq!(dwb_entry.list_len().unwrap(), 1u16);

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Api, BlockInfo, CanonicalAddr, Coin, StdError, StdResult, Storage, Uint128};
 
-use secret_toolkit::storage::{AppendStore, Item};
+use secret_toolkit::storage::Item;
 
 use crate::state::TX_COUNT;
 
@@ -216,21 +216,6 @@ pub struct StoredTx {
 }
 
 impl StoredTx {
-    fn new(
-        action: StoredTxAction,
-        coins: StoredCoin,
-        memo: Option<String>,
-        block: &cosmwasm_std::BlockInfo,
-    ) -> Self {
-        Self {
-            action,
-            coins,
-            memo,
-            block_time: block.time.seconds(),
-            block_height: block.height,
-        }
-    }
-
     pub fn into_humanized(self, api: &dyn Api, id: u64) -> StdResult<Tx> {
         Ok(Tx {
             id,
@@ -241,42 +226,6 @@ impl StoredTx {
             block_height: self.block_height,
         })
     }
-
-/*
-    fn append_tx(
-        store: &mut dyn Storage,
-        tx: &StoredTx,
-        for_address: &Addr,
-    ) -> StdResult<()> {
-        let current_addr_store = TRANSACTIONS.add_suffix(for_address.as_bytes());
-        current_addr_store.push(store, tx)
-    }
-
-    pub fn get_txs(
-        storage: &dyn Storage,
-        api: &dyn Api,
-        for_address: Addr,
-        page: u32,
-        page_size: u32,
-    ) -> StdResult<(Vec<Tx>, u64)> {
-        let current_addr_store = TRANSACTIONS.add_suffix(for_address.as_bytes());
-        let len = current_addr_store.get_len(storage)? as u64;
-
-        // Take `page_size` txs starting from the latest tx, potentially skipping `page * page_size`
-        // txs from the start.
-        let tx_iter = current_addr_store
-            .iter(storage)?
-            .rev()
-            .skip((page * page_size) as _)
-            .take(page_size as _);
-
-        // The `and_then` here flattens the `StdResult<StdResult<Tx>>` to an `StdResult<Tx>`
-        let txs: StdResult<Vec<Tx>> = tx_iter
-            .map(|tx| tx.map(|tx| tx.into_humanized(api)).and_then(|x| x))
-            .collect();
-        txs.map(|txs| (txs, len))
-    }
-*/
 }
 
 // Storage functions:
@@ -357,7 +306,7 @@ pub fn store_burn_action(
     append_new_stored_tx(store, &action, amount, denom, memo, block)
 }
 
-pub fn store_deposit(
+pub fn store_deposit_action(
     store: &mut dyn Storage,
     amount: u128,
     denom: String,
@@ -367,7 +316,7 @@ pub fn store_deposit(
     append_new_stored_tx(store, &action, amount, denom, None, block)
 }
 
-pub fn store_redeem(
+pub fn store_redeem_action(
     store: &mut dyn Storage,
     amount: u128,
     denom: String,

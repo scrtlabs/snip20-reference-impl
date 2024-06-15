@@ -20,7 +20,7 @@ use crate::state::{
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
-    store_burn_action, store_deposit, store_mint_action, store_redeem, store_transfer_action, Tx,  
+    store_burn_action, store_deposit_action, store_mint_action, store_redeem_action, store_transfer_action, Tx  
 };
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -160,7 +160,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
     let response = match msg.clone() {
         // Native
         ExecuteMsg::Deposit { .. } => {
-            try_deposit(deps, env, info)
+            try_deposit(deps, env, info, &mut rng)
         }
         ExecuteMsg::Redeem {
             amount,
@@ -806,18 +806,6 @@ fn try_mint_impl(
 
     perform_mint(deps.storage, rng, &raw_minter, &raw_recipient, raw_amount, denom, memo, block)?;
 
-    // remove from supply
-    let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
-
-    if let Some(new_total_supply) = total_supply.checked_sub(raw_amount) {
-        total_supply = new_total_supply;
-    } else {
-        return Err(StdError::generic_err(
-            "You're trying to burn more than is available in the total supply",
-        ));
-    }
-    TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
-
     Ok(())
 }
 
@@ -1043,6 +1031,7 @@ fn try_deposit(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    rng: &mut ContractPrng,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
 
@@ -1077,20 +1066,7 @@ fn try_deposit(
 
     let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
 
-    BalancesStore::update_balance(
-        deps.storage,
-        &sender_address,
-        raw_amount,
-        true,
-        "",
-    )?;
-
-    store_deposit(
-        deps.storage,
-        raw_amount,
-        "uscrt".to_string(),
-        &env.block,
-    )?;
+    perform_deposit(deps.storage, rng, &sender_address, raw_amount, "uscrt".to_string(), &env.block)?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?))
 }
@@ -1130,7 +1106,7 @@ fn try_redeem(
     let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
     let amount_raw = amount.u128();
 
-    let tx_id = store_redeem(
+    let tx_id = store_redeem_action(
         deps.storage,
         amount.u128(),
         constants.symbol,
@@ -2032,6 +2008,28 @@ fn perform_mint(
     Ok(())
 }
 
+fn perform_deposit(
+    store: &mut dyn Storage,
+    rng: &mut ContractPrng,
+    to: &CanonicalAddr,
+    amount: u128,
+    denom: String,
+    block: &BlockInfo,
+) -> StdResult<()> {
+    // first store the tx information in the global append list of txs and get the new tx id
+    let tx_id = store_deposit_action(store, amount, denom, block)?;
+
+    // load delayed write buffer
+    let mut dwb = DWB.load(store)?;
+
+    // add the tx info for the recipient to the buffer
+    dwb.add_recipient(store, rng, to, tx_id, amount)?;
+
+    DWB.save(store, &dwb)?;
+
+    Ok(())
+}
+
 fn revoke_permit(deps: DepsMut, info: MessageInfo, permit_name: String) -> StdResult<Response> {
     RevokedPermits::revoke_permit(
         deps.storage,
@@ -2078,8 +2076,8 @@ fn is_valid_symbol(symbol: &str) -> bool {
 mod tests {
     use std::any::Any;
 
-    use cosmwasm_std::{testing::*, Api};
     use cosmwasm_std::{
+        testing::*, Api,
         from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
         SubMsg, Timestamp, TransactionInfo, WasmMsg,
     };
@@ -2314,10 +2312,12 @@ mod tests {
     }
 
     #[test]
-    fn test_total_supply_overflow() {
+    fn test_total_supply_overflow_dwb() {
+        // with this implementation of dwbs the max amount a user can get transferred or minted is u64::MAX
+        // for 18 digit coins, u128 amounts might be stored in the dwb (see `fn add_amount` in dwb.rs)
         let (init_result, _deps) = init_helper(vec![InitialBalance {
             address: "lebron".to_string(),
-            amount: Uint128::new(u128::max_value()),
+            amount: Uint128::new(u64::max_value().into()),
         }]);
         assert!(
             init_result.is_ok(),
@@ -2325,6 +2325,7 @@ mod tests {
             init_result.err().unwrap()
         );
 
+        /* 
         let (init_result, _deps) = init_helper(vec![
             InitialBalance {
                 address: "lebron".to_string(),
@@ -2340,6 +2341,7 @@ mod tests {
             error,
             "The sum of all initial balances exceeds the maximum possible total supply"
         );
+        */
     }
 
     // Handle tests
@@ -4430,7 +4432,32 @@ mod tests {
             .api
             .addr_canonicalize(Addr::unchecked("lebron".to_string()).as_str())
             .unwrap();
-        assert_eq!(BalancesStore::load(&deps.storage, &canonical), 6000)
+
+        // stored balance not updated, still in dwb
+        assert_ne!(BalancesStore::load(&deps.storage, &canonical), 6000);
+
+        let create_vk_msg = ExecuteMsg::CreateViewingKey {
+            entropy: "34".to_string(),
+            padding: None,
+        };
+        let info = mock_info("lebron", &[]);
+        let handle_response = execute(deps.as_mut(), mock_env(), info, create_vk_msg).unwrap();
+        let vk = match from_binary(&handle_response.data.unwrap()).unwrap() {
+            ExecuteAnswer::CreateViewingKey { key } => key,
+            _ => panic!("Unexpected result from handle"),
+        };
+
+        let query_balance_msg = QueryMsg::Balance {
+            address: "lebron".to_string(),
+            key: vk,
+        };
+
+        let query_response = query(deps.as_ref(), mock_env(), query_balance_msg).unwrap();
+        let balance = match from_binary(&query_response).unwrap() {
+            QueryAnswer::Balance { amount } => amount,
+            _ => panic!("Unexpected result from query"),
+        };
+        assert_eq!(balance, Uint128::new(6000));
     }
 
     #[test]
