@@ -1,7 +1,7 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    entry_point, to_binary, Addr, BankMsg, Binary, BlockInfo, CanonicalAddr, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128
+    entry_point, to_binary, Addr, Api, BankMsg, Binary, BlockInfo, CanonicalAddr, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128
 };
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
@@ -1161,9 +1161,14 @@ fn try_transfer_impl(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
+    logs: &mut Vec<(String, String)>,
 ) -> StdResult<()> {
     let raw_sender = deps.api.addr_canonicalize(sender.as_str())?;
     let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
+
+    // TESTING
+    let gas = deps.api.check_gas()?;
+    logs.push(("gas1".to_string(), format!("{gas}")));
 
     perform_transfer(
         deps.storage,
@@ -1175,6 +1180,9 @@ fn try_transfer_impl(
         denom,
         memo,
         block,
+        // TESTING
+        deps.api,
+        logs,
     )?;
 
     Ok(())
@@ -1193,6 +1201,10 @@ fn try_transfer(
     let recipient: Addr = deps.api.addr_validate(recipient.as_str())?;
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
+
+    // TESTING
+    let mut logs = vec![];
+
     try_transfer_impl(
         &mut deps,
         rng,
@@ -1202,11 +1214,20 @@ fn try_transfer(
         symbol,
         memo,
         &env.block,
+        &mut logs,
     )?;
 
+    // TESTING
+    let mut resp = Response::new()
+        .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
+    for log in logs {
+        resp = resp.add_attribute_plaintext(log.0, log.1);
+    }
+
     Ok(
-        Response::new()
-            .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?)
+        //Response::new()
+        //    .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?)
+        resp
     )
 }
 
@@ -1230,6 +1251,8 @@ fn try_batch_transfer(
             symbol.clone(),
             action.memo,
             &env.block,
+            // TESTING
+            &mut vec![],
         )?;
     }
 
@@ -1293,6 +1316,8 @@ fn try_send_impl(
         denom,
         memo.clone(),
         block,
+        // TESTING
+        &mut vec![],
     )?;
 
     try_add_receiver_api_callback(
@@ -1448,6 +1473,9 @@ fn try_transfer_from_impl(
         denom,
         memo,
         &env.block,
+        // TESTING
+        deps.api,
+        &mut vec![],
     )?;
 
     Ok(())
@@ -1956,12 +1984,23 @@ fn perform_transfer(
     denom: String,
     memo: Option<String>,
     block: &BlockInfo,
+    // TESTING
+    api: &dyn Api,
+    logs: &mut Vec<(String, String)>,
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
     let tx_id = store_transfer_action(store, from, sender, to, amount, denom, memo, block)?;
 
+    // TESTING
+    let gas = api.check_gas()?;
+    logs.push(("gas2".to_string(), format!("{gas}")));
+
     // load delayed write buffer
     let mut dwb = DWB.load(store)?;
+
+    // TESTING
+    let gas = api.check_gas()?;
+    logs.push(("gas3".to_string(), format!("{gas}")));
 
     let transfer_str = "transfer";
     // settle the owner's account
@@ -1971,10 +2010,22 @@ fn perform_transfer(
         dwb.settle_sender_or_owner_account(store, rng, sender, tx_id, 0, transfer_str)?;
     }
 
+    // TESTING
+    let gas = api.check_gas()?;
+    logs.push(("gas4".to_string(), format!("{gas}")));
+
     // add the tx info for the recipient to the buffer
     dwb.add_recipient(store, rng, to, tx_id, amount)?;
 
+    // TESTING
+    let gas = api.check_gas()?;
+    logs.push(("gas5".to_string(), format!("{gas}")));
+
     DWB.save(store, &dwb)?;
+
+    // TESTING
+    let gas = api.check_gas()?;
+    logs.push(("gas6".to_string(), format!("{gas}")));
 
     Ok(())
 }
@@ -2391,7 +2442,7 @@ mod tests {
         assert_ne!(1000, BalancesStore::load(&deps.storage, &alice_addr));
 
         let dwb = DWB.load(&deps.storage).unwrap();
-        //println!("DWB: {dwb:?}");
+        println!("DWB: {dwb:?}");
         // assert we have decremented empty_space_counter
         assert_eq!(62, dwb.empty_space_counter);
         // assert first entry has correct information for alice
