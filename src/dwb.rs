@@ -153,11 +153,11 @@ impl DelayedWriteBuffer {
         // locate the position of the entry in the buffer
         let matched_entry_idx = self.recipient_match(address);
 
-        // create a new entry to replace the released one, giving it the same address to avoid introducing random addresses
-        let replacement_entry = DelayedWriteBufferEntry::new(address.clone());
-
         // get the current entry at the matched index (0 if dummy)
         let entry = self.entries[matched_entry_idx];
+
+        // create a new entry to replace the released one, giving it the same address to avoid introducing random addresses
+        let replacement_entry = DelayedWriteBufferEntry::new(entry.recipient()?)?;
 
         // add entry amount to the stored balance for the address (will be 0 if dummy)
         safe_add(&mut balance, entry.amount()? as u128);
