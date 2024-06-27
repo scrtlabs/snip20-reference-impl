@@ -153,13 +153,16 @@ impl DelayedWriteBuffer {
         // locate the position of the entry in the buffer
         let matched_entry_idx = self.recipient_match(address);
 
-        let replacement_entry = self.unique_random_entry(rng)?;
-
         // get the current entry at the matched index (0 if dummy)
         let entry = self.entries[matched_entry_idx];
+
+        // create a new entry to replace the released one, giving it the same address to avoid introducing random addresses
+        let replacement_entry = DelayedWriteBufferEntry::new(entry.recipient()?)?;
+
         // add entry amount to the stored balance for the address (will be 0 if dummy)
         safe_add(&mut balance, entry.amount()? as u128);
-        // overwrite the entry idx with random addr replacement
+
+        // overwrite the entry idx with replacement
         self.entries[matched_entry_idx] = replacement_entry;
 
         Ok((balance, entry))
@@ -208,44 +211,40 @@ impl DelayedWriteBuffer {
         // casting to i32 will never overflow, so long as dwb length is limited to a u16 value
         let if_recipient_in_buffer = constant_time_is_not_zero(recipient_index as i32);
 
-        // randomly pick an entry to exclude in case the recipient is not in the buffer
-        let random_exclude_index = random_in_range(rng, 1, DWB_LEN as u32)? as usize;
-        //println!("random_exclude_index: {random_exclude_index}");
-
-        // index of entry to exclude from selection
-        let exclude_index = constant_time_if_else(if_recipient_in_buffer, recipient_index, random_exclude_index);
-
-        // randomly select any other entry to settle in constant-time (avoiding the reserved 0th position)
-        let random_settle_index = (((random_in_range(rng, 0, DWB_LEN as u32 - 2)? + exclude_index as u32) % (DWB_LEN as u32 - 1)) + 1) as usize;
-        //println!("random_settle_index: {random_settle_index}");
-
         // whether or not the buffer is fully saturated yet
         let if_undersaturated = constant_time_is_not_zero(self.empty_space_counter as i32);
 
         // find the next empty entry in the buffer
         let next_empty_index = (DWB_LEN - self.empty_space_counter) as usize;
 
-        // if buffer is not yet saturated, settle the address at the next empty index
-        let bounded_settle_index = constant_time_if_else(if_undersaturated, next_empty_index, random_settle_index);
+        // which entry to settle (not yet considering if recipient's entry has capacity in history list)
+        //   if recipient is in buffer or buffer is undersaturated then settle the dummy entry
+        //   otherwise, settle a random entry
+        let presumptive_settle_index = constant_time_if_else(
+            if_recipient_in_buffer, 0,
+            constant_time_if_else(if_undersaturated, 0,
+                random_in_range(rng, 1, DWB_LEN as u32)? as usize));
 
         // check if we have any open slots in the linked list
         let if_list_can_grow = constant_time_is_not_zero((DWB_MAX_TX_EVENTS - self.entries[recipient_index].list_len()?) as i32);
 
-        // if we would overflow the list, just settle recipient
-        // TODO: see docs for attack analysis
-        let actual_settle_index = constant_time_if_else(if_list_can_grow, bounded_settle_index, recipient_index);
+        // if we would overflow the list by updating the existing entry, then just settle that recipient
+        let actual_settle_index = constant_time_if_else(if_list_can_grow, presumptive_settle_index, recipient_index);
+
+        // where to write the new/replacement entry
+        //   if recipient is in buffer then update it
+        //   otherwise, if buffer is undersaturated then put new entry at next open slot
+        //   otherwise, the buffer is saturated so replace the entry that is getting settled
+        let write_index = constant_time_if_else(
+            if_recipient_in_buffer, recipient_index,
+            constant_time_if_else(if_undersaturated, next_empty_index,
+                actual_settle_index));
 
         // settle the entry
         self.settle_entry(store, actual_settle_index)?;
 
-        // replace it with a randomly generated address (that is not currently in the buffer) and 0 amount and nil events pointer
-        let replacement_entry = self.unique_random_entry(rng)?;
-        self.entries[actual_settle_index] = replacement_entry;
-
-        // pick the index to where the recipient's entry should be written
-        let write_index = constant_time_if_else(if_recipient_in_buffer, recipient_index, actual_settle_index);
-
-        // either updates the existing recipient entry, or overwrites the random replacement entry in the settled index
+        // write the new entry, which either overwrites the existing one for the same recipient,
+        // replaces a randomly settled one, or inserts into an "empty" slot in the buffer
         self.entries[write_index] = new_entry;
 
         // decrement empty space counter if it is undersaturated and the recipient was not already in the buffer
