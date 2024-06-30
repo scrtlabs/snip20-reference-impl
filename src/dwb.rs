@@ -6,7 +6,11 @@ use serde_big_array::BigArray;
 use cosmwasm_std::{to_binary, Api, Binary, CanonicalAddr, StdError, StdResult, Storage};
 use secret_toolkit::storage::{AppendStore, Item};
 
-use crate::{msg::QueryAnswer, state::{safe_add, safe_add_u64, BalancesStore,}, transaction_history::{Tx, TRANSACTIONS}};
+use crate::{
+    msg::QueryAnswer,
+    state::{safe_add, safe_add_u64, BalancesStore,},
+    transaction_history::{Tx, TRANSACTIONS},
+};
 
 pub const KEY_DWB: &[u8] = b"dwb";
 pub const KEY_TX_NODES_COUNT: &[u8] = b"dwb-node-cnt";
@@ -261,6 +265,7 @@ impl DelayedWriteBuffer {
 
 const U16_BYTES: usize = 2;
 const U64_BYTES: usize = 8;
+const U128_BYTES: usize = 16;
 
 #[cfg(test)]
 const DWB_RECIPIENT_BYTES: usize = 54; // because mock_api creates rando canonical addr that is 54 bytes long
@@ -269,6 +274,10 @@ const DWB_RECIPIENT_BYTES: usize = 20;
 const DWB_AMOUNT_BYTES: usize = 8;     // Max 16 (u128)
 const DWB_HEAD_NODE_BYTES: usize = 5;  // Max 8  (u64)
 const DWB_LIST_LEN_BYTES: usize = 2;   // u16
+
+const_assert!(DWB_AMOUNT_BYTES <= U128_BYTES);
+const_assert!(DWB_HEAD_NODE_BYTES <= U64_BYTES);
+const_assert!(DWB_LIST_LEN_BYTES <= U16_BYTES);
 
 const DWB_ENTRY_BYTES: usize = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD_NODE_BYTES + DWB_LIST_LEN_BYTES;
 
@@ -308,11 +317,11 @@ impl DelayedWriteBufferEntry {
         })
     }
 
-    fn recipient_slice(&self) -> &[u8] {
+    pub fn recipient_slice(&self) -> &[u8] {
         &self.0[..DWB_RECIPIENT_BYTES]
     }
 
-    fn recipient(&self) -> StdResult<CanonicalAddr> {
+    pub fn recipient(&self) -> StdResult<CanonicalAddr> {
         let result = CanonicalAddr::try_from(self.recipient_slice())
             .or(Err(StdError::generic_err("Get dwb recipient error")))?;
         Ok(result)
@@ -340,9 +349,6 @@ impl DelayedWriteBufferEntry {
     fn set_amount(&mut self, val: u64) -> StdResult<()> {
         let start = DWB_RECIPIENT_BYTES;
         let end = start + DWB_AMOUNT_BYTES;
-        if DWB_AMOUNT_BYTES != U64_BYTES {
-            return Err(StdError::generic_err("Set dwb amount error"));
-        }
         self.0[start..end].copy_from_slice(&val.to_be_bytes());
         Ok(())
     }
@@ -352,9 +358,6 @@ impl DelayedWriteBufferEntry {
         let end = start + DWB_HEAD_NODE_BYTES;
         let head_node_slice = &self.0[start..end];
         let mut result = [0u8; U64_BYTES];
-        if DWB_HEAD_NODE_BYTES > U64_BYTES {
-            return Err(StdError::generic_err("Get dwb head node error"));
-        }
         result[U64_BYTES - DWB_HEAD_NODE_BYTES..].copy_from_slice(head_node_slice);
         Ok(u64::from_be_bytes(result))
     }
@@ -383,9 +386,6 @@ impl DelayedWriteBufferEntry {
     fn set_list_len(&mut self, val: u16) -> StdResult<()> {
         let start = DWB_RECIPIENT_BYTES + DWB_AMOUNT_BYTES + DWB_HEAD_NODE_BYTES;
         let end = start + DWB_LIST_LEN_BYTES;
-        if DWB_LIST_LEN_BYTES != U16_BYTES {
-            return Err(StdError::generic_err("Set dwb amount error"));
-        }
         self.0[start..end].copy_from_slice(&val.to_be_bytes());
         Ok(())
     }

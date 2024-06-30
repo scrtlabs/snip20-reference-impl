@@ -792,6 +792,7 @@ dependencies = [
  "secret-toolkit-crypto",
  "serde",
  "serde-big-array",
+ "static_assertions",
 ]
 
 [[package]]

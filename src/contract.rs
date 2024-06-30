@@ -10,6 +10,7 @@ use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
 use crate::dwb::{log_dwb, AccountTxsStore, DelayedWriteBuffer, ACCOUNT_TXS, ACCOUNT_TX_COUNT, DWB, TX_NODES};
+use crate::bucket;
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
