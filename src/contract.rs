@@ -3,22 +3,24 @@
 use cosmwasm_std::{
     entry_point, to_binary, Addr, Api, BankMsg, Binary, BlockInfo, CanonicalAddr, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128
 };
+use secret_toolkit::notification::hkdf_sha_256;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
-use crate::dwb::{log_dwb, AccountTxsStore, DelayedWriteBuffer, ACCOUNT_TXS, ACCOUNT_TX_COUNT, DWB, TX_NODES};
-use crate::bucket;
+use crate::dwb::{log_dwb, DelayedWriteBuffer, DWB, TX_NODES};
+//use crate::bucket;
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    safe_add, AllowancesStore, BalancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG, CONTRACT_STATUS, PRNG, TOTAL_SUPPLY
+    safe_add, AllowancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET, PRNG, TOTAL_SUPPLY
 };
+use crate::stored_balances::{find_start_bundle, stored_balance};
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
     store_burn_action, store_deposit_action, store_mint_action, store_redeem_action, store_transfer_action, Tx  
@@ -54,7 +56,7 @@ pub fn instantiate(
 
     let admin = match msg.admin {
         Some(admin_addr) => deps.api.addr_validate(admin_addr.as_str())?,
-        None => info.sender,
+        None => info.sender.clone(),
     };
 
     let mut total_supply: u128 = 0;
@@ -126,6 +128,26 @@ pub fn instantiate(
 
     ViewingKey::set_seed(deps.storage, &prng_seed_hashed);
 
+    // use entropy and env.random to create an internal secret for the contract
+    let entropy = msg.prng_seed.0.as_slice();
+    let entropy_len = 16 + info.sender.to_string().len() + entropy.len();
+    let mut rng_entropy = Vec::with_capacity(entropy_len);
+    rng_entropy.extend_from_slice(&env.block.height.to_be_bytes());
+    rng_entropy.extend_from_slice(&env.block.time.seconds().to_be_bytes());
+    rng_entropy.extend_from_slice(info.sender.as_bytes());
+    rng_entropy.extend_from_slice(entropy);
+    let rng_seed = env.block.random.as_ref().unwrap();
+
+    // Create INTERNAL_SECRET
+    let salt = Some(sha_256(&rng_entropy).to_vec());
+    let internal_secret = hkdf_sha_256(
+        &salt,
+        rng_seed.0.as_slice(),
+        "contract_internal_secret".as_bytes(),
+        32,
+    )?;
+    INTERNAL_SECRET.save(deps.storage, &internal_secret)?;
+
     Ok(Response::default())
 }
 
@@ -147,7 +169,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
                     denom,
                     ..
                 } if contract_status == ContractStatusLevel::StopAllButRedeems => {
-                    try_redeem(deps, env, info, &mut rng, amount, denom)
+                    try_redeem(deps, env, info, amount, denom)
                 }
                 _ => Err(StdError::generic_err(
                     "This contract is stopped and this action is not allowed",
@@ -158,6 +180,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ContractStatusLevel::NormalRun => {} // If it's a normal run just continue
     }
 
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
     let response = match msg.clone() {
         // Native
         ExecuteMsg::Deposit { .. } => {
@@ -167,7 +191,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             denom,
             ..
-        } => try_redeem(deps, env, info, &mut rng, amount, denom),
+        } => try_redeem(deps, env, info, amount, denom),
 
         // Base
         ExecuteMsg::Transfer {
@@ -212,7 +236,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_burn(deps, env, info, &mut rng, amount, memo),
+        } => try_burn(deps, env, info, amount, memo),
         ExecuteMsg::RegisterReceive { code_hash, .. } => {
             try_register_receive(deps, info, code_hash)
         }
@@ -283,13 +307,12 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             deps,
             &env,
             info,
-            &mut rng,
             owner,
             amount,
             memo,
         ),
         ExecuteMsg::BatchBurnFrom { actions, .. } => {
-            try_batch_burn_from(deps, &env, info, &mut rng, actions)
+            try_batch_burn_from(deps, &env, info, actions)
         }
 
         // Mint
@@ -644,7 +667,7 @@ pub fn query_transactions(
         //println!("OPTION 3");
         let settled_start = settled_tx_count.saturating_sub(start - txs_in_dwb_count).saturating_sub(1);
         
-        if let Some((bundle_idx, tx_bundle, start_at)) = AccountTxsStore::find_start_bundle(
+        if let Some((bundle_idx, tx_bundle, start_at)) = find_start_bundle(
             deps.storage, 
             &account_raw, 
             settled_start
@@ -701,7 +724,7 @@ pub fn query_balance(deps: Deps, account: String) -> StdResult<Binary> {
     let account = Addr::unchecked(account);
     let account = deps.api.addr_canonicalize(account.as_str())?;
 
-    let mut amount = BalancesStore::load(deps.storage, &account);
+    let mut amount = stored_balance(deps.storage, &account)?;
     let dwb = DWB.load(deps.storage)?;
     let dwb_index = dwb.recipient_match(&account);
     if dwb_index > 0 {
@@ -1073,7 +1096,6 @@ fn try_redeem(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    rng: &mut ContractPrng,
     amount: Uint128,
     denom: Option<String>,
 ) -> StdResult<Response> {
@@ -1115,7 +1137,7 @@ fn try_redeem(
     let mut dwb = DWB.load(deps.storage)?;
 
     // settle the signer's account in buffer
-    dwb.settle_sender_or_owner_account(deps.storage, rng, &sender_address, tx_id, amount_raw, "redeem")?;
+    dwb.settle_sender_or_owner_account(deps.storage, &sender_address, tx_id, amount_raw, "redeem")?;
 
     DWB.save(deps.storage, &dwb)?;
 
@@ -1659,7 +1681,6 @@ fn try_burn_from(
     deps: DepsMut,
     env: &Env,
     info: MessageInfo,
-    rng: &mut ContractPrng,
     owner: String,
     amount: Uint128,
     memo: Option<String>,
@@ -1691,9 +1712,9 @@ fn try_burn_from(
     let mut dwb = DWB.load(deps.storage)?;
 
     // settle the owner's account in buffer
-    dwb.settle_sender_or_owner_account(deps.storage, rng, &raw_owner, tx_id, raw_amount, "burn")?;
+    dwb.settle_sender_or_owner_account(deps.storage, &raw_owner, tx_id, raw_amount, "burn")?;
     if raw_burner != raw_owner { // also settle sender's account
-        dwb.settle_sender_or_owner_account(deps.storage, rng, &raw_burner, tx_id, 0, "burn")?;
+        dwb.settle_sender_or_owner_account(deps.storage, &raw_burner, tx_id, 0, "burn")?;
     }
 
     DWB.save(deps.storage, &dwb)?;
@@ -1717,7 +1738,6 @@ fn try_batch_burn_from(
     deps: DepsMut,
     env: &Env,
     info: MessageInfo,
-    rng: &mut ContractPrng,
     actions: Vec<batch::BurnFromAction>,
 ) -> StdResult<Response> {
     let constants = CONFIG.load(deps.storage)?;
@@ -1750,9 +1770,9 @@ fn try_batch_burn_from(
         let mut dwb = DWB.load(deps.storage)?;
     
         // settle the owner's account in buffer
-        dwb.settle_sender_or_owner_account(deps.storage, rng, &raw_owner, tx_id, amount, "burn")?;
+        dwb.settle_sender_or_owner_account(deps.storage, &raw_owner, tx_id, amount, "burn")?;
         if raw_spender != raw_owner {
-            dwb.settle_sender_or_owner_account(deps.storage, rng, &raw_spender, tx_id, 0, "burn")?;
+            dwb.settle_sender_or_owner_account(deps.storage, &raw_spender, tx_id, 0, "burn")?;
         }
     
         DWB.save(deps.storage, &dwb)?;
@@ -1930,7 +1950,6 @@ fn try_burn(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    rng: &mut ContractPrng,
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
@@ -1958,7 +1977,7 @@ fn try_burn(
     let mut dwb = DWB.load(deps.storage)?;
 
     // settle the signer's account in buffer
-    dwb.settle_sender_or_owner_account(deps.storage, rng, &raw_burn_address, tx_id, raw_amount, "burn")?;
+    dwb.settle_sender_or_owner_account(deps.storage, &raw_burn_address, tx_id, raw_amount, "burn")?;
 
     DWB.save(deps.storage, &dwb)?;
 
@@ -2005,10 +2024,10 @@ fn perform_transfer(
 
     let transfer_str = "transfer";
     // settle the owner's account
-    dwb.settle_sender_or_owner_account(store, rng, from, tx_id, amount, transfer_str)?;
+    dwb.settle_sender_or_owner_account(store, from, tx_id, amount, transfer_str)?;
     // if this is a *_from action, settle the sender's account, too
     if sender != from {
-        dwb.settle_sender_or_owner_account(store, rng, sender, tx_id, 0, transfer_str)?;
+        dwb.settle_sender_or_owner_account(store, sender, tx_id, 0, transfer_str)?;
     }
 
     // TESTING
@@ -2049,7 +2068,7 @@ fn perform_mint(
 
     // if minter is not recipient, settle them
     if minter != to {
-        dwb.settle_sender_or_owner_account(store, rng, minter, tx_id, 0, "mint")?;
+        dwb.settle_sender_or_owner_account(store, minter, tx_id, 0, "mint")?;
     }
 
     // add the tx info for the recipient to the buffer
@@ -2438,9 +2457,9 @@ mod tests {
             .addr_canonicalize(Addr::unchecked("alice").as_str())
             .unwrap();
 
-        assert_eq!(5000 - 1000, BalancesStore::load(&deps.storage, &bob_addr));
+        assert_eq!(5000 - 1000, stored_balance(&deps.storage, &bob_addr).unwrap());
         // alice has not been settled yet
-        assert_ne!(1000, BalancesStore::load(&deps.storage, &alice_addr));
+        assert_ne!(1000, stored_balance(&deps.storage, &alice_addr).unwrap());
 
         let dwb = DWB.load(&deps.storage).unwrap();
         println!("DWB: {dwb:?}");
@@ -2480,11 +2499,11 @@ mod tests {
             .addr_canonicalize(Addr::unchecked("charlie").as_str())
             .unwrap();
 
-        assert_eq!(5000 - 1000 - 100, BalancesStore::load(&deps.storage, &bob_addr));
+        assert_eq!(5000 - 1000 - 100, stored_balance(&deps.storage, &bob_addr).unwrap());
         // alice has not been settled yet
-        assert_ne!(1000, BalancesStore::load(&deps.storage, &alice_addr));
+        assert_ne!(1000, stored_balance(&deps.storage, &alice_addr).unwrap());
         // charlie has not been settled yet
-        assert_ne!(100, BalancesStore::load(&deps.storage, &charlie_addr));
+        assert_ne!(100, stored_balance(&deps.storage, &charlie_addr).unwrap());
 
         let dwb = DWB.load(&deps.storage).unwrap();
         //println!("DWB: {dwb:?}");
@@ -2514,9 +2533,9 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        assert_eq!(5000 - 1000 - 100 - 500, BalancesStore::load(&deps.storage, &bob_addr));
+        assert_eq!(5000 - 1000 - 100 - 500, stored_balance(&deps.storage, &bob_addr).unwrap());
         // make sure alice has not been settled yet
-        assert_ne!(1500, BalancesStore::load(&deps.storage, &alice_addr));
+        assert_ne!(1500, stored_balance(&deps.storage, &alice_addr).unwrap());
 
         let dwb = DWB.load(&deps.storage).unwrap();
         //println!("DWB: {dwb:?}");
@@ -2592,13 +2611,13 @@ mod tests {
             .addr_canonicalize(Addr::unchecked("ernie").as_str())
             .unwrap();
 
-        assert_eq!(5000 - 1000 - 100 - 500 - 200, BalancesStore::load(&deps.storage, &bob_addr));
+        assert_eq!(5000 - 1000 - 100 - 500 - 200, stored_balance(&deps.storage, &bob_addr).unwrap());
         // alice has not been settled yet
-        assert_ne!(1500, BalancesStore::load(&deps.storage, &alice_addr));
+        assert_ne!(1500, stored_balance(&deps.storage, &alice_addr).unwrap());
         // charlie has not been settled yet
-        assert_ne!(100, BalancesStore::load(&deps.storage, &charlie_addr));
+        assert_ne!(100, stored_balance(&deps.storage, &charlie_addr).unwrap());
         // ernie has not been settled yet
-        assert_ne!(200, BalancesStore::load(&deps.storage, &ernie_addr));
+        assert_ne!(200, stored_balance(&deps.storage, &ernie_addr).unwrap());
 
         let dwb = DWB.load(&deps.storage).unwrap();
         //println!("DWB: {dwb:?}");
@@ -2635,9 +2654,9 @@ mod tests {
             .unwrap();
 
         // alice has been settled
-        assert_eq!(1500 - 50, BalancesStore::load(&deps.storage, &alice_addr));
+        assert_eq!(1500 - 50, stored_balance(&deps.storage, &alice_addr).unwrap());
         // dora has not been settled
-        assert_ne!(50, BalancesStore::load(&deps.storage, &dora_addr));
+        assert_ne!(50, stored_balance(&deps.storage, &dora_addr).unwrap());
 
         let dwb = DWB.load(&deps.storage).unwrap();
         //println!("DWB: {dwb:?}");
@@ -2671,7 +2690,7 @@ mod tests {
             let result = handle_result.unwrap();
             assert!(ensure_success(result));
         }
-        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59, BalancesStore::load(&deps.storage, &bob_addr));
+        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59, stored_balance(&deps.storage, &bob_addr).unwrap());
 
         let dwb = DWB.load(&deps.storage).unwrap();
         //println!("DWB: {dwb:?}");
@@ -2695,7 +2714,7 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59 - 1, BalancesStore::load(&deps.storage, &bob_addr));
+        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59 - 1, stored_balance(&deps.storage, &bob_addr).unwrap());
 
         //let dwb = DWB.load(&deps.storage).unwrap();
         //println!("DWB: {dwb:?}");
@@ -2716,7 +2735,7 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59 - 1 - 1, BalancesStore::load(&deps.storage, &bob_addr));
+        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59 - 1 - 1, stored_balance(&deps.storage, &bob_addr).unwrap());
 
         //let dwb = DWB.load(&deps.storage).unwrap();
         //println!("DWB: {dwb:?}");
@@ -2740,7 +2759,7 @@ mod tests {
             assert!(ensure_success(result));
 
             // alice should not settle
-            assert_eq!(1500 - 50, BalancesStore::load(&deps.storage, &alice_addr));
+            assert_eq!(1500 - 50, stored_balance(&deps.storage, &alice_addr).unwrap());
         }
 
         // alice sends 1 to dora to settle
@@ -2759,7 +2778,7 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        assert_eq!(2724, BalancesStore::load(&deps.storage, &alice_addr));
+        assert_eq!(2724, stored_balance(&deps.storage, &alice_addr).unwrap());
 
         // now we send 50 more transactions to alice from bob
         for i in 1..=50 {
@@ -2780,7 +2799,7 @@ mod tests {
             assert!(ensure_success(result));
 
             // alice should not settle
-            assert_eq!(2724, BalancesStore::load(&deps.storage, &alice_addr));
+            assert_eq!(2724, stored_balance(&deps.storage, &alice_addr).unwrap());
         }
 
         let handle_msg = ExecuteMsg::SetViewingKey {
@@ -3605,8 +3624,8 @@ mod tests {
             .addr_canonicalize(Addr::unchecked("alice".to_string()).as_str())
             .unwrap();
 
-        let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
-        let alice_balance = BalancesStore::load(&deps.storage, &alice_canonical);
+        let bob_balance = stored_balance(&deps.storage, &bob_canonical).unwrap();
+        let alice_balance = stored_balance(&deps.storage, &alice_canonical).unwrap();
         assert_eq!(bob_balance, 5000 - 2000);
         assert_ne!(alice_balance, 2000);
         let total_supply = TOTAL_SUPPLY.load(&deps.storage).unwrap();
@@ -3748,8 +3767,8 @@ mod tests {
             .addr_canonicalize(Addr::unchecked("contract".to_string()).as_str())
             .unwrap();
 
-        let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
-        let contract_balance = BalancesStore::load(&deps.storage, &contract_canonical);
+        let bob_balance = stored_balance(&deps.storage, &bob_canonical).unwrap();
+        let contract_balance = stored_balance(&deps.storage, &contract_canonical).unwrap();
         assert_eq!(bob_balance, 5000 - 2000);
         assert_ne!(contract_balance, 2000);
         let total_supply = TOTAL_SUPPLY.load(&deps.storage).unwrap();
@@ -3880,7 +3899,7 @@ mod tests {
             .addr_canonicalize(Addr::unchecked("bob".to_string()).as_str())
             .unwrap();
 
-        let bob_balance = BalancesStore::load(&deps.storage, &bob_canonical);
+        let bob_balance = stored_balance(&deps.storage, &bob_canonical).unwrap();
         assert_eq!(bob_balance, 10000 - 2000);
         let total_supply = TOTAL_SUPPLY.load(&deps.storage).unwrap();
         assert_eq!(total_supply, 10000 - 2000);
@@ -4029,7 +4048,7 @@ mod tests {
                 .api
                 .addr_canonicalize(Addr::unchecked(name.to_string()).as_str())
                 .unwrap();
-            let balance = BalancesStore::load(&deps.storage, &name_canon);
+            let balance = stored_balance(&deps.storage, &name_canon).unwrap();
             assert_eq!(balance, 10000 - amount);
         }
         let total_supply = TOTAL_SUPPLY.load(&deps.storage).unwrap();
@@ -4063,7 +4082,7 @@ mod tests {
                 .api
                 .addr_canonicalize(Addr::unchecked(name.to_string()).as_str())
                 .unwrap();
-            let balance = BalancesStore::load(&deps.storage, &name_canon);
+            let balance = stored_balance(&deps.storage, &name_canon).unwrap();
             assert_eq!(balance, 10000 - allowance_size);
         }
         let total_supply = TOTAL_SUPPLY.load(&deps.storage).unwrap();
@@ -4413,7 +4432,7 @@ mod tests {
             .api
             .addr_canonicalize(Addr::unchecked("butler".to_string()).as_str())
             .unwrap();
-        assert_eq!(BalancesStore::load(&deps.storage, &canonical), 3000)
+        assert_eq!(stored_balance(&deps.storage, &canonical).unwrap(), 3000)
     }
 
     #[test]
@@ -4486,7 +4505,7 @@ mod tests {
             .unwrap();
 
         // stored balance not updated, still in dwb
-        assert_ne!(BalancesStore::load(&deps.storage, &canonical), 6000);
+        assert_ne!(stored_balance(&deps.storage, &canonical).unwrap(), 6000);
 
         let create_vk_msg = ExecuteMsg::CreateViewingKey {
             entropy: "34".to_string(),

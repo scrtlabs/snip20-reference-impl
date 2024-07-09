@@ -132,47 +132,6 @@ pub fn safe_add_u64(balance: &mut u64, amount: u64) -> u64 {
     *balance - prev_balance
 }
 
-pub static BALANCES: Item<u128> = Item::new(PREFIX_BALANCES);
-pub struct BalancesStore {}
-impl BalancesStore {
-    pub fn save(store: &mut dyn Storage, account: &CanonicalAddr, amount: u128) -> StdResult<()> {
-        let balances = BALANCES.add_suffix(account.as_slice());
-        balances.save(store, &amount)
-    }
-
-    pub fn load(store: &dyn Storage, account: &CanonicalAddr) -> u128 {
-        let balances = BALANCES.add_suffix(account.as_slice());
-        balances.load(store).unwrap_or_default()
-    }
-
-    pub fn update_balance(
-        store: &mut dyn Storage,
-        account: &CanonicalAddr,
-        amount_to_be_updated: u128,
-        should_add: bool,
-        operation_name: &str,
-    ) -> StdResult<()> {
-        let mut balance = Self::load(store, account);
-        balance = match should_add {
-            true => {
-                safe_add(&mut balance, amount_to_be_updated);
-                balance
-            }
-            false => {
-                if let Some(balance) = balance.checked_sub(amount_to_be_updated) {
-                    balance
-                } else {
-                    return Err(StdError::generic_err(format!(
-                        "insufficient funds to {operation_name}: balance={balance}, required={amount_to_be_updated}",
-                    )));
-                }
-            }
-        };
-
-        Self::save(store, account, balance)
-    }
-}
-
 // Allowances
 
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Eq, Default, JsonSchema)]
@@ -277,3 +236,5 @@ impl ReceiverHashStore {
         receiver_hash.save(store, &code_hash)
     }
 }
+
+pub static INTERNAL_SECRET: Item<Vec<u8>> = Item::new(b"internal-secret");
