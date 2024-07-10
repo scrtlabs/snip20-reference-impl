@@ -433,7 +433,7 @@ pub fn stored_tx_count(storage: &dyn Storage, entry: &Option<StoredEntry>) -> St
 // `spent_amount` is any required subtraction due to being sender of tx
 pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferEntry, amount_spent: Option<u128>) -> StdResult<()> {
     // locate the node that the given entry belongs in
-    let (mut node, node_id, bit_pos) = locate_btsb_node(storage, &dwb_entry.recipient()?)?;
+    let (mut node, node_id, mut bit_pos) = locate_btsb_node(storage, &dwb_entry.recipient()?)?;
 
     // load that node's current bucket
     let mut bucket = node.bucket(storage)?;
@@ -545,7 +545,7 @@ pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferE
                 let key = U256::from_big_endian(&key);
                 let bit_value = (key >> (255 - bit_pos)) & U256::from(1);
 
-                // determine which child node the dwb entry belongs in, then retry insertion,
+                // determine which child node the dwb entry belongs in, then retry insertion
                 if bit_value == U256::from(0) {
                     node = left;
                     bucket = left_bucket;
@@ -553,6 +553,8 @@ pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferE
                     node = right;
                     bucket = right_bucket;
                 }
+                // increment bit position for next iteration of the loop
+                bit_pos += 1;
             }
         }
     }
