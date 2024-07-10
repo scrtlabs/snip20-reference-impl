@@ -451,98 +451,110 @@ pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferE
         // create new stored balance entry
         let btsb_entry = StoredEntry::from(storage, &dwb_entry, amount_spent)?;
 
-        // try to add to the current bucket
-        if bucket.add_entry(storage, &btsb_entry) {
-            // bucket has capcity and it added the new entry
-            // save bucket to storage
-            node.set_and_save_bucket(storage, bucket)?;
-        } else {
-            // bucket is full; split on next bit position
-            // create new left and right buckets
-            let mut left_bucket = BtsbBucket::new()?;
-            let mut right_bucket = BtsbBucket::new()?;
+        let secret = INTERNAL_SECRET.load(storage)?;
+        let secret = secret.as_slice();
 
-            let secret = INTERNAL_SECRET.load(storage)?;
-            let secret = secret.as_slice();
-            // each entry
-            for entry in bucket.entries {
-                let key =  hkdf_sha_256(&None, secret, entry.address_slice(), 256)?;
+        loop {
+            // try to add to the current bucket
+            if bucket.add_entry(storage, &btsb_entry) {
+                // bucket has capacity and it added the new entry
+                // save bucket to storage
+                node.set_and_save_bucket(storage, bucket)?;
+                // break out of the loop
+                break;
+            } else {
+                // bucket is full; split on next bit position
+                // create new left and right buckets
+                let mut left_bucket = BtsbBucket::new()?;
+                let mut right_bucket = BtsbBucket::new()?;
+
+                // each entry
+                for entry in bucket.entries {
+                    let key =  hkdf_sha_256(&None, secret, entry.address_slice(), 256)?;
+                    let key = U256::from_big_endian(&key);
+                    let bit_value = (key >> (255 - bit_pos)) & U256::from(1);
+                    if bit_value == U256::from(0) {
+                        left_bucket.add_entry(storage, &entry);
+                    } else {
+                        right_bucket.add_entry(storage, &entry);
+                    }
+                    /* 
+                        let key := hkdf(ikm=contractInternalSecret, info=canonical(addr), length=256bits)
+                        let bit_value := (key >> (255 - bit_pos)) & 1
+                        if bit_value == 0:
+                            left_bucket.add_entry(entry)
+                        else:
+                            right_bucket.add_entry(entry)
+                    */
+                }
+
+                // save left node's bucket to storage, recycling this node's bucket ID
+                let left_bucket_id = node.bucket;
+                BTSB_BUCKETS.add_suffix(&left_bucket_id.to_be_bytes()).save(storage, &left_bucket)?;
+
+                // global count of buckets
+                let mut buckets_count = BTSB_BUCKETS_COUNT.load(storage).unwrap_or_default();
+
+                // bucket ID for right node
+                buckets_count += 1;
+                let right_bucket_id = buckets_count;
+                BTSB_BUCKETS.add_suffix(&right_bucket_id.to_be_bytes()).save(storage, &right_bucket)?;
+
+                // save updated count
+                BTSB_BUCKETS_COUNT.save(storage, &buckets_count)?;
+
+                // global count of trie nodes
+                let mut nodes_count = BTSB_TRIE_NODES_COUNT.load(storage).unwrap_or_default();
+
+                // ID for left node
+                nodes_count += 1;
+                let left_id = nodes_count;
+
+                // ID for right node
+                nodes_count += 1;
+                let right_id = nodes_count;
+
+                // save updated count
+                BTSB_TRIE_NODES_COUNT.save(storage, &nodes_count)?;
+
+                // create left and right nodes
+                let left = BitwiseTrieNode {
+                    left: 0,
+                    right: 0,
+                    bucket: left_bucket_id,
+                };
+                let right = BitwiseTrieNode {
+                    left: 0,
+                    right: 0,
+                    bucket: right_bucket_id,
+                };
+
+                // save left and right node to storage
+                BTSB_TRIE_NODES.add_suffix(&left_id.to_be_bytes()).save(storage, &left)?;
+                BTSB_TRIE_NODES.add_suffix(&right_id.to_be_bytes()).save(storage, &right)?;
+
+                // convert this into a branch node
+                node.left = left_id;
+                node.right = right_id;
+                node.bucket = 0;
+
+                // save node
+                BTSB_TRIE_NODES.add_suffix(&node_id.to_be_bytes()).save(storage, &node)?;
+
+                let key =  hkdf_sha_256(&None, secret, btsb_entry.address_slice(), 256)?;
                 let key = U256::from_big_endian(&key);
                 let bit_value = (key >> (255 - bit_pos)) & U256::from(1);
+                
+                // determine which child node the dwb entry belongs in, then retry insertion,
+                // looping as many times as needed until the bucket has capacity for a new entry
                 if bit_value == U256::from(0) {
-                    left_bucket.add_entry(storage, &entry);
+                    node = left;
+                    bucket = left_bucket;
                 } else {
-                    right_bucket.add_entry(storage, &entry);
+                    node = right;
+                    bucket = right_bucket;
                 }
-                /* 
-                    let key := hkdf(ikm=contractInternalSecret, info=canonical(addr), length=256bits)
-                    let bit_value := (key >> (255 - bit_pos)) & 1
-                    if bit_value == 0:
-                        left_bucket.add_entry(entry)
-                    else:
-                        right_bucket.add_entry(entry)
-                */
             }
-
-            // save left node's bucket to storage, recycling this node's bucket ID
-            let left_bucket_id = node.bucket;
-            BTSB_BUCKETS.add_suffix(&left_bucket_id.to_be_bytes()).save(storage, &left_bucket)?;
-
-            // global count of buckets
-            let mut buckets_count = BTSB_BUCKETS_COUNT.load(storage).unwrap_or_default();
-
-            // bucket ID for right node
-            buckets_count += 1;
-            let right_bucket_id = buckets_count;
-            BTSB_BUCKETS.add_suffix(&right_bucket_id.to_be_bytes()).save(storage, &right_bucket)?;
-
-            // save updated count
-            BTSB_BUCKETS_COUNT.save(storage, &buckets_count)?;
-
-            // global count of trie nodes
-            let mut nodes_count = BTSB_TRIE_NODES_COUNT.load(storage).unwrap_or_default();
-
-            // ID for left node
-            nodes_count += 1;
-            let left_id = nodes_count;
-
-            // ID for right node
-            nodes_count += 1;
-            let right_id = nodes_count;
-
-            // save updated count
-            BTSB_TRIE_NODES_COUNT.save(storage, &nodes_count)?;
-
-            // create left and right nodes
-            let left = BitwiseTrieNode {
-                left: 0,
-                right: 0,
-                bucket: left_bucket_id,
-            };
-            let right = BitwiseTrieNode {
-                left: 0,
-                right: 0,
-                bucket: right_bucket_id,
-            };
-
-            // save left and right node to storage
-            BTSB_TRIE_NODES.add_suffix(&left_id.to_be_bytes()).save(storage, &left)?;
-            BTSB_TRIE_NODES.add_suffix(&right_id.to_be_bytes()).save(storage, &right)?;
-
-            // convert this into a branch node
-            node.left = left_id;
-            node.right = right_id;
-            node.bucket = 0;
-
-            // save node
-            BTSB_TRIE_NODES.add_suffix(&node_id.to_be_bytes()).save(storage, &node)?;
-
-            // --
-
-            /* TODO
-                determine which child node the dwb entry belongs in, then retry insertion,
-                looping as many times as needed until the bucket has capacity for a new entry
-                */
         }
     }
 
