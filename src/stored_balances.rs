@@ -370,17 +370,6 @@ pub fn locate_btsb_node(storage: &dyn Storage, address: &CanonicalAddr) -> StdRe
     Ok((node, node_id, bit_pos))
 }
 
-// returns the current stored balance for an entry
-pub fn stored_balance(storage: &dyn Storage, address: &CanonicalAddr) -> StdResult<u128> {
-    let (node, _, _) = locate_btsb_node(storage, address)?;
-    let bucket = node.bucket(storage)?;
-    if let Some(entry) = bucket.constant_time_find_address(address) {
-        Ok(entry.balance()? as u128)
-    } else {
-        Ok(0_u128)
-    }
-}
-
 /// Does a binary search on the append store to find the bundle where the `start_idx` tx can be found.
 /// For a paginated search `start_idx` = `page` * `page_size`.
 /// Returns the bundle index, the bundle, and the index in the bundle list to start at
@@ -415,6 +404,15 @@ pub fn stored_entry(storage: &dyn Storage, account: &CanonicalAddr) -> StdResult
     let (node, _, _) = locate_btsb_node(storage, account)?;
     let bucket = node.bucket(storage)?;
     Ok(bucket.constant_time_find_address(account))
+}
+
+/// returns the current stored balance for an entry
+pub fn stored_balance(storage: &dyn Storage, address: &CanonicalAddr) -> StdResult<u128> {
+    if let Some(entry) = stored_entry(storage, address)? {
+        Ok(entry.balance()? as u128)
+    } else {
+        Ok(0_u128)
+    }
 }
 
 /// Returns the total number of settled transactions for an account by peeking at last bundle
