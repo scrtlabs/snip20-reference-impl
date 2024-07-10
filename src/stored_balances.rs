@@ -402,6 +402,7 @@ pub fn find_start_bundle(storage: &dyn Storage, account: &CanonicalAddr, start_i
 /// gets the StoredEntry for a given account
 pub fn stored_entry(storage: &dyn Storage, account: &CanonicalAddr) -> StdResult<Option<StoredEntry>> {
     let (node, _, _) = locate_btsb_node(storage, account)?;
+    println!("node: {:?}", node);
     let bucket = node.bucket(storage)?;
     Ok(bucket.constant_time_find_address(account))
 }
@@ -575,4 +576,21 @@ pub fn quick_get_btsb_entry(storage: &mut dyn Storage, address: CanonicalAddr) -
     let (node, _, _) = locate_btsb_node(storage, &address)?;
 
     Ok(node.bucket(storage)?.quick_find_entry(&address))
+}
+
+/// initializes the btsb
+pub fn initialize_btsb(storage: &mut dyn Storage) -> StdResult<()> {
+    let btsb_bucket = BtsbBucket::new()?;
+    BTSB_BUCKETS.add_suffix(&1_u64.to_be_bytes()).save(storage, &btsb_bucket)?;
+    BTSB_BUCKETS_COUNT.save(storage, &1)?;
+    BTSB_TRIE_NODES.add_suffix(&1_u64.to_be_bytes()).save(
+        storage, 
+        &BitwiseTrieNode{
+            left: 0,
+            right: 0,
+            bucket: 1,
+        }
+    )?;
+    BTSB_TRIE_NODES_COUNT.save(storage, &1)?;
+    Ok(())
 }

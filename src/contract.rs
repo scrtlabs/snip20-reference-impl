@@ -20,7 +20,7 @@ use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     safe_add, AllowancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET, PRNG, TOTAL_SUPPLY
 };
-use crate::stored_balances::{find_start_bundle, stored_balance, stored_entry, stored_tx_count};
+use crate::stored_balances::{find_start_bundle, initialize_btsb, stored_balance, stored_entry, stored_tx_count};
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
     store_burn_action, store_deposit_action, store_mint_action, store_redeem_action, store_transfer_action, Tx  
@@ -64,17 +64,39 @@ pub fn instantiate(
     let prng_seed_hashed = sha_256(&msg.prng_seed.0);
     PrngStore::save(deps.storage, prng_seed_hashed)?;
 
+    // initialize the bitwise-trie of stored entries
+    initialize_btsb(deps.storage)?;
+
     // initialize the delay write buffer
     DWB.save(deps.storage, &DelayedWriteBuffer::new()?)?;
 
     let initial_balances = msg.initial_balances.unwrap_or_default();
     let raw_admin = deps.api.addr_canonicalize(admin.as_str())?;
-    let seed = env.block.random.as_ref().unwrap();
-    let mut rng = ContractPrng::new(seed.as_slice(), &prng_seed_hashed);
+    let rng_seed = env.block.random.as_ref().unwrap();
+    let mut rng = ContractPrng::new(rng_seed.as_slice(), &prng_seed_hashed);
+
+    // use entropy and env.random to create an internal secret for the contract
+    let entropy = msg.prng_seed.0.as_slice();
+    let entropy_len = 16 + info.sender.to_string().len() + entropy.len();
+    let mut rng_entropy = Vec::with_capacity(entropy_len);
+    rng_entropy.extend_from_slice(&env.block.height.to_be_bytes());
+    rng_entropy.extend_from_slice(&env.block.time.seconds().to_be_bytes());
+    rng_entropy.extend_from_slice(info.sender.as_bytes());
+    rng_entropy.extend_from_slice(entropy);
+
+    // Create INTERNAL_SECRET
+    let salt = Some(sha_256(&rng_entropy).to_vec());
+    let internal_secret = hkdf_sha_256(
+        &salt,
+        rng_seed.0.as_slice(),
+        "contract_internal_secret".as_bytes(),
+        32,
+    )?;
+    INTERNAL_SECRET.save(deps.storage, &internal_secret)?;
+
     for balance in initial_balances {
         let amount = balance.amount.u128();
         let balance_address = deps.api.addr_canonicalize(balance.address.as_str())?;
-
         perform_mint(
             deps.storage, 
             &mut rng, 
@@ -127,26 +149,6 @@ pub fn instantiate(
     MintersStore::save(deps.storage, minters)?;
 
     ViewingKey::set_seed(deps.storage, &prng_seed_hashed);
-
-    // use entropy and env.random to create an internal secret for the contract
-    let entropy = msg.prng_seed.0.as_slice();
-    let entropy_len = 16 + info.sender.to_string().len() + entropy.len();
-    let mut rng_entropy = Vec::with_capacity(entropy_len);
-    rng_entropy.extend_from_slice(&env.block.height.to_be_bytes());
-    rng_entropy.extend_from_slice(&env.block.time.seconds().to_be_bytes());
-    rng_entropy.extend_from_slice(info.sender.as_bytes());
-    rng_entropy.extend_from_slice(entropy);
-    let rng_seed = env.block.random.as_ref().unwrap();
-
-    // Create INTERNAL_SECRET
-    let salt = Some(sha_256(&rng_entropy).to_vec());
-    let internal_secret = hkdf_sha_256(
-        &salt,
-        rng_seed.0.as_slice(),
-        "contract_internal_secret".as_bytes(),
-        32,
-    )?;
-    INTERNAL_SECRET.save(deps.storage, &internal_secret)?;
 
     Ok(Response::default())
 }
@@ -2065,6 +2067,7 @@ fn perform_mint(
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
     let tx_id = store_mint_action(store, minter, to, amount, denom, memo, block)?;
+    println!("tx_id: {}", tx_id);
 
     // load delayed write buffer
     let mut dwb = DWB.load(store)?;
