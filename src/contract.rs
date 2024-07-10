@@ -20,7 +20,7 @@ use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     safe_add, AllowancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET, PRNG, TOTAL_SUPPLY
 };
-use crate::stored_balances::{find_start_bundle, stored_balance};
+use crate::stored_balances::{find_start_bundle, stored_balance, stored_entry, stored_tx_count};
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
     store_burn_action, store_deposit_action, store_mint_action, store_redeem_action, store_transfer_action, Tx  
@@ -617,8 +617,9 @@ pub fn query_transactions(
         }
     }
 
-    let account_slice = account_raw.as_slice();
-    let settled_tx_count = ACCOUNT_TX_COUNT.add_suffix(account_slice).load(deps.storage)?;
+    //let account_slice = account_raw.as_slice();
+    let account_stored_entry = stored_entry(deps.storage, &account_raw)?;
+    let settled_tx_count = stored_tx_count(deps.storage, &account_stored_entry)?;
     let total = txs_in_dwb_count as u32 + settled_tx_count as u32;
     if end > total {
         end = total;
@@ -637,24 +638,25 @@ pub fn query_transactions(
         //println!("OPTION 2");
         txs = txs_in_dwb[start as usize..].to_vec(); // reverse chronological
         let mut txs_left = (end - start).saturating_sub(txs.len() as u32);
-        let tx_bundles_store = ACCOUNT_TXS.add_suffix(account_slice);
-        let tx_bundles_idx_len = tx_bundles_store.get_len(deps.storage)?;
-        if tx_bundles_idx_len > 0 {
-            let mut bundle_idx = tx_bundles_idx_len - 1;
-            loop {
-                let tx_bundle = tx_bundles_store.get_at(deps.storage, bundle_idx.clone())?;
-                let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
-                let list_len = tx_bundle.list_len as u32;
-                if txs_left <= list_len {
-                    txs.extend_from_slice(&head_node.to_vec(deps.storage, deps.api)?[0..txs_left as usize]);
-                    break;
-                }
-                txs.extend(head_node.to_vec(deps.storage, deps.api)?);
-                txs_left = txs_left.saturating_sub(list_len);
-                if bundle_idx > 0 {
-                    bundle_idx -= 1;
-                } else {
-                    break;
+        if let Some(entry) = account_stored_entry {
+            let tx_bundles_idx_len = entry.history_len()?;
+            if tx_bundles_idx_len > 0 {
+                let mut bundle_idx = tx_bundles_idx_len - 1;
+                loop {
+                    let tx_bundle = entry.get_tx_bundle_at(deps.storage, bundle_idx.clone())?;
+                    let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
+                    let list_len = tx_bundle.list_len as u32;
+                    if txs_left <= list_len {
+                        txs.extend_from_slice(&head_node.to_vec(deps.storage, deps.api)?[0..txs_left as usize]);
+                        break;
+                    }
+                    txs.extend(head_node.to_vec(deps.storage, deps.api)?);
+                    txs_left = txs_left.saturating_sub(list_len);
+                    if bundle_idx > 0 {
+                        bundle_idx -= 1;
+                    } else {
+                        break;
+                    }
                 }
             }
         }
@@ -687,21 +689,22 @@ pub fn query_transactions(
                 if bundle_idx > 0 && txs_left > 0 {
                     // get the next earlier bundle
                     let mut bundle_idx = bundle_idx - 1;
-                    let tx_bundles_store = ACCOUNT_TXS.add_suffix(account_slice);
-                    loop {
-                        let tx_bundle = tx_bundles_store.get_at(deps.storage, bundle_idx.clone())?;
-                        let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
-                        let list_len = tx_bundle.list_len as u32;
-                        if txs_left <= list_len {
-                            txs.extend_from_slice(&head_node.to_vec(deps.storage, deps.api)?[0..txs_left as usize]);
-                            break;
-                        }
-                        txs.extend(head_node.to_vec(deps.storage, deps.api)?);
-                        txs_left = txs_left.saturating_sub(list_len);
-                        if bundle_idx > 0 {
-                            bundle_idx -= 1;
-                        } else {
-                            break;
+                    if let Some(entry) = account_stored_entry {
+                        loop {
+                            let tx_bundle = entry.get_tx_bundle_at(deps.storage, bundle_idx.clone())?;
+                            let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
+                            let list_len = tx_bundle.list_len as u32;
+                            if txs_left <= list_len {
+                                txs.extend_from_slice(&head_node.to_vec(deps.storage, deps.api)?[0..txs_left as usize]);
+                                break;
+                            }
+                            txs.extend(head_node.to_vec(deps.storage, deps.api)?);
+                            txs_left = txs_left.saturating_sub(list_len);
+                            if bundle_idx > 0 {
+                                bundle_idx -= 1;
+                            } else {
+                                break;
+                            }
                         }
                     }
                 }   

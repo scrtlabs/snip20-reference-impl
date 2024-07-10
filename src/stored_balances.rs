@@ -46,11 +46,6 @@ pub struct StoredEntry(
     [u8; BTSB_BUCKET_ENTRY_BYTES],
 );
 
-enum BalanceAction {
-    Sub,
-    Add,
-}
-
 impl StoredEntry {
     fn new(address: CanonicalAddr) -> StdResult<Self> {
         let address = address.as_slice();
@@ -197,15 +192,6 @@ impl StoredEntry {
         Bincode2::deserialize(
             &bundle_data
         )
-    }
-
-    /// Replaces data at a position within bounds
-    fn set_tx_bundle_at(&self, storage: &mut dyn Storage, pos: u32, item: &TxBundle) -> StdResult<()> {
-        let len = self.history_len()?;
-        if pos >= len {
-            return Err(StdError::generic_err("access out of bounds"));
-        }
-        self.set_tx_bundle_at_unchecked(storage, pos, item)
     }
 
     /// Sets data at a given index
@@ -423,6 +409,27 @@ pub fn find_start_bundle(storage: &dyn Storage, account: &CanonicalAddr, start_i
 
     Ok(None)
 }
+
+/// gets the StoredEntry for a given account
+pub fn stored_entry(storage: &dyn Storage, account: &CanonicalAddr) -> StdResult<Option<StoredEntry>> {
+    let (node, _, _) = locate_btsb_node(storage, account)?;
+    let bucket = node.bucket(storage)?;
+    Ok(bucket.constant_time_find_address(account))
+}
+
+/// Returns the total number of settled transactions for an account by peeking at last bundle
+pub fn stored_tx_count(storage: &dyn Storage, entry: &Option<StoredEntry>) -> StdResult<u32> {
+    if let Some(entry) = entry {
+        // peek at last entry
+        let len = entry.history_len()?;
+        if len > 0 {
+            let bundle = entry.get_tx_bundle_at(storage, len - 1)?;
+            return Ok(bundle.offset + bundle.list_len as u32);
+        }
+    }
+    Ok(0)
+}
+
 
 // merges a dwb entry into the current node's bucket
 // `spent_amount` is any required subtraction due to being sender of tx
