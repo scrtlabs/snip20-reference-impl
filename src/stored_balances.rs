@@ -454,7 +454,7 @@ pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferE
         let secret = INTERNAL_SECRET.load(storage)?;
         let secret = secret.as_slice();
 
-        loop {
+        loop { // looping as many times as needed until the bucket has capacity for a new entry
             // try to add to the current bucket
             if bucket.add_entry(storage, &btsb_entry) {
                 // bucket has capacity and it added the new entry
@@ -544,9 +544,8 @@ pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferE
                 let key =  hkdf_sha_256(&None, secret, btsb_entry.address_slice(), 256)?;
                 let key = U256::from_big_endian(&key);
                 let bit_value = (key >> (255 - bit_pos)) & U256::from(1);
-                
+
                 // determine which child node the dwb entry belongs in, then retry insertion,
-                // looping as many times as needed until the bucket has capacity for a new entry
                 if bit_value == U256::from(0) {
                     node = left;
                     bucket = left_bucket;
