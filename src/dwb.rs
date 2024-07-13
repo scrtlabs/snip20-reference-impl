@@ -7,7 +7,7 @@ use cosmwasm_std::{to_binary, Api, Binary, CanonicalAddr, StdError, StdResult, S
 use secret_toolkit::storage::{AppendStore, Item};
 
 use crate::{
-    msg::QueryAnswer, state::{safe_add, safe_add_u64,}, stored_balances::{merge_dwb_entry, stored_balance}, transaction_history::{Tx, TRANSACTIONS}
+    dwb, msg::QueryAnswer, state::{safe_add, safe_add_u64,}, stored_balances::{merge_dwb_entry, stored_balance}, transaction_history::{Tx, TRANSACTIONS}
 };
 
 pub const KEY_DWB: &[u8] = b"dwb";

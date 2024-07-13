@@ -35,12 +35,19 @@ const_assert!(BTSB_BUCKET_HISTORY_BYTES <= U32_BYTES);
 const BTSB_BUCKET_ENTRY_BYTES: usize = BTSB_BUCKET_ADDRESS_BYTES + BTSB_BUCKET_BALANCE_BYTES + BTSB_BUCKET_HISTORY_BYTES;
 
 const ZERO_ADDR: [u8; BTSB_BUCKET_ADDRESS_BYTES] = [0u8; BTSB_BUCKET_ADDRESS_BYTES];
+/// canonical address bytes corresponding to the 33-byte null public key, in hexadecimal
+#[cfg(test)]
+const IMPOSSIBLE_ADDR: [u8; BTSB_BUCKET_ADDRESS_BYTES] = [0x29,0xCF,0xC6,0x37,0x62,0x55,0xA7,0x84,0x51,0xEE,0xB4,0xB1,0x29,0xED,0x8E,0xAC,0xFF,0xA2,0xFE,0xEF,
+                                                          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+                                                          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00];
+#[cfg(not(test))]
+const IMPOSSIBLE_ADDR: [u8; BTSB_BUCKET_ADDRESS_BYTES] = [0x29,0xCF,0xC6,0x37,0x62,0x55,0xA7,0x84,0x51,0xEE,0xB4,0xB1,0x29,0xED,0x8E,0xAC,0xFF,0xA2,0xFE,0xEF];
 
 /// A `StoredEntry` consists of the address, balance, and tx bundle history length in a byte array representation.
 /// The methods of the struct implementation also handle pushing and getting the tx bundle history in a simplified 
 /// append store.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
-#[cfg_attr(test, derive(Eq, PartialEq))]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(test, derive(Eq))]
 pub struct StoredEntry(
     #[serde(with = "BigArray")]
     [u8; BTSB_BUCKET_ENTRY_BYTES],
@@ -152,7 +159,7 @@ impl StoredEntry {
         let amount_spent = amount_u64(amount_spent)?;
 
         // error should never happen because already checked in `settle_sender_or_owner_account`
-        let balance = if let Some(new_balance) = dwb_entry.amount()?.checked_sub(amount_spent) {
+        let balance = if let Some(new_balance) = balance.checked_sub(amount_spent) {
             new_balance
         } else {
             return Err(StdError::generic_err(format!(
@@ -213,7 +220,7 @@ impl StoredEntry {
 
 const BTSB_BUCKET_LEN: u16 = 128;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct BtsbBucket {
     pub capacity: u16,
     #[serde(with = "BigArray")]
@@ -232,7 +239,7 @@ impl BtsbBucket {
         Ok(Self {
             capacity: BTSB_BUCKET_LEN,
             entries: [
-                StoredEntry::new(CanonicalAddr::from(&ZERO_ADDR))?; BTSB_BUCKET_LEN as usize
+                StoredEntry::new(CanonicalAddr::from(&IMPOSSIBLE_ADDR))?; BTSB_BUCKET_LEN as usize
             ]
         })
     }
@@ -253,7 +260,7 @@ impl BtsbBucket {
         true
     }
 
-    pub fn constant_time_find_address(&self, address: &CanonicalAddr) -> Option<StoredEntry> {
+    pub fn constant_time_find_address(&self, address: &CanonicalAddr) -> Option<(usize, StoredEntry)> {
         let address = address.as_slice();
 
         let mut matched_index_p1: BucketEntryPosition = 0;
@@ -264,7 +271,7 @@ impl BtsbBucket {
 
         match matched_index_p1 {
             0 => None,
-            idx => Some(self.entries[idx - 1]),
+            idx => Some((idx - 1, self.entries[idx - 1])),
         }
     }
 
@@ -376,7 +383,7 @@ pub fn locate_btsb_node(storage: &dyn Storage, address: &CanonicalAddr) -> StdRe
 pub fn find_start_bundle(storage: &dyn Storage, account: &CanonicalAddr, start_idx: u32) -> StdResult<Option<(u32, TxBundle, u32)>> {
     let (node, _, _) = locate_btsb_node(storage, account)?;
     let bucket = node.bucket(storage)?;
-    if let Some(entry) = bucket.constant_time_find_address(account) {
+    if let Some((_, entry)) = bucket.constant_time_find_address(account) {
         let mut left = 0u32;
         let mut right = entry.history_len()?;
     
@@ -402,9 +409,8 @@ pub fn find_start_bundle(storage: &dyn Storage, account: &CanonicalAddr, start_i
 /// gets the StoredEntry for a given account
 pub fn stored_entry(storage: &dyn Storage, account: &CanonicalAddr) -> StdResult<Option<StoredEntry>> {
     let (node, _, _) = locate_btsb_node(storage, account)?;
-    println!("node: {:?}", node);
     let bucket = node.bucket(storage)?;
-    Ok(bucket.constant_time_find_address(account))
+    Ok(bucket.constant_time_find_address(account).map(|b| b.1))
 }
 
 /// returns the current stored balance for an entry
@@ -440,10 +446,11 @@ pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferE
     let mut bucket = node.bucket(storage)?;
 
     // search for an existing entry
-    if let Some(mut found_entry) =  bucket.constant_time_find_address(&dwb_entry.recipient()?) {
+    if let Some((idx, mut found_entry)) = bucket.constant_time_find_address(&dwb_entry.recipient()?) {
         // found existing entry
         // merge amount and history from dwb entry
         found_entry.merge_dwb_entry(storage, &dwb_entry, amount_spent)?;
+        bucket.entries[idx] = found_entry;
 
         // save updated bucket to storage
         node.set_and_save_bucket(storage, bucket)?;
@@ -568,7 +575,7 @@ pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferE
 pub fn constant_time_get_btsb_entry(storage: &mut dyn Storage, address: CanonicalAddr) -> StdResult<Option<StoredEntry>> {
     let (node, _, _) = locate_btsb_node(storage, &address)?;
 
-    Ok(node.bucket(storage)?.constant_time_find_address(&address))
+    Ok(node.bucket(storage)?.constant_time_find_address(&address).map(|b| b.1))
 }
 
 // for fetching account's stored balance and/or history during queries

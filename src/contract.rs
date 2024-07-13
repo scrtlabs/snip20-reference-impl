@@ -2067,7 +2067,6 @@ fn perform_mint(
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
     let tx_id = store_mint_action(store, minter, to, amount, denom, memo, block)?;
-    println!("tx_id: {}", tx_id);
 
     // load delayed write buffer
     let mut dwb = DWB.load(store)?;
