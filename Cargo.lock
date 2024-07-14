@@ -3,6 +3,16 @@
 version = 3
 
 [[package]]
+name = "aead"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0"
+dependencies = [
+ "crypto-common",
+ "generic-array",
+]
+
+[[package]]
 name = "ahash"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -90,6 +100,41 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "chacha20"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3613f74bd2eac03dad61bd53dbe620703d4371614fe0bc3b9f04dd36fe4e818"
+dependencies = [
+ "cfg-if",
+ "cipher",
+ "cpufeatures",
+]
+
+[[package]]
+name = "chacha20poly1305"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10cd79432192d1c0f4e1a0fef9527696cc039165d729fb41b3f4f4f354c2dc35"
+dependencies = [
+ "aead",
+ "chacha20",
+ "cipher",
+ "poly1305",
+ "zeroize",
+]
+
+[[package]]
+name = "cipher"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
+dependencies = [
+ "crypto-common",
+ "inout",
+ "zeroize",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -168,6 +213,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
+ "rand_core 0.6.4",
  "typenum",
 ]
 
@@ -289,6 +335,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fixed-hash"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "835c052cb0c08c1acf6ffd71c022172e18723949c8282f2b9f27efbc51e64534"
+dependencies = [
+ "static_assertions",
+]
+
+[[package]]
 name = "forward_ref"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -342,12 +397,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hkdf"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+dependencies = [
+ "hmac",
+]
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest 0.10.7",
+]
+
+[[package]]
+name = "inout"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0c10553d664a4d0bcff9f4215d0aac67a639cc68ef660840afe309b807bc9f5"
+dependencies = [
+ "generic-array",
 ]
 
 [[package]]
@@ -375,6 +448,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
 
 [[package]]
+name = "minicbor"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a20020e8e2d1881d8736f64011bb5ff99f1db9947ce3089706945c8915695cb"
+dependencies = [
+ "minicbor-derive",
+]
+
+[[package]]
+name = "minicbor-derive"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8608fb1c805b5b6b3d5ab7bd95c40c396df622b64d77b2d621a5eae1eed050ee"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "minicbor-ser"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0834b86a9c56311671913d56f640d7f0b6da803df61121661cc890f0edc0eb1"
+dependencies = [
+ "minicbor",
+ "serde",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -397,10 +500,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "poly1305"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8159bd90725d2df49889a078b54f4f79e87f1f8a8444194cdca81d38f5393abf"
+dependencies = [
+ "cpufeatures",
+ "opaque-debug",
+ "universal-hash",
+]
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
+
+[[package]]
+name = "primitive-types"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b34d9fd68ae0b74a41b21c03c2f62847aa0ffea044eee893b4c140b37e244e2"
+dependencies = [
+ "fixed-hash",
+ "uint",
+]
 
 [[package]]
 name = "proc-macro2"
@@ -592,10 +716,10 @@ dependencies = [
 [[package]]
 name = "secret-toolkit"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "338c972c0a98de51ccbb859312eb7672bc64b9050b086f058748ba26a509edbb"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
 dependencies = [
  "secret-toolkit-crypto",
+ "secret-toolkit-notification",
  "secret-toolkit-permit",
  "secret-toolkit-serialization",
  "secret-toolkit-storage",
@@ -606,8 +730,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-crypto"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "003d7d5772c67f2240b7f298f96eb73a8a501916fe18c1d730ebfd591bf7e519"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
 dependencies = [
  "rand_chacha",
  "rand_core 0.6.4",
@@ -617,10 +740,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "secret-toolkit-notification"
+version = "0.10.0"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
+dependencies = [
+ "chacha20poly1305",
+ "generic-array",
+ "hkdf",
+ "minicbor-ser",
+ "primitive-types",
+ "ripemd",
+ "schemars",
+ "secret-cosmwasm-std",
+ "secret-toolkit-crypto",
+ "serde",
+ "sha2 0.10.8",
+]
+
+[[package]]
 name = "secret-toolkit-permit"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4330571400b5959450fa37040609e6804a147d83f606783506bc2275f1527712"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
 dependencies = [
  "bech32",
  "remain",
@@ -634,8 +774,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-serialization"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "890adaeaa710f9f7068a807eb1553edc8c30ce9907290895c9097dd642fc613b"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
 dependencies = [
  "bincode2",
  "schemars",
@@ -646,8 +785,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-storage"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55e8c5418af3e7ae1d1331c383b32d56c74a340dbc3b972d53555a768698f2a3"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
 dependencies = [
  "secret-cosmwasm-std",
  "secret-cosmwasm-storage",
@@ -658,8 +796,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-utils"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83f1cba2e70fd701e3dfc6072807c02eeeb9776bee49e346a9c7745d84ff40c8"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
 dependencies = [
  "schemars",
  "secret-cosmwasm-std",
@@ -670,8 +807,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-viewing-key"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d89a0b69fa9b12735a612fa30e6e7e48130943982f1783b7ddd5c46ed09e921"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
 dependencies = [
  "base64 0.21.7",
  "schemars",
@@ -784,6 +920,7 @@ dependencies = [
  "base64 0.21.7",
  "constant_time_eq",
  "cosmwasm-schema",
+ "primitive-types",
  "rand",
  "schemars",
  "secret-cosmwasm-std",
@@ -882,6 +1019,16 @@ name = "unicode-ident"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
+
+[[package]]
+name = "universal-hash"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc1de2c688dc15305988b563c3854064043356019f97a4b46276fe734c4f07ea"
+dependencies = [
+ "crypto-common",
+ "subtle",
+]
 
 [[package]]
 name = "version_check"

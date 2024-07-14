@@ -7,9 +7,7 @@ use cosmwasm_std::{to_binary, Api, Binary, CanonicalAddr, StdError, StdResult, S
 use secret_toolkit::storage::{AppendStore, Item};
 
 use crate::{
-    msg::QueryAnswer,
-    state::{safe_add, safe_add_u64, BalancesStore,},
-    transaction_history::{Tx, TRANSACTIONS},
+    dwb, msg::QueryAnswer, state::{safe_add, safe_add_u64,}, stored_balances::{merge_dwb_entry, stored_balance}, transaction_history::{Tx, TRANSACTIONS}
 };
 
 pub const KEY_DWB: &[u8] = b"dwb";
@@ -46,13 +44,13 @@ pub struct DelayedWriteBuffer {
     pub entries: [DelayedWriteBufferEntry; DWB_LEN as usize],
 }
 
-#[inline]
-fn random_addr(rng: &mut ContractPrng) -> CanonicalAddr {
-    #[cfg(test)]
-    return CanonicalAddr::from(&[rng.rand_bytes(), rng.rand_bytes()].concat()[0..DWB_RECIPIENT_BYTES]); // because mock canonical addr is 54 bytes
-    #[cfg(not(test))]
-    CanonicalAddr::from(&rng.rand_bytes()[0..DWB_RECIPIENT_BYTES]) // canonical addr is 20 bytes (less than 32)
-}
+//#[inline]
+//fn random_addr(rng: &mut ContractPrng) -> CanonicalAddr {
+//    #[cfg(test)]
+//    return CanonicalAddr::from(&[rng.rand_bytes(), rng.rand_bytes()].concat()[0..DWB_RECIPIENT_BYTES]); // because mock canonical addr is 54 bytes
+//    #[cfg(not(test))]
+//    CanonicalAddr::from(&rng.rand_bytes()[0..DWB_RECIPIENT_BYTES]) // canonical addr is 20 bytes (less than 32)
+//}
 
 pub fn random_in_range(rng: &mut ContractPrng, a: u32, b: u32) -> StdResult<u32> {
     if b <= a {
@@ -82,12 +80,14 @@ impl DelayedWriteBuffer {
     }
 
     /// settles an entry at a given index in the buffer
+    #[inline]
     fn settle_entry(
-        &mut self,
+        &self,
         store: &mut dyn Storage,
         index: usize,
     ) -> StdResult<()> {
-        let entry = self.entries[index];
+        merge_dwb_entry(store, self.entries[index], None)
+/*
         let account = entry.recipient()?;
 
         AccountTxsStore::append_bundle(
@@ -102,6 +102,7 @@ impl DelayedWriteBuffer {
         safe_add(&mut balance, entry.amount()? as u128);
         // add the amount from entry to the stored balance
         BalancesStore::save(store, &account, balance)
+*/
     }
 
     /// settles a participant's account who may or may not have an entry in the buffer
@@ -109,19 +110,27 @@ impl DelayedWriteBuffer {
     pub fn settle_sender_or_owner_account(
         &mut self,
         store: &mut dyn Storage,
-        rng: &mut ContractPrng,
         address: &CanonicalAddr,
         tx_id: u64,
         amount_spent: u128,
         op_name: &str,
     ) -> StdResult<()> {
         // release the address from the buffer
-        let (balance, mut entry) = self.constant_time_release(
+        let (balance, mut dwb_entry) = self.constant_time_release(
             store, 
-            rng, 
             address
         )?;
 
+        if balance.checked_sub(amount_spent).is_none() {
+            return Err(StdError::generic_err(format!(
+                "insufficient funds to {op_name}: balance={balance}, required={amount_spent}",
+            )));
+        };
+
+        dwb_entry.add_tx_node(store, tx_id)?;
+
+        merge_dwb_entry(store, dwb_entry, Some(amount_spent))
+/* 
         let head_node = entry.add_tx_node(store, tx_id)?;
 
         AccountTxsStore::append_bundle(
@@ -131,16 +140,10 @@ impl DelayedWriteBuffer {
             entry.list_len()?,
         )?;
     
-        let new_balance = if let Some(balance_after_sub) = balance.checked_sub(amount_spent) {
-            balance_after_sub
-        } else {
-            return Err(StdError::generic_err(format!(
-                "insufficient funds to {op_name}: balance={balance}, required={amount_spent}",
-            )));
-        };
         BalancesStore::save(store, address, new_balance)?;
     
         Ok(())
+*/
     }
 
     /// "releases" a given recipient from the buffer, removing their entry if one exists, in constant-time
@@ -148,11 +151,10 @@ impl DelayedWriteBuffer {
     fn constant_time_release(
         &mut self, 
         store: &mut dyn Storage, 
-        rng: &mut ContractPrng, 
         address: &CanonicalAddr
     ) -> StdResult<(u128, DelayedWriteBufferEntry)> {
         // get the address' stored balance
-        let mut balance = BalancesStore::load(store, address);
+        let mut balance = stored_balance(store, address)?;
 
         // locate the position of the entry in the buffer
         let matched_entry_idx = self.recipient_match(address);
@@ -172,15 +174,15 @@ impl DelayedWriteBuffer {
         Ok((balance, entry))
     }
 
-    fn unique_random_entry(&self, rng: &mut ContractPrng) -> StdResult<DelayedWriteBufferEntry> {
-        // produce a new random address
-        let mut replacement_address = random_addr(rng);
-        // ensure random addr is not already in dwb (extremely unlikely!!)
-        while self.recipient_match(&replacement_address) > 0 {
-            replacement_address = random_addr(rng);
-        }
-        DelayedWriteBufferEntry::new(replacement_address)
-    }
+    //fn unique_random_entry(&self, rng: &mut ContractPrng) -> StdResult<DelayedWriteBufferEntry> {
+    //    // produce a new random address
+    //    let mut replacement_address = random_addr(rng);
+    //    // ensure random addr is not already in dwb (extremely unlikely!!)
+    //    while self.recipient_match(&replacement_address) > 0 {
+    //        replacement_address = random_addr(rng);
+    //    }
+    //    DelayedWriteBufferEntry::new(replacement_address)
+    //}
 
     // returns matched index for a given address
     pub fn recipient_match(&self, address: &CanonicalAddr) -> usize {
@@ -413,14 +415,20 @@ impl DelayedWriteBufferEntry {
     fn add_amount(&mut self, add_tx_amount: u128) -> StdResult<u64> {
         // change this to safe_add if your coin needs to store amount in buffer as u128 (e.g. 18 decimals)
         let mut amount = self.amount()?;
-        let add_tx_amount_u64 = add_tx_amount
-            .try_into()
-            .or_else(|_| return Err(StdError::generic_err("dwb: deposit overflow")))?;
+        let add_tx_amount_u64 = amount_u64(Some(add_tx_amount))?;
         safe_add_u64(&mut amount, add_tx_amount_u64);
         self.set_amount(amount)?;
 
         Ok(amount)
     }
+}
+
+pub fn amount_u64(amount_spent: Option<u128>) -> StdResult<u64> {
+    let amount_spent = amount_spent.unwrap_or_default();
+    let amount_spent_u64 = amount_spent
+        .try_into()
+        .or_else(|_| return Err(StdError::generic_err("se: spent overflow")))?;
+    Ok(amount_spent_u64)
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -471,70 +479,11 @@ pub struct TxBundle {
 /// The bundle points to a linked list of transaction nodes, which each reference
 /// a transaction record by its global id.
 /// used with add_suffix(canonical addr of account)
-pub static ACCOUNT_TXS: AppendStore<TxBundle> = AppendStore::new(KEY_ACCOUNT_TXS);
+//pub static ACCOUNT_TXS: AppendStore<TxBundle> = AppendStore::new(KEY_ACCOUNT_TXS);
 
 /// Keeps track of the total count of txs for an account (not tx bundles)
 /// used with add_suffix(canonical addr of account)
-pub static ACCOUNT_TX_COUNT: Item<u32> = Item::new(KEY_ACCOUNT_TX_COUNT);
-
-pub struct AccountTxsStore {}
-impl AccountTxsStore {
-    /// appends a new tx bundle for an account, called when non-transfer tx occurs or is settled.
-    pub fn append_bundle(store: &mut dyn Storage, account: &CanonicalAddr, head_node: u64, list_len: u16) -> StdResult<()> {
-        let account_txs_store = ACCOUNT_TXS.add_suffix(account.as_slice());
-        let account_txs_len = account_txs_store.get_len(store)?;
-        let tx_bundle;
-        if account_txs_len > 0 {
-            // peek at the last tx bundle added
-            let last_tx_bundle = account_txs_store.get_at(store, account_txs_len - 1)?;
-            tx_bundle = TxBundle {
-                head_node,
-                list_len,
-                offset: last_tx_bundle.offset + u32::from(last_tx_bundle.list_len),
-            };
-        } else { // this is the first bundle for the account
-            tx_bundle = TxBundle {
-                head_node,
-                list_len,
-                offset: 0,
-            };
-        }
-
-        // update the total count of txs for account
-        let account_tx_count_store = ACCOUNT_TX_COUNT.add_suffix(account.as_slice());
-        let account_tx_count = account_tx_count_store.may_load(store)?.unwrap_or_default();
-        account_tx_count_store.save(store, &(account_tx_count.saturating_add(u32::from(list_len))))?;
-
-        account_txs_store.push(store, &tx_bundle)
-    }
-
-    /// Does a binary search on the append store to find the bundle where the `start_idx` tx can be found.
-    /// For a paginated search `start_idx` = `page` * `page_size`.
-    /// Returns the bundle index, the bundle, and the index in the bundle list to start at
-    pub fn find_start_bundle(store: &dyn Storage, account: &CanonicalAddr, start_idx: u32) -> StdResult<Option<(u32, TxBundle, u32)>> {
-        let account_txs_store = ACCOUNT_TXS.add_suffix(account.as_slice());
-
-        let mut left = 0u32;
-        let mut right = account_txs_store.get_len(store)?;
-
-        while left <= right {
-            let mid = (left + right) / 2;
-            let mid_bundle = account_txs_store.get_at(store, mid)?;
-            if start_idx >= mid_bundle.offset && start_idx < mid_bundle.offset + (mid_bundle.list_len as u32) {
-                // we have the correct bundle
-                // which index in list to start at?
-                let start_at = (mid_bundle.list_len as u32) - (start_idx - mid_bundle.offset) - 1;
-                return Ok(Some((mid, mid_bundle, start_at)));
-            } else if start_idx < mid_bundle.offset {
-                right = mid - 1;
-            } else {
-                left = mid + 1;
-            }
-        }
-
-        Ok(None)
-    }
-}
+//pub static ACCOUNT_TX_COUNT: Item<u32> = Item::new(KEY_ACCOUNT_TX_COUNT);
 
 #[inline]
 fn constant_time_is_not_zero(value: i32) -> u32 {
