@@ -11,7 +11,6 @@ use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
 use crate::dwb::{log_dwb, DelayedWriteBuffer, DWB, TX_NODES};
-//use crate::bucket;
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
     ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
@@ -20,7 +19,7 @@ use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     safe_add, AllowancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET, PRNG, TOTAL_SUPPLY
 };
-use crate::stored_balances::{find_start_bundle, initialize_btsb, stored_balance, stored_entry, stored_tx_count};
+use crate::btbe::{find_start_bundle, initialize_btbe, stored_balance, stored_entry, stored_tx_count};
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
     store_burn_action, store_deposit_action, store_mint_action, store_redeem_action, store_transfer_action, Tx  
@@ -64,8 +63,8 @@ pub fn instantiate(
     let prng_seed_hashed = sha_256(&msg.prng_seed.0);
     PrngStore::save(deps.storage, prng_seed_hashed)?;
 
-    // initialize the bitwise-trie of stored entries
-    initialize_btsb(deps.storage)?;
+    // initialize the bitwise-trie of bucketed entries
+    initialize_btbe(deps.storage)?;
 
     // initialize the delay write buffer
     DWB.save(deps.storage, &DelayedWriteBuffer::new()?)?;
@@ -182,8 +181,6 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ContractStatusLevel::NormalRun => {} // If it's a normal run just continue
     }
 
-    let secret = INTERNAL_SECRET.load(deps.storage)?;
-    let secret = secret.as_slice();
     let response = match msg.clone() {
         // Native
         ExecuteMsg::Deposit { .. } => {

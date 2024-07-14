@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, CanonicalAddr, StdError, StdResult, Storage};
+use cosmwasm_std::{Addr, StdError, StdResult, Storage};
 use secret_toolkit::serialization::Json;
 use secret_toolkit::storage::{Item, Keymap, Keyset};
 use secret_toolkit_crypto::SHA256_HASH_SIZE;

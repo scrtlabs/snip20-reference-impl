@@ -4,11 +4,12 @@ use secret_toolkit_crypto::ContractPrng;
 use serde::{Serialize, Deserialize,};
 use serde_big_array::BigArray;
 use cosmwasm_std::{to_binary, Api, Binary, CanonicalAddr, StdError, StdResult, Storage};
-use secret_toolkit::storage::{AppendStore, Item};
+use secret_toolkit::storage::Item;
 
-use crate::{
-    dwb, msg::QueryAnswer, state::{safe_add, safe_add_u64,}, stored_balances::{merge_dwb_entry, stored_balance}, transaction_history::{Tx, TRANSACTIONS}
-};
+use crate::msg::QueryAnswer;
+use crate::state::{safe_add, safe_add_u64,};
+use crate::btbe::{merge_dwb_entry, stored_balance};
+use crate::transaction_history::{Tx, TRANSACTIONS};
 
 pub const KEY_DWB: &[u8] = b"dwb";
 pub const KEY_TX_NODES_COUNT: &[u8] = b"dwb-node-cnt";

@@ -8,5 +8,5 @@ pub mod receiver;
 pub mod state;
 mod transaction_history;
 mod dwb;
-mod stored_balances;
+mod btbe;
 mod strings;
