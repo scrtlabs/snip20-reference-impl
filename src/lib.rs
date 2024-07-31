@@ -10,3 +10,4 @@ mod transaction_history;
 mod dwb;
 mod btbe;
 mod strings;
+mod gas_tracker;

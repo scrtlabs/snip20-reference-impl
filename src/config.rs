@@ -1,0 +1,1 @@
+pub const DWB_CAPACITY: u16 = 4;

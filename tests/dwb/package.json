@@ -1,0 +1,23 @@
+{
+  "private": "true",
+  "scripts": {
+    "test": "pushd ../../ && make compile-optimized && popd && bun run src/main.ts"
+  },
+  "devDependencies": {
+    "@blake.regalia/belt": "^0.36.2",
+    "@blake.regalia/eslint-config-elite": "^0.4.4",
+    "@blake.regalia/tsconfig": "^0.2.0",
+    "@solar-republic/types": "^0.2.10",
+    "@types/node": "^22.0.0",
+    "chai": "^5.1.1",
+    "chai-bites": "^0.2.0",
+    "eslint": " 8"
+  },
+  "dependencies": {
+    "@solar-republic/contractor": "^0.8.15",
+    "@solar-republic/cosmos-grpc": "^0.15.4",
+    "@solar-republic/crypto": "^0.2.11",
+    "@solar-republic/neutrino": "^1.4.5",
+    "bignumber.js": "^9.1.2"
+  }
+}

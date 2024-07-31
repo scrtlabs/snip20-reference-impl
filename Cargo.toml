@@ -1,7 +1,7 @@
 [package]
 name = "snip20-reference-impl"
 version = "1.0.0"
-authors = ["@reuvenpo","@toml01","@assafmo","@liorbond","Itzik <itzik@keytango.io>","@darwinzer0"]
+authors = ["@reuvenpo","@toml01","@assafmo","@liorbond","Itzik <itzik@keytango.io>","@darwinzer0","@supdoggie"]
 edition = "2021"
 exclude = [
   # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.
@@ -29,6 +29,7 @@ overflow-checks = true
 # for more explicit tests, cargo test --features=backtraces
 #default = ["debug-print"]
 backtraces = ["cosmwasm-std/backtraces"]
+gas_tracking = []
 
 # debug-print = ["cosmwasm-std/debug-print"]
 [dependencies]
