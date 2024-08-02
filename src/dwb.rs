@@ -99,13 +99,13 @@ impl DelayedWriteBuffer {
         let mut group1 = tracker.group("settle_sender_or_owner_account.1");
 
         // release the address from the buffer
-        let (balance, mut dwb_entry) = self.constant_time_release(
+        let (balance, mut dwb_entry) = self.release_dwb_recipient(
             store, 
             address
         )?;
 
         #[cfg(feature="gas_tracking")]
-        group1.log("constant_time_release");
+        group1.log("release_dwb_recipient");
 
         if balance.checked_sub(amount_spent).is_none() {
             return Err(StdError::generic_err(format!(
@@ -126,15 +126,12 @@ impl DelayedWriteBuffer {
 
         let result = merge_dwb_entry(store, entry, Some(amount_spent), tracker);
 
-        // #[cfg(feature="gas_tracking")]
-        // group2.log("merge_dwb_entry");
-
         result
     }
 
-    /// "releases" a given recipient from the buffer, removing their entry if one exists, in constant-time
+    /// "releases" a given recipient from the buffer, removing their entry if one exists
     /// returns the new balance and the buffer entry
-    fn constant_time_release(
+    fn release_dwb_recipient(
         &mut self, 
         store: &mut dyn Storage, 
         address: &CanonicalAddr

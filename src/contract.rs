@@ -901,9 +901,8 @@ fn try_mint(
     let mut resp = Response::new()
         .set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?);
 
-    if cfg!(feature="gas_tracking") {
-        resp = tracker.add_to_response(resp);
-    }
+    #[cfg(feature="gas_tracking")]
+    resp.add_gas_tracker(tracker);
 
     Ok(resp)
 }
@@ -1138,9 +1137,8 @@ fn try_deposit(
     let mut resp = Response::new()
         .set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?);
 
-    if cfg!(feature="gas_tracking") {
-        resp = tracker.add_to_response(resp);
-    }
+    #[cfg(feature="gas_tracking")]
+    resp.add_gas_tracker(tracker);
 
     Ok(resp)
 }
@@ -1297,9 +1295,8 @@ fn try_transfer(
     #[cfg(feature="gas_tracking")]
     group1.log("rest");
 
-    if cfg!(feature="gas_tracking") {
-        resp = tracker.add_to_response(resp);
-    }
+    #[cfg(feature="gas_tracking")]
+    resp.add_gas_tracker(tracker);
 
     Ok(resp)
 }
@@ -1333,9 +1330,8 @@ fn try_batch_transfer(
     let mut resp = Response::new()
         .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
 
-    if cfg!(feature="gas_tracking") {
-        resp = tracker.add_to_response(resp);
-    }
+    #[cfg(feature="gas_tracking")]
+    resp.add_gas_tracker(tracker);
 
     Ok(resp)
 }
@@ -1450,9 +1446,8 @@ fn try_send(
         .add_messages(messages)
         .set_data(to_binary(&ExecuteAnswer::Send { status: Success })?);
 
-    if cfg!(feature="gas_tracking") {
-        resp = tracker.add_to_response(resp);
-    }
+    #[cfg(feature="gas_tracking")]
+    resp.add_gas_tracker(tracker);
 
     Ok(resp)
 }
