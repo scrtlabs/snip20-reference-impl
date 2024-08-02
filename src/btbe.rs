@@ -439,6 +439,7 @@ pub fn merge_dwb_entry(
     storage: &mut dyn Storage,
     dwb_entry: DelayedWriteBufferEntry,
     amount_spent: Option<u128>,
+    #[cfg(feature="gas_tracking")]
     tracker: &mut GasTracker,
 ) -> StdResult<()> {
     #[cfg(feature="gas_tracking")]

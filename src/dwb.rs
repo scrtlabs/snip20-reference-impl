@@ -93,6 +93,7 @@ impl DelayedWriteBuffer {
         tx_id: u64,
         amount_spent: u128,
         op_name: &str,
+        #[cfg(feature="gas_tracking")]
         tracker: &mut GasTracker,
     ) -> StdResult<()> {
         #[cfg(feature="gas_tracking")]
@@ -124,7 +125,13 @@ impl DelayedWriteBuffer {
         #[cfg(feature="gas_tracking")]
         group1.logf(format!("@entry=address:{}, amount:{}", entry.recipient()?, entry.amount()?));
 
-        let result = merge_dwb_entry(store, entry, Some(amount_spent), tracker);
+        let result = merge_dwb_entry(
+            store, 
+            entry, 
+            Some(amount_spent),
+            #[cfg(feature="gas_tracking")]
+            tracker
+        );
 
         result
     }
@@ -186,6 +193,7 @@ impl DelayedWriteBuffer {
         recipient: &CanonicalAddr,
         tx_id: u64,
         amount: u128,
+        #[cfg(feature="gas_tracking")]
         tracker: &mut GasTracker<'a>,
     ) -> StdResult<()> {
         #[cfg(feature="gas_tracking")]
@@ -260,7 +268,13 @@ impl DelayedWriteBuffer {
 
         // settle the entry
         let dwb_entry = self.entries[actual_settle_index];
-        merge_dwb_entry(store, dwb_entry, None, tracker)?;
+        merge_dwb_entry(
+            store,
+            dwb_entry,
+            None,
+            #[cfg(feature="gas_tracking")]
+            tracker
+        )?;
 
         #[cfg(feature="gas_tracking")]
         let mut group2 = tracker.group("add_recipient.2");

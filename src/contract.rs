@@ -101,6 +101,7 @@ pub fn instantiate(
     for balance in initial_balances {
         let amount = balance.amount.u128();
         let balance_address = deps.api.addr_canonicalize(balance.address.as_str())?;
+        #[cfg(feature="gas_tracking")]
         let mut tracker = GasTracker::new(deps.api);
         perform_mint(
             deps.storage, 
@@ -111,6 +112,7 @@ pub fn instantiate(
             msg.symbol.clone(),
             Some("Initial Balance".to_string()),
             &env.block,
+            #[cfg(feature="gas_tracking")]
             &mut tracker,
         )?;
 
@@ -831,6 +833,7 @@ fn try_mint_impl(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
+    #[cfg(feature="gas_tracking")]
     tracker: &mut GasTracker,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
@@ -846,6 +849,7 @@ fn try_mint_impl(
         denom,
         memo,
         block,
+        #[cfg(feature="gas_tracking")]
         tracker,
     )?;
 
@@ -883,6 +887,7 @@ fn try_mint(
     let minted_amount = safe_add(&mut total_supply, amount.u128());
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
+    #[cfg(feature="gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     // Note that even when minted_amount is equal to 0 we still want to perform the operations for logic consistency
@@ -895,6 +900,7 @@ fn try_mint(
         constants.symbol,
         memo,
         &env.block,
+        #[cfg(feature="gas_tracking")]
         &mut tracker,
     )?;
 
@@ -937,6 +943,7 @@ fn try_batch_mint(
 
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
 
+        #[cfg(feature="gas_tracking")]
         let mut tracker: GasTracker = GasTracker::new(deps.api);
 
         try_mint_impl(
@@ -948,6 +955,7 @@ fn try_batch_mint(
             constants.symbol.clone(),
             action.memo,
             &env.block,
+            #[cfg(feature="gas_tracking")]
             &mut tracker,
         )?;
     }
@@ -1122,6 +1130,7 @@ fn try_deposit(
 
     let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
 
+    #[cfg(feature="gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     perform_deposit(
@@ -1131,6 +1140,7 @@ fn try_deposit(
         raw_amount,
         "uscrt".to_string(),
         &env.block,
+        #[cfg(feature="gas_tracking")]
         &mut tracker,
     )?;
 
@@ -1190,7 +1200,15 @@ fn try_redeem(
     let mut tracker = GasTracker::new(deps.api);
 
     // settle the signer's account in buffer
-    dwb.settle_sender_or_owner_account(deps.storage, &sender_address, tx_id, amount_raw, "redeem", &mut tracker)?;
+    dwb.settle_sender_or_owner_account(
+        deps.storage, 
+        &sender_address, 
+        tx_id, 
+        amount_raw,
+        "redeem", 
+        #[cfg(feature="gas_tracking")]
+        &mut tracker,
+    )?;
 
     DWB.save(deps.storage, &dwb)?;
 
@@ -1237,6 +1255,7 @@ fn try_transfer_impl(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
+    #[cfg(feature="gas_tracking")]
     tracker: &mut GasTracker,
 ) -> StdResult<()> {
     let raw_sender = deps.api.addr_canonicalize(sender.as_str())?;
@@ -1252,7 +1271,8 @@ fn try_transfer_impl(
         denom,
         memo,
         block,
-        tracker
+        #[cfg(feature="gas_tracking")]
+        tracker,
     )?;
 
     Ok(())
@@ -1272,6 +1292,7 @@ fn try_transfer(
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
+    #[cfg(feature="gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     try_transfer_impl(
@@ -1283,7 +1304,8 @@ fn try_transfer(
         symbol,
         memo,
         &env.block,
-        &mut tracker
+        #[cfg(feature="gas_tracking")]
+        &mut tracker,
     )?;
 
     #[cfg(feature="gas_tracking")]
@@ -1310,6 +1332,7 @@ fn try_batch_transfer(
 ) -> StdResult<Response> {
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
+    #[cfg(feature="gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     for action in actions {
@@ -1323,7 +1346,8 @@ fn try_batch_transfer(
             symbol.clone(),
             action.memo,
             &env.block,
-            &mut tracker
+            #[cfg(feature="gas_tracking")]
+            &mut tracker,
         )?;
     }
 
@@ -1379,7 +1403,8 @@ fn try_send_impl(
     memo: Option<String>,
     msg: Option<Binary>,
     block: &cosmwasm_std::BlockInfo,
-    tracker: &mut GasTracker
+    #[cfg(feature="gas_tracking")]
+    tracker: &mut GasTracker,
 ) -> StdResult<()> {
     try_transfer_impl(
         deps,
@@ -1390,6 +1415,7 @@ fn try_send_impl(
         denom,
         memo.clone(),
         block,
+        #[cfg(feature="gas_tracking")]
         tracker,
     )?;
 
@@ -1425,6 +1451,7 @@ fn try_send(
     let mut messages = vec![];
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
+    #[cfg(feature="gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     try_send_impl(
@@ -1439,7 +1466,8 @@ fn try_send(
         memo,
         msg,
         &env.block,
-        &mut tracker
+        #[cfg(feature="gas_tracking")]
+        &mut tracker,
     )?;
 
     let mut resp = Response::new()
@@ -1462,6 +1490,7 @@ fn try_batch_send(
     let mut messages = vec![];
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
+    #[cfg(feature="gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     for action in actions {
@@ -1478,6 +1507,7 @@ fn try_batch_send(
             action.memo,
             action.msg,
             &env.block,
+            #[cfg(feature="gas_tracking")]
             &mut tracker,
         )?;
     }
@@ -1548,6 +1578,7 @@ fn try_transfer_from_impl(
 
     use_allowance(deps.storage, env, owner, spender, raw_amount)?;
 
+    #[cfg(feature="gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     perform_transfer(
@@ -1560,6 +1591,7 @@ fn try_transfer_from_impl(
         denom,
         memo,
         &env.block,
+        #[cfg(feature="gas_tracking")]
         &mut tracker,
     )?;
 
@@ -1773,12 +1805,29 @@ fn try_burn_from(
     // load delayed write buffer
     let mut dwb = DWB.load(deps.storage)?;
 
+    #[cfg(feature="gas_tracking")]
     let mut tracker = GasTracker::new(deps.api);
 
     // settle the owner's account in buffer
-    dwb.settle_sender_or_owner_account(deps.storage, &raw_owner, tx_id, raw_amount, "burn", &mut tracker)?;
+    dwb.settle_sender_or_owner_account(
+        deps.storage, 
+        &raw_owner, 
+        tx_id, 
+        raw_amount, 
+        "burn", 
+        #[cfg(feature="gas_tracking")]
+        &mut tracker,
+    )?;
     if raw_burner != raw_owner { // also settle sender's account
-        dwb.settle_sender_or_owner_account(deps.storage, &raw_burner, tx_id, 0, "burn", &mut tracker)?;
+        dwb.settle_sender_or_owner_account(
+            deps.storage, 
+            &raw_burner, 
+            tx_id, 
+            0,
+             "burn", 
+             #[cfg(feature="gas_tracking")]
+             &mut tracker,
+        )?;
     }
 
     DWB.save(deps.storage, &dwb)?;
@@ -1833,12 +1882,29 @@ fn try_batch_burn_from(
         // load delayed write buffer
         let mut dwb = DWB.load(deps.storage)?;
 
+        #[cfg(feature="gas_tracking")]
         let mut tracker = GasTracker::new(deps.api);
     
         // settle the owner's account in buffer
-        dwb.settle_sender_or_owner_account(deps.storage, &raw_owner, tx_id, amount, "burn", &mut tracker)?;
+        dwb.settle_sender_or_owner_account(
+            deps.storage, 
+            &raw_owner, 
+            tx_id, 
+            amount, 
+            "burn",
+            #[cfg(feature="gas_tracking")] 
+            &mut tracker,
+        )?;
         if raw_spender != raw_owner {
-            dwb.settle_sender_or_owner_account(deps.storage, &raw_spender, tx_id, 0, "burn", &mut tracker)?;
+            dwb.settle_sender_or_owner_account(
+                deps.storage, 
+                &raw_spender, 
+                tx_id, 
+                0, 
+                "burn", 
+                #[cfg(feature="gas_tracking")]
+                &mut tracker,
+            )?;
         }
     
         DWB.save(deps.storage, &dwb)?;
@@ -2042,10 +2108,19 @@ fn try_burn(
     // load delayed write buffer
     let mut dwb = DWB.load(deps.storage)?;
 
+    #[cfg(feature="gas_tracking")]
     let mut tracker = GasTracker::new(deps.api);
 
     // settle the signer's account in buffer
-    dwb.settle_sender_or_owner_account(deps.storage, &raw_burn_address, tx_id, raw_amount, "burn", &mut tracker)?;
+    dwb.settle_sender_or_owner_account(
+        deps.storage, 
+        &raw_burn_address, 
+        tx_id, 
+        raw_amount, 
+        "burn", 
+        #[cfg(feature="gas_tracking")]
+        &mut tracker,
+    )?;
 
     DWB.save(deps.storage, &dwb)?;
 
@@ -2072,6 +2147,7 @@ fn perform_transfer(
     denom: String,
     memo: Option<String>,
     block: &BlockInfo,
+    #[cfg(feature="gas_tracking")]
     tracker: &mut GasTracker,
 ) -> StdResult<()> {
     #[cfg(feature="gas_tracking")]
@@ -2092,15 +2168,39 @@ fn perform_transfer(
     let transfer_str = "transfer";
 
     // settle the owner's account
-    dwb.settle_sender_or_owner_account(store, from, tx_id, amount, transfer_str, tracker)?;
+    dwb.settle_sender_or_owner_account(
+        store, 
+        from, 
+        tx_id, 
+        amount, 
+        transfer_str,
+        #[cfg(feature="gas_tracking")]
+        tracker,
+    )?;
 
     // if this is a *_from action, settle the sender's account, too
     if sender != from {
-        dwb.settle_sender_or_owner_account(store, sender, tx_id, 0, transfer_str, tracker)?;
+        dwb.settle_sender_or_owner_account(
+            store, 
+            sender, 
+            tx_id, 
+            0, 
+            transfer_str, 
+            #[cfg(feature="gas_tracking")]
+            tracker,
+        )?;
     }
 
     // add the tx info for the recipient to the buffer
-    dwb.add_recipient(store, rng, to, tx_id, amount, tracker)?;
+    dwb.add_recipient(
+        store, 
+        rng, 
+        to, 
+        tx_id, 
+        amount, 
+        #[cfg(feature="gas_tracking")]
+        tracker,
+    )?;
     
     #[cfg(feature="gas_tracking")]
     let mut group2 = tracker.group("perform_transfer.2");
@@ -2122,6 +2222,7 @@ fn perform_mint(
     denom: String,
     memo: Option<String>,
     block: &BlockInfo,
+    #[cfg(feature="gas_tracking")]
     tracker: &mut GasTracker,
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
@@ -2132,11 +2233,27 @@ fn perform_mint(
 
     // if minter is not recipient, settle them
     if minter != to {
-        dwb.settle_sender_or_owner_account(store, minter, tx_id, 0, "mint", tracker)?;
+        dwb.settle_sender_or_owner_account(
+            store, 
+            minter, 
+            tx_id, 
+            0, 
+            "mint",
+            #[cfg(feature="gas_tracking")]
+            tracker,
+        )?;
     }
 
     // add the tx info for the recipient to the buffer
-    dwb.add_recipient(store, rng, to, tx_id, amount, tracker)?;
+    dwb.add_recipient(
+        store, 
+        rng, 
+        to, 
+        tx_id, 
+        amount, 
+        #[cfg(feature="gas_tracking")]
+        tracker,
+    )?;
 
     DWB.save(store, &dwb)?;
 
@@ -2150,6 +2267,7 @@ fn perform_deposit(
     amount: u128,
     denom: String,
     block: &BlockInfo,
+    #[cfg(feature="gas_tracking")]
     tracker: &mut GasTracker,
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
@@ -2159,7 +2277,15 @@ fn perform_deposit(
     let mut dwb = DWB.load(store)?;
 
     // add the tx info for the recipient to the buffer
-    dwb.add_recipient(store, rng, to, tx_id, amount, tracker)?;
+    dwb.add_recipient(
+        store, 
+        rng, 
+        to, 
+        tx_id, 
+        amount,
+        #[cfg(feature="gas_tracking")]
+        tracker,
+    )?;
 
     DWB.save(store, &dwb)?;
 
