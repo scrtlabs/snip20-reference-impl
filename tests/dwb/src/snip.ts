@@ -127,12 +127,6 @@ export async function transfer(
 	// sync the buffer
 	await k_dwbv.sync();
 
-	// // results
-	// const sg_gas_used = g_meta?.gas_used;
-	// console.log(`  ⏹  ${k_dwbv.empty} spaces`);	
-
-	// console.log(stringify_json(h_events, null, '  '));
-
 	const h_tracking: GroupedGasLogs = {};
 	for(const [si_key, a_values] of entries(h_events!)) {
 		const m_key = /^wasm\.gas\.(.+)$/.exec(si_key);

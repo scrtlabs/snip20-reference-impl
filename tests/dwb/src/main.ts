@@ -112,22 +112,20 @@ async function transfer_chain(sx_chain: string) {
 
 	let k_checker: GasChecker | null = null;
 
-	for(let s_r1='a'; s_r1<='z'; s_r1=String.fromCharCode(s_r1.charCodeAt(0)+1)) {
-		for(let s_r2='a'; s_r2<='z'; s_r2=String.fromCharCode(s_r2.charCodeAt(0)+1)) {
-			const si_receiver = s_r1+s_r2;
+	for(let i_sim=0; i_sim<700; i_sim++) {
+		const si_receiver = i_sim+'';
 
-			const k_wallet = await Wallet(await sha256(text_to_bytes(si_receiver)), 'secretdev-1', P_LOCALSECRET_LCD, P_LOCALSECRET_RPC, 'secret');
+		const k_wallet = await Wallet(await sha256(text_to_bytes(si_receiver)), 'secretdev-1', P_LOCALSECRET_LCD, P_LOCALSECRET_RPC, 'secret');
 
-			const k_app_receiver = SecretApp(k_wallet, k_contract, X_GAS_PRICE);
+		const k_app_receiver = SecretApp(k_wallet, k_contract, X_GAS_PRICE);
 
-			console.log(`Alice --> ${si_receiver}`);
+		console.log(`Alice --> ${si_receiver}`);
 
-			// @ts-expect-error secret app
-			const g_result = await transfer(k_dwbv, 1_000000n, k_app_a, k_app_receiver, k_checker);
+		// @ts-expect-error secret app
+		const g_result = await transfer(k_dwbv, i_sim % 2? 1_000000n: 2_000000n, k_app_a, k_app_receiver, k_checker);
 
-			if(!k_checker) {
-				k_checker = new GasChecker(g_result.tracking, g_result.gasUsed);
-			}
+		if(!k_checker) {
+			k_checker = new GasChecker(g_result.tracking, g_result.gasUsed);
 		}
 	}
 }
