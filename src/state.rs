@@ -15,7 +15,6 @@ pub const KEY_PRNG: &[u8] = b"prng";
 pub const KEY_MINTERS: &[u8] = b"minters";
 pub const KEY_TX_COUNT: &[u8] = b"tx-count";
 
-pub const PREFIX_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_ALLOWANCES: &[u8] = b"allowances";
 pub const PREFIX_ALLOWED: &[u8] = b"allowed";
@@ -109,7 +108,7 @@ impl MintersStore {
 
 // To avoid balance guessing attacks based on balance overflow we need to perform safe addition and don't expose overflows to the caller.
 // Assuming that max of u128 is probably an unreachable balance, we want the addition to be bounded the max of u128
-// Currently the logic here is very straight forward yet the existence of the function is mendatory for future changes if needed.
+// Currently the logic here is very straight forward yet the existence of the function is mandatory for future changes if needed.
 pub fn safe_add(balance: &mut u128, amount: u128) -> u128 {
     // Note that new_amount can be equal to base after this operation.
     // Currently we do nothing maybe on other implementations we will have something to add here
@@ -120,95 +119,17 @@ pub fn safe_add(balance: &mut u128, amount: u128) -> u128 {
     *balance - prev_balance
 }
 
-pub static BALANCES: Item<u128> = Item::new(PREFIX_BALANCES);
-pub struct BalancesStore {}
-impl BalancesStore {
-    fn save(store: &mut dyn Storage, account: &Addr, amount: u128) -> StdResult<()> {
-        let balances = BALANCES.add_suffix(account.as_str().as_bytes());
-        balances.save(store, &amount)
-    }
+// To avoid balance guessing attacks based on balance overflow we need to perform safe addition and don't expose overflows to the caller.
+// Assuming that max of u64 is probably an unreachable balance, we want the addition to be bounded the max of u64
+// Currently the logic here is very straight forward yet the existence of the function is mandatory for future changes if needed.
+pub fn safe_add_u64(balance: &mut u64, amount: u64) -> u64 {
+    // Note that new_amount can be equal to base after this operation.
+    // Currently we do nothing maybe on other implementations we will have something to add here
+    let prev_balance: u64 = *balance;
+    *balance = balance.saturating_add(amount);
 
-    pub fn load(store: &dyn Storage, account: &Addr) -> u128 {
-        let balances = BALANCES.add_suffix(account.as_str().as_bytes());
-        balances.load(store).unwrap_or_default()
-    }
-
-    pub fn update_balance(
-        store: &mut dyn Storage,
-        account: &Addr,
-        amount_to_be_updated: u128,
-        should_add: bool,
-        operation_name: &str,
-        decoys: &Option<Vec<Addr>>,
-        account_random_pos: &Option<usize>,
-    ) -> StdResult<()> {
-        match decoys {
-            None => {
-                let mut balance = Self::load(store, account);
-                balance = match should_add {
-                    true => {
-                        safe_add(&mut balance, amount_to_be_updated);
-                        balance
-                    }
-                    false => {
-                        if let Some(balance) = balance.checked_sub(amount_to_be_updated) {
-                            balance
-                        } else {
-                            return Err(StdError::generic_err(format!(
-                                "insufficient funds to {operation_name}: balance={balance}, required={amount_to_be_updated}",
-                            )));
-                        }
-                    }
-                };
-
-                Self::save(store, account, balance)
-            }
-            Some(decoys_vec) => {
-                // It should always be set when decoys_vec is set
-                let account_pos = account_random_pos.unwrap();
-
-                let mut accounts_to_be_written: Vec<&Addr> = vec![];
-
-                let (first_part, second_part) = decoys_vec.split_at(account_pos);
-                accounts_to_be_written.extend(first_part);
-                accounts_to_be_written.push(account);
-                accounts_to_be_written.extend(second_part);
-
-                // In a case where the account is also a decoy somehow
-                let mut was_account_updated = false;
-
-                for acc in accounts_to_be_written.iter() {
-                    // Always load account balance to obfuscate the real account
-                    // Please note that decoys are not always present in the DB. In this case it is ok beacuse load will return 0.
-                    let mut acc_balance = Self::load(store, acc);
-                    let mut new_balance = acc_balance;
-
-                    if *acc == account && !was_account_updated {
-                        was_account_updated = true;
-                        new_balance = match should_add {
-                            true => {
-                                safe_add(&mut acc_balance, amount_to_be_updated);
-                                acc_balance
-                            }
-                            false => {
-                                if let Some(balance) = acc_balance.checked_sub(amount_to_be_updated)
-                                {
-                                    balance
-                                } else {
-                                    return Err(StdError::generic_err(format!(
-                                        "insufficient funds to {operation_name}: balance={acc_balance}, required={amount_to_be_updated}",
-                                    )));
-                                }
-                            }
-                        };
-                    }
-                    Self::save(store, acc, new_balance)?;
-                }
-
-                Ok(())
-            }
-        }
-    }
+    // Won't underflow as the minimal value possible is 0
+    *balance - prev_balance
 }
 
 // Allowances
@@ -315,3 +236,5 @@ impl ReceiverHashStore {
         receiver_hash.save(store, &code_hash)
     }
 }
+
+pub static INTERNAL_SECRET: Item<Vec<u8>> = Item::new(b"internal-secret");

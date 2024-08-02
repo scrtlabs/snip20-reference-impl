@@ -51,19 +51,26 @@ _compile:
 	cargo build --target wasm32-unknown-unknown --locked
 	cp ./target/wasm32-unknown-unknown/debug/*.wasm ./contract.wasm
 
+.PHONY: compile-integration _compile-integration
+compile-integration: _compile-integration contract.wasm.gz
+_compile-integration:
+	DWB_CAPACITY=8 BTBE_CAPACITY=8 RUSTFLAGS='-C link-arg=-s' cargo build --features "gas_tracking" --release --target wasm32-unknown-unknown
+	@# The following line is not necessary, may work only on linux (extra size optimization)
+	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/*.wasm --all-features -o ./contract.wasm
+
 .PHONY: compile-optimized _compile-optimized
 compile-optimized: _compile-optimized contract.wasm.gz
 _compile-optimized:
 	RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown
 	@# The following line is not necessary, may work only on linux (extra size optimization)
-	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/*.wasm -o ./contract.wasm
+	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/*.wasm --all-features -o ./contract.wasm
 
 .PHONY: compile-optimized-reproducible
 compile-optimized-reproducible:
 	docker run --rm -v "$$(pwd)":/contract \
 		--mount type=volume,source="$$(basename "$$(pwd)")_cache",target=/code/target \
 		--mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
-		enigmampc/secret-contract-optimizer:1.0.7
+		enigmampc/secret-contract-optimizer:1.0.10
 
 contract.wasm.gz: contract.wasm
 	cat ./contract.wasm | gzip -9 > ./contract.wasm.gz
@@ -76,7 +83,7 @@ start-server: # CTRL+C to stop
 	docker run -it --rm \
 		-p 9091:9091 -p 26657:26657 -p 26656:26656 -p 1317:1317 -p 5000:5000 \
 		-v $$(pwd):/root/code \
-		--name secretdev ghcr.io/scrtlabs/localsecret:v1.6.0-alpha.4
+		--name secretdev docker pull ghcr.io/scrtlabs/localsecret:v1.13.1
 
 .PHONY: schema
 schema:

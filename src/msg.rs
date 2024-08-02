@@ -3,9 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::batch;
-use crate::batch::HasDecoy;
-use crate::transaction_history::{ExtendedTx, Tx};
+use crate::{batch, transaction_history::Tx};
 use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128};
 use secret_toolkit::permit::Permit;
 
@@ -55,7 +53,7 @@ pub struct InitConfig {
     /// Indicates whether burn functionality should be enabled
     /// default: False
     enable_burn: Option<bool>,
-    /// Indicated whether an admin can modify supported denoms
+    /// Indicates whether an admin can modify supported denoms
     /// default: False
     can_modify_denoms: Option<bool>,
 }
@@ -93,13 +91,9 @@ pub enum ExecuteMsg {
     Redeem {
         amount: Uint128,
         denom: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     Deposit {
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
 
@@ -108,8 +102,6 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     Send {
@@ -118,25 +110,19 @@ pub enum ExecuteMsg {
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchTransfer {
         actions: Vec<batch::TransferAction>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchSend {
         actions: Vec<batch::SendAction>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     Burn {
         amount: Uint128,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     RegisterReceive {
@@ -170,8 +156,6 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     SendFrom {
@@ -181,31 +165,24 @@ pub enum ExecuteMsg {
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchTransferFrom {
         actions: Vec<batch::TransferFromAction>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchSendFrom {
         actions: Vec<batch::SendFromAction>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BurnFrom {
         owner: String,
         amount: Uint128,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchBurnFrom {
         actions: Vec<batch::BurnFromAction>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
 
@@ -214,13 +191,10 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     BatchMint {
         actions: Vec<batch::MintAction>,
-        entropy: Option<Binary>,
         padding: Option<String>,
     },
     AddMinters {
@@ -255,78 +229,6 @@ pub enum ExecuteMsg {
         permit_name: String,
         padding: Option<String>,
     },
-}
-
-pub trait Decoyable {
-    fn get_minimal_decoys_size(&self) -> usize;
-    fn get_entropy(self) -> Option<Binary>;
-}
-
-impl Decoyable for ExecuteMsg {
-    fn get_minimal_decoys_size(&self) -> usize {
-        match self {
-            ExecuteMsg::Deposit { decoys, .. }
-            | ExecuteMsg::Redeem { decoys, .. }
-            | ExecuteMsg::Transfer { decoys, .. }
-            | ExecuteMsg::Send { decoys, .. }
-            | ExecuteMsg::Burn { decoys, .. }
-            | ExecuteMsg::Mint { decoys, .. }
-            | ExecuteMsg::TransferFrom { decoys, .. }
-            | ExecuteMsg::SendFrom { decoys, .. }
-            | ExecuteMsg::BurnFrom { decoys, .. } => {
-                if let Some(user_decoys) = decoys {
-                    return user_decoys.len();
-                }
-
-                0
-            }
-            ExecuteMsg::BatchSendFrom { actions, .. } => get_min_decoys_count(actions),
-            ExecuteMsg::BatchTransferFrom { actions, .. } => get_min_decoys_count(actions),
-            ExecuteMsg::BatchTransfer { actions, .. } => get_min_decoys_count(actions),
-            ExecuteMsg::BatchSend { actions, .. } => get_min_decoys_count(actions),
-            ExecuteMsg::BatchBurnFrom { actions, .. } => get_min_decoys_count(actions),
-            ExecuteMsg::BatchMint { actions, .. } => get_min_decoys_count(actions),
-            _ => 0,
-        }
-    }
-
-    fn get_entropy(self) -> Option<Binary> {
-        match self {
-            ExecuteMsg::Deposit { entropy, .. }
-            | ExecuteMsg::Redeem { entropy, .. }
-            | ExecuteMsg::Transfer { entropy, .. }
-            | ExecuteMsg::Send { entropy, .. }
-            | ExecuteMsg::Burn { entropy, .. }
-            | ExecuteMsg::Mint { entropy, .. }
-            | ExecuteMsg::TransferFrom { entropy, .. }
-            | ExecuteMsg::SendFrom { entropy, .. }
-            | ExecuteMsg::BurnFrom { entropy, .. }
-            | ExecuteMsg::BatchTransferFrom { entropy, .. }
-            | ExecuteMsg::BatchSendFrom { entropy, .. }
-            | ExecuteMsg::BatchTransfer { entropy, .. }
-            | ExecuteMsg::BatchSend { entropy, .. }
-            | ExecuteMsg::BatchBurnFrom { entropy, .. }
-            | ExecuteMsg::BatchMint { entropy, .. } => entropy,
-            _ => None,
-        }
-    }
-}
-
-fn get_min_decoys_count<T: HasDecoy>(actions: &[T]) -> usize {
-    let mut min_decoys_count = usize::MAX;
-    for action in actions {
-        if let Some(user_decoys) = &action.decoys() {
-            if user_decoys.len() < min_decoys_count {
-                min_decoys_count = user_decoys.len();
-            }
-        }
-    }
-
-    if min_decoys_count == usize::MAX {
-        0
-    } else {
-        min_decoys_count
-    }
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -467,20 +369,21 @@ pub enum QueryMsg {
         key: String,
         page: Option<u32>,
         page_size: u32,
-        should_filter_decoys: bool,
     },
     TransactionHistory {
         address: String,
         key: String,
         page: Option<u32>,
         page_size: u32,
-        should_filter_decoys: bool,
     },
     Minters {},
     WithPermit {
         permit: Permit,
         query: QueryWithPermit,
     },
+
+    #[cfg(feature="gas_tracking")]
+    Dwb { },
 }
 
 impl QueryMsg {
@@ -544,12 +447,10 @@ pub enum QueryWithPermit {
     TransferHistory {
         page: Option<u32>,
         page_size: u32,
-        should_filter_decoys: bool,
     },
     TransactionHistory {
         page: Option<u32>,
         page_size: u32,
-        should_filter_decoys: bool,
     },
 }
 
@@ -596,12 +497,8 @@ pub enum QueryAnswer {
     Balance {
         amount: Uint128,
     },
-    TransferHistory {
-        txs: Vec<Tx>,
-        total: Option<u64>,
-    },
     TransactionHistory {
-        txs: Vec<ExtendedTx>,
+        txs: Vec<Tx>,
         total: Option<u64>,
     },
     ViewingKeyError {
@@ -609,6 +506,11 @@ pub enum QueryAnswer {
     },
     Minters {
         minters: Vec<Addr>,
+    },
+
+    #[cfg(feature="gas_tracking")]
+    Dwb {
+        dwb: String,
     },
 }
 

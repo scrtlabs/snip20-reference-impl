@@ -1,0 +1,33 @@
+{
+	"eslint.enable": true,
+	"editor.fontSize": 11,
+	"scm.inputFontSize": 11,
+	"debug.console.fontSize": 10,
+	"markdown.preview.fontSize": 11,
+	"terminal.integrated.fontSize": 10,
+	"files.exclude": {
+		"dist": true,
+		"submodules": true,
+		"**/.git": true,
+		"**/.DS_Store": true,
+		"**/Thumbs.db": true,
+		"**/node_modules": true
+	},
+	"editor.insertSpaces": false,
+	"editor.tabSize": 3,
+	"typescript.tsdk": "node_modules/typescript/lib",
+	"typescript.preferences.quoteStyle": "single",
+	"javascript.format.insertSpaceAfterOpeningAndBeforeClosingEmptyBraces": false,
+	"typescript.format.insertSpaceAfterOpeningAndBeforeClosingEmptyBraces": false,
+	"typescript.format.insertSpaceAfterOpeningAndBeforeClosingJsxExpressionBraces": false,
+	"eslint.workingDirectories": [
+		"./tests/dwb/src",
+	],
+	"eslint.validate": [
+		"javascript",
+		"typescript",
+	],
+	"editor.codeActionsOnSave": {
+		"source.fixAll": "explicit"
+	}
+}
