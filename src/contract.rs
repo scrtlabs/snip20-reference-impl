@@ -904,11 +904,11 @@ fn try_mint(
         &mut tracker,
     )?;
 
-    let mut resp = Response::new()
+    let resp = Response::new()
         .set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?);
 
     #[cfg(feature="gas_tracking")]
-    resp.add_gas_tracker(tracker);
+    return Ok(resp.add_gas_tracker(tracker));
 
     Ok(resp)
 }
@@ -1144,11 +1144,11 @@ fn try_deposit(
         &mut tracker,
     )?;
 
-    let mut resp = Response::new()
+    let resp = Response::new()
         .set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?);
 
     #[cfg(feature="gas_tracking")]
-    resp.add_gas_tracker(tracker);
+    return Ok(resp.add_gas_tracker(tracker));
 
     Ok(resp)
 }
@@ -1311,14 +1311,14 @@ fn try_transfer(
     #[cfg(feature="gas_tracking")]
     let mut group1 = tracker.group("try_transfer.rest");
 
-    let mut resp = Response::new()
+    let resp = Response::new()
         .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
  
     #[cfg(feature="gas_tracking")]
     group1.log("rest");
 
     #[cfg(feature="gas_tracking")]
-    resp.add_gas_tracker(tracker);
+    return Ok(resp.add_gas_tracker(tracker));
 
     Ok(resp)
 }
@@ -1351,11 +1351,11 @@ fn try_batch_transfer(
         )?;
     }
 
-    let mut resp = Response::new()
+    let resp = Response::new()
         .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
 
     #[cfg(feature="gas_tracking")]
-    resp.add_gas_tracker(tracker);
+    return Ok(resp.add_gas_tracker(tracker));
 
     Ok(resp)
 }
@@ -1470,12 +1470,12 @@ fn try_send(
         &mut tracker,
     )?;
 
-    let mut resp = Response::new()
+    let resp = Response::new()
         .add_messages(messages)
         .set_data(to_binary(&ExecuteAnswer::Send { status: Success })?);
 
     #[cfg(feature="gas_tracking")]
-    resp.add_gas_tracker(tracker);
+    return Ok(resp.add_gas_tracker(tracker));
 
     Ok(resp)
 }
