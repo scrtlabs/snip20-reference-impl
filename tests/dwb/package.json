@@ -23,7 +23,7 @@
     "@solar-republic/contractor": "^0.8.17",
     "@solar-republic/cosmos-grpc": "^0.17.1",
     "@solar-republic/crypto": "^0.2.14",
-    "@solar-republic/neutrino": "^1.5.2",
+    "@solar-republic/neutrino": "^1.5.3",
     "bignumber.js": "^9.1.2"
   }
 }
