@@ -1,3 +1,4 @@
+use std::env::{var};
 use constant_time_eq::constant_time_eq;
 use rand::RngCore;
 use secret_toolkit_crypto::ContractPrng;
@@ -6,10 +7,13 @@ use serde_big_array::BigArray;
 use cosmwasm_std::{to_binary, Api, Binary, CanonicalAddr, StdError, StdResult, Storage};
 use secret_toolkit::storage::Item;
 
+use crate::gas_tracker::GasTracker;
 use crate::msg::QueryAnswer;
 use crate::state::{safe_add, safe_add_u64,};
 use crate::btbe::{merge_dwb_entry, stored_balance};
 use crate::transaction_history::{Tx, TRANSACTIONS};
+
+include!(concat!(env!("OUT_DIR"), "/config.rs"));
 
 pub const KEY_DWB: &[u8] = b"dwb";
 pub const KEY_TX_NODES_COUNT: &[u8] = b"dwb-node-cnt";
@@ -31,9 +35,9 @@ fn store_new_tx_node(store: &mut dyn Storage, tx_node: TxNode) -> StdResult<u64>
     Ok(tx_nodes_serial_id)
 }
 
-// 64 entries + 1 "dummy" entry prepended (idx: 0 in DelayedWriteBufferEntry array)
+// n entries + 1 "dummy" entry prepended (idx: 0 in DelayedWriteBufferEntry array)
 // minimum allowable size: 3
-pub const DWB_LEN: u16 = 65;
+pub const DWB_LEN: u16 = DWB_CAPACITY + 1;
 
 // maximum number of tx events allowed in an entry's linked list
 pub const DWB_MAX_TX_EVENTS: u16 = u16::MAX;
@@ -80,32 +84,6 @@ impl DelayedWriteBuffer {
         })
     }
 
-    /// settles an entry at a given index in the buffer
-    #[inline]
-    fn settle_entry(
-        &self,
-        store: &mut dyn Storage,
-        index: usize,
-    ) -> StdResult<()> {
-        merge_dwb_entry(store, self.entries[index], None)
-/*
-        let account = entry.recipient()?;
-
-        AccountTxsStore::append_bundle(
-            store,
-            &account,
-            entry.head_node()?,
-            entry.list_len()?,
-        )?;
-
-        // get the address' stored balance
-        let mut balance = BalancesStore::load(store, &account);
-        safe_add(&mut balance, entry.amount()? as u128);
-        // add the amount from entry to the stored balance
-        BalancesStore::save(store, &account, balance)
-*/
-    }
-
     /// settles a participant's account who may or may not have an entry in the buffer
     /// gets balance including any amount in the buffer, and then subtracts amount spent in this tx
     pub fn settle_sender_or_owner_account(
@@ -115,12 +93,19 @@ impl DelayedWriteBuffer {
         tx_id: u64,
         amount_spent: u128,
         op_name: &str,
+        tracker: &mut GasTracker,
     ) -> StdResult<()> {
+        #[cfg(feature="gas_tracking")]
+        let mut group1 = tracker.group("settle_sender_or_owner_account.1");
+
         // release the address from the buffer
         let (balance, mut dwb_entry) = self.constant_time_release(
             store, 
             address
         )?;
+
+        #[cfg(feature="gas_tracking")]
+        group1.log("constant_time_release");
 
         if balance.checked_sub(amount_spent).is_none() {
             return Err(StdError::generic_err(format!(
@@ -130,21 +115,21 @@ impl DelayedWriteBuffer {
 
         dwb_entry.add_tx_node(store, tx_id)?;
 
-        merge_dwb_entry(store, dwb_entry, Some(amount_spent))
-/* 
-        let head_node = entry.add_tx_node(store, tx_id)?;
+        #[cfg(feature="gas_tracking")]
+        group1.log("add_tx_node");
 
-        AccountTxsStore::append_bundle(
-            store,
-            address,
-            head_node,
-            entry.list_len()?,
-        )?;
-    
-        BalancesStore::save(store, address, new_balance)?;
-    
-        Ok(())
-*/
+        let mut entry = dwb_entry.clone();
+        entry.set_recipient(address)?;
+
+        #[cfg(feature="gas_tracking")]
+        group1.logf(format!("@entry=address:{}, amount:{}", entry.recipient()?, entry.amount()?));
+
+        let result = merge_dwb_entry(store, entry, Some(amount_spent), tracker);
+
+        // #[cfg(feature="gas_tracking")]
+        // group2.log("merge_dwb_entry");
+
+        result
     }
 
     /// "releases" a given recipient from the buffer, removing their entry if one exists, in constant-time
@@ -197,32 +182,53 @@ impl DelayedWriteBuffer {
         matched_index
     }
 
-    pub fn add_recipient(
+    pub fn add_recipient<'a>(
         &mut self,
         store: &mut dyn Storage,
         rng: &mut ContractPrng,
         recipient: &CanonicalAddr,
         tx_id: u64,
-        amount: u128
+        amount: u128,
+        tracker: &mut GasTracker<'a>,
     ) -> StdResult<()> {
+        #[cfg(feature="gas_tracking")]
+        let mut group1 = tracker.group("add_recipient.1");
+
         // check if `recipient` is already a recipient in the delayed write buffer
         let recipient_index = self.recipient_match(recipient);
+        #[cfg(feature="gas_tracking")]
+        group1.log("recipient_match");
 
         // the new entry will either derive from a prior entry for the recipient or the dummy entry
         let mut new_entry = self.entries[recipient_index].clone();
+
         new_entry.set_recipient(recipient)?;
+        #[cfg(feature="gas_tracking")]
+        group1.log("set_recipient");
+
         new_entry.add_tx_node(store, tx_id)?;
+        #[cfg(feature="gas_tracking")]
+        group1.log("add_tx_node");
+
         new_entry.add_amount(amount)?;
+        #[cfg(feature="gas_tracking")]
+        group1.log("add_amount");
 
         // whether or not recipient is in the buffer (non-zero index)
         // casting to i32 will never overflow, so long as dwb length is limited to a u16 value
         let if_recipient_in_buffer = constant_time_is_not_zero(recipient_index as i32);
+        #[cfg(feature="gas_tracking")]
+        group1.logf(format!("@if_recipient_in_buffer: {}", if_recipient_in_buffer));
 
         // whether or not the buffer is fully saturated yet
         let if_undersaturated = constant_time_is_not_zero(self.empty_space_counter as i32);
+        #[cfg(feature="gas_tracking")]
+        group1.logf(format!("@if_undersaturated: {}", if_undersaturated));
 
         // find the next empty entry in the buffer
         let next_empty_index = (DWB_LEN - self.empty_space_counter) as usize;
+        #[cfg(feature="gas_tracking")]
+        group1.logf(format!("@next_empty_index: {}", next_empty_index));
 
         // which entry to settle (not yet considering if recipient's entry has capacity in history list)
         //   if recipient is in buffer or buffer is undersaturated then settle the dummy entry
@@ -231,12 +237,18 @@ impl DelayedWriteBuffer {
             if_recipient_in_buffer, 0,
             constant_time_if_else(if_undersaturated, 0,
                 random_in_range(rng, 1, DWB_LEN as u32)? as usize));
+        #[cfg(feature="gas_tracking")]
+        group1.logf(format!("@presumptive_settle_index: {}", presumptive_settle_index));
 
         // check if we have any open slots in the linked list
         let if_list_can_grow = constant_time_is_not_zero((DWB_MAX_TX_EVENTS - self.entries[recipient_index].list_len()?) as i32);
+        #[cfg(feature="gas_tracking")]
+        group1.logf(format!("@if_list_can_grow: {}", if_list_can_grow));
 
         // if we would overflow the list by updating the existing entry, then just settle that recipient
         let actual_settle_index = constant_time_if_else(if_list_can_grow, presumptive_settle_index, recipient_index);
+        #[cfg(feature="gas_tracking")]
+        group1.logf(format!("@actual_settle_index: {}", actual_settle_index));
 
         // where to write the new/replacement entry
         //   if recipient is in buffer then update it
@@ -246,9 +258,18 @@ impl DelayedWriteBuffer {
             if_recipient_in_buffer, recipient_index,
             constant_time_if_else(if_undersaturated, next_empty_index,
                 actual_settle_index));
+        #[cfg(feature="gas_tracking")]
+        group1.logf(format!("@write_index: {}", write_index));
 
         // settle the entry
-        self.settle_entry(store, actual_settle_index)?;
+        let dwb_entry = self.entries[actual_settle_index];
+        merge_dwb_entry(store, dwb_entry, None, tracker)?;
+
+        #[cfg(feature="gas_tracking")]
+        let mut group2 = tracker.group("add_recipient.2");
+
+        #[cfg(feature="gas_tracking")]
+        group2.log("merge_dwb_entry");
 
         // write the new entry, which either overwrites the existing one for the same recipient,
         // replaces a randomly settled one, or inserts into an "empty" slot in the buffer
@@ -260,6 +281,8 @@ impl DelayedWriteBuffer {
             constant_time_if_else(if_recipient_in_buffer, 0, 1),
             0
         ) as u16;
+        #[cfg(feature="gas_tracking")]
+        group2.logf(format!("@empty_space_counter: {}", self.empty_space_counter));
 
         Ok(())
     }
@@ -496,7 +519,7 @@ fn constant_time_if_else(condition: u32, then: usize, els: usize) -> usize {
     (then * condition as usize) | (els * (1 - condition as usize))
 }
 
-/// FOR TESTING ONLY! REMOVE
+#[cfg(feature="gas_tracking")]
 pub fn log_dwb(storage: &dyn Storage) -> StdResult<Binary> {
     let dwb = DWB.load(storage)?;
     to_binary(&QueryAnswer::Dwb { dwb: format!("{:?}", dwb) })

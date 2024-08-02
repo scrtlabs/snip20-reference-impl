@@ -2,11 +2,11 @@ import type {Snip24} from '@solar-republic/contractor';
 
 import {readFileSync} from 'node:fs';
 
-import {bytes, bytes_to_base64, entries} from '@blake.regalia/belt';
-import {SecretApp, SecretContract, random_32} from '@solar-republic/neutrino';
+import {bytes, bytes_to_base64, entries, sha256, text_to_bytes} from '@blake.regalia/belt';
+import {SecretApp, SecretContract, Wallet, random_32} from '@solar-republic/neutrino';
 import {BigNumber} from 'bignumber.js';
 
-import {N_DECIMALS, P_LOCALSECRET_LCD, X_GAS_PRICE, k_wallet_a, k_wallet_b, k_wallet_c, k_wallet_d} from './constants';
+import {N_DECIMALS, P_LOCALSECRET_LCD, P_LOCALSECRET_RPC, X_GAS_PRICE, k_wallet_a, k_wallet_b, k_wallet_c, k_wallet_d} from './constants';
 import {upload_code, instantiate_contract} from './contract';
 import {DwbValidator} from './dwb';
 import {GasChecker} from './gas-checker';
@@ -27,7 +27,7 @@ const sa_snip = await instantiate_contract(k_wallet_a, sg_code_id, {
 	decimals: 6,
 	admin: k_wallet_a.addr,
 	initial_balances: entries({
-		[k_wallet_a.addr]: 100_000000n,
+		[k_wallet_a.addr]: 10_000_000000n,
 	}).map(([sa_account, xg_balance]) => ({
 		address: sa_account,
 		amount: `${xg_balance}`,
@@ -59,11 +59,12 @@ const H_APPS = {
 	d: k_app_d,
 };
 
+// @ts-expect-error validator!
 const k_dwbv = new DwbValidator(k_app_a);
 
 console.log('# Initialized');
 await k_dwbv.sync();
-await k_dwbv.print();
+k_dwbv.print();
 console.log('\n');
 
 async function transfer_chain(sx_chain: string) {
@@ -78,6 +79,7 @@ async function transfer_chain(sx_chain: string) {
 
 		console.log(sx_amount, si_from, si_to);
 
+		// @ts-expect-error secret app
 		const g_result = await transfer(k_dwbv, xg_amount, H_APPS[si_from[0].toLowerCase()], H_APPS[si_to[0].toLowerCase()], k_checker);
 
 		if(!k_checker) {
@@ -96,15 +98,7 @@ async function transfer_chain(sx_chain: string) {
 		1 TKN David => Alice 	-- re-adds Alice to buffer; settles David for 1st time
 	`);
 
-	/*
-		All operations should be same gas from now on
-			Alice: 93
-			Bob: 0
-			Carol: 1
-			David: 4
-	*/
-
-	console.log('--- should all be same gas ---');
+	console.log('#'.repeat(80)+'\n--- Subsequent operations should incur almost exactly the same gas now ---\n'+'#'.repeat(80)+'\n');
 
 	await transfer_chain(`
 		1 TKN David => Bob
@@ -114,4 +108,26 @@ async function transfer_chain(sx_chain: string) {
 		1 TKN Alice => Carol
 		1 TKN Carol => Bob 		-- yet again
 	`);
+
+
+	let k_checker: GasChecker | null = null;
+
+	for(let s_r1='a'; s_r1<='z'; s_r1=String.fromCharCode(s_r1.charCodeAt(0)+1)) {
+		for(let s_r2='a'; s_r2<='z'; s_r2=String.fromCharCode(s_r2.charCodeAt(0)+1)) {
+			const si_receiver = s_r1+s_r2;
+
+			const k_wallet = await Wallet(await sha256(text_to_bytes(si_receiver)), 'secretdev-1', P_LOCALSECRET_LCD, P_LOCALSECRET_RPC, 'secret');
+
+			const k_app_receiver = SecretApp(k_wallet, k_contract, X_GAS_PRICE);
+
+			console.log(`Alice --> ${si_receiver}`);
+
+			// @ts-expect-error secret app
+			const g_result = await transfer(k_dwbv, 1_000000n, k_app_a, k_app_receiver, k_checker);
+
+			if(!k_checker) {
+				k_checker = new GasChecker(g_result.tracking, g_result.gasUsed);
+			}
+		}
+	}
 }

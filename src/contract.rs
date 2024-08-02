@@ -10,7 +10,11 @@ use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
-use crate::dwb::{log_dwb, DelayedWriteBuffer, DWB, TX_NODES};
+
+use crate::dwb::{DelayedWriteBuffer, DWB, TX_NODES};
+#[cfg(feature="gas_tracking")]
+use crate::dwb::log_dwb;
+
 use crate::gas_tracker::{GasTracker, LoggingExt};
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
@@ -97,6 +101,7 @@ pub fn instantiate(
     for balance in initial_balances {
         let amount = balance.amount.u128();
         let balance_address = deps.api.addr_canonicalize(balance.address.as_str())?;
+        let mut tracker = GasTracker::new(deps.api);
         perform_mint(
             deps.storage, 
             &mut rng, 
@@ -105,7 +110,8 @@ pub fn instantiate(
             amount,
             msg.symbol.clone(),
             Some("Initial Balance".to_string()),
-            &env.block
+            &env.block,
+            &mut tracker,
         )?;
 
         if let Some(new_total_supply) = total_supply.checked_add(amount) {
@@ -360,8 +366,10 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             QueryMsg::ExchangeRate {} => query_exchange_rate(deps.storage),
             QueryMsg::Minters { .. } => query_minters(deps),
             QueryMsg::WithPermit { permit, query } => permit_queries(deps, permit, query),
-            // FOR TESTING ONLY! REMOVE
+            
+            #[cfg(feature="gas_tracking")]
             QueryMsg::Dwb {  } => log_dwb(deps.storage),
+
             _ => viewing_keys_queries(deps, msg),
         },
         RESPONSE_BLOCK_SIZE,
@@ -823,12 +831,23 @@ fn try_mint_impl(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
+    tracker: &mut GasTracker,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
     let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
     let raw_minter = deps.api.addr_canonicalize(minter.as_str())?;
 
-    perform_mint(deps.storage, rng, &raw_minter, &raw_recipient, raw_amount, denom, memo, block)?;
+    perform_mint(
+        deps.storage,
+        rng,
+        &raw_minter,
+        &raw_recipient,
+        raw_amount,
+        denom,
+        memo,
+        block,
+        tracker,
+    )?;
 
     Ok(())
 }
@@ -864,6 +883,8 @@ fn try_mint(
     let minted_amount = safe_add(&mut total_supply, amount.u128());
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
+    let mut tracker: GasTracker = GasTracker::new(deps.api);
+
     // Note that even when minted_amount is equal to 0 we still want to perform the operations for logic consistency
     try_mint_impl(
         &mut deps,
@@ -874,9 +895,17 @@ fn try_mint(
         constants.symbol,
         memo,
         &env.block,
+        &mut tracker,
     )?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?))
+    let mut resp = Response::new()
+        .set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?);
+
+    if cfg!(feature="gas_tracking") {
+        resp = tracker.add_to_response(resp);
+    }
+
+    Ok(resp)
 }
 
 fn try_batch_mint(
@@ -908,6 +937,9 @@ fn try_batch_mint(
         let actual_amount = safe_add(&mut total_supply, action.amount.u128());
 
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
+
+        let mut tracker: GasTracker = GasTracker::new(deps.api);
+
         try_mint_impl(
             &mut deps,
             rng,
@@ -917,6 +949,7 @@ fn try_batch_mint(
             constants.symbol.clone(),
             action.memo,
             &env.block,
+            &mut tracker,
         )?;
     }
 
@@ -1090,9 +1123,26 @@ fn try_deposit(
 
     let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
 
-    perform_deposit(deps.storage, rng, &sender_address, raw_amount, "uscrt".to_string(), &env.block)?;
+    let mut tracker: GasTracker = GasTracker::new(deps.api);
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?))
+    perform_deposit(
+        deps.storage,
+        rng, 
+        &sender_address,
+        raw_amount,
+        "uscrt".to_string(),
+        &env.block,
+        &mut tracker,
+    )?;
+
+    let mut resp = Response::new()
+        .set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?);
+
+    if cfg!(feature="gas_tracking") {
+        resp = tracker.add_to_response(resp);
+    }
+
+    Ok(resp)
 }
 
 fn try_redeem(
@@ -1139,8 +1189,10 @@ fn try_redeem(
     // load delayed write buffer
     let mut dwb = DWB.load(deps.storage)?;
 
+    let mut tracker = GasTracker::new(deps.api);
+
     // settle the signer's account in buffer
-    dwb.settle_sender_or_owner_account(deps.storage, &sender_address, tx_id, amount_raw, "redeem")?;
+    dwb.settle_sender_or_owner_account(deps.storage, &sender_address, tx_id, amount_raw, "redeem", &mut tracker)?;
 
     DWB.save(deps.storage, &dwb)?;
 
@@ -1178,7 +1230,7 @@ fn try_redeem(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn try_transfer_impl<'a>(
+fn try_transfer_impl(
     deps: &mut DepsMut,
     rng: &mut ContractPrng,
     sender: &Addr,
@@ -1187,7 +1239,7 @@ fn try_transfer_impl<'a>(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
-    tracker: &mut GasTracker<'a>,
+    tracker: &mut GasTracker,
 ) -> StdResult<()> {
     let raw_sender = deps.api.addr_canonicalize(sender.as_str())?;
     let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
@@ -1236,9 +1288,15 @@ fn try_transfer(
         &mut tracker
     )?;
 
+    #[cfg(feature="gas_tracking")]
+    let mut group1 = tracker.group("try_transfer.rest");
+
     let mut resp = Response::new()
         .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
  
+    #[cfg(feature="gas_tracking")]
+    group1.log("rest");
+
     if cfg!(feature="gas_tracking") {
         resp = tracker.add_to_response(resp);
     }
@@ -1720,10 +1778,12 @@ fn try_burn_from(
     // load delayed write buffer
     let mut dwb = DWB.load(deps.storage)?;
 
+    let mut tracker = GasTracker::new(deps.api);
+
     // settle the owner's account in buffer
-    dwb.settle_sender_or_owner_account(deps.storage, &raw_owner, tx_id, raw_amount, "burn")?;
+    dwb.settle_sender_or_owner_account(deps.storage, &raw_owner, tx_id, raw_amount, "burn", &mut tracker)?;
     if raw_burner != raw_owner { // also settle sender's account
-        dwb.settle_sender_or_owner_account(deps.storage, &raw_burner, tx_id, 0, "burn")?;
+        dwb.settle_sender_or_owner_account(deps.storage, &raw_burner, tx_id, 0, "burn", &mut tracker)?;
     }
 
     DWB.save(deps.storage, &dwb)?;
@@ -1777,11 +1837,13 @@ fn try_batch_burn_from(
     
         // load delayed write buffer
         let mut dwb = DWB.load(deps.storage)?;
+
+        let mut tracker = GasTracker::new(deps.api);
     
         // settle the owner's account in buffer
-        dwb.settle_sender_or_owner_account(deps.storage, &raw_owner, tx_id, amount, "burn")?;
+        dwb.settle_sender_or_owner_account(deps.storage, &raw_owner, tx_id, amount, "burn", &mut tracker)?;
         if raw_spender != raw_owner {
-            dwb.settle_sender_or_owner_account(deps.storage, &raw_spender, tx_id, 0, "burn")?;
+            dwb.settle_sender_or_owner_account(deps.storage, &raw_spender, tx_id, 0, "burn", &mut tracker)?;
         }
     
         DWB.save(deps.storage, &dwb)?;
@@ -1985,8 +2047,10 @@ fn try_burn(
     // load delayed write buffer
     let mut dwb = DWB.load(deps.storage)?;
 
+    let mut tracker = GasTracker::new(deps.api);
+
     // settle the signer's account in buffer
-    dwb.settle_sender_or_owner_account(deps.storage, &raw_burn_address, tx_id, raw_amount, "burn")?;
+    dwb.settle_sender_or_owner_account(deps.storage, &raw_burn_address, tx_id, raw_amount, "burn", &mut tracker)?;
 
     DWB.save(deps.storage, &dwb)?;
 
@@ -2015,40 +2079,40 @@ fn perform_transfer(
     block: &BlockInfo,
     tracker: &mut GasTracker,
 ) -> StdResult<()> {
-    // #[cfg(feature="gas_tracking")]
-    let mut group1 = tracker.group("perform_transfer1");
+    #[cfg(feature="gas_tracking")]
+    let mut group1 = tracker.group("perform_transfer.1");
 
     // first store the tx information in the global append list of txs and get the new tx id
     let tx_id = store_transfer_action(store, from, sender, to, amount, denom, memo, block)?;
 
-    // #[cfg(feature="gas_tracking")]
-    group1.log("store_transfer_action");
+    #[cfg(feature="gas_tracking")]
+    group1.log("@store_transfer_action");
 
     // load delayed write buffer
     let mut dwb = DWB.load(store)?;
 
-    // #[cfg(feature="gas_tracking")]
+    #[cfg(feature="gas_tracking")]
     group1.log("DWB.load");
 
     let transfer_str = "transfer";
 
     // settle the owner's account
-    dwb.settle_sender_or_owner_account(store, from, tx_id, amount, transfer_str)?;
+    dwb.settle_sender_or_owner_account(store, from, tx_id, amount, transfer_str, tracker)?;
 
     // if this is a *_from action, settle the sender's account, too
     if sender != from {
-        dwb.settle_sender_or_owner_account(store, sender, tx_id, 0, transfer_str)?;
+        dwb.settle_sender_or_owner_account(store, sender, tx_id, 0, transfer_str, tracker)?;
     }
 
     // add the tx info for the recipient to the buffer
-    dwb.add_recipient(store, rng, to, tx_id, amount)?;
+    dwb.add_recipient(store, rng, to, tx_id, amount, tracker)?;
     
-    // #[cfg(feature="gas_tracking")]
-    let mut group2 = tracker.group("perform_transfer2");
+    #[cfg(feature="gas_tracking")]
+    let mut group2 = tracker.group("perform_transfer.2");
 
     DWB.save(store, &dwb)?;
 
-    // #[cfg(feature="gas_tracking")]
+    #[cfg(feature="gas_tracking")]
     group2.log("DWB.save");
 
     Ok(())
@@ -2063,6 +2127,7 @@ fn perform_mint(
     denom: String,
     memo: Option<String>,
     block: &BlockInfo,
+    tracker: &mut GasTracker,
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
     let tx_id = store_mint_action(store, minter, to, amount, denom, memo, block)?;
@@ -2072,11 +2137,11 @@ fn perform_mint(
 
     // if minter is not recipient, settle them
     if minter != to {
-        dwb.settle_sender_or_owner_account(store, minter, tx_id, 0, "mint")?;
+        dwb.settle_sender_or_owner_account(store, minter, tx_id, 0, "mint", tracker)?;
     }
 
     // add the tx info for the recipient to the buffer
-    dwb.add_recipient(store, rng, to, tx_id, amount)?;
+    dwb.add_recipient(store, rng, to, tx_id, amount, tracker)?;
 
     DWB.save(store, &dwb)?;
 
@@ -2090,6 +2155,7 @@ fn perform_deposit(
     amount: u128,
     denom: String,
     block: &BlockInfo,
+    tracker: &mut GasTracker,
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
     let tx_id = store_deposit_action(store, amount, denom, block)?;
@@ -2098,7 +2164,7 @@ fn perform_deposit(
     let mut dwb = DWB.load(store)?;
 
     // add the tx info for the recipient to the buffer
-    dwb.add_recipient(store, rng, to, tx_id, amount)?;
+    dwb.add_recipient(store, rng, to, tx_id, amount, tracker)?;
 
     DWB.save(store, &dwb)?;
 

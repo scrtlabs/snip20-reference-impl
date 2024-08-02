@@ -1,8 +1,5 @@
 {
-	"extends": [
-		"@blake.regalia/tsconfig/tsconfig.node.json"
-	],
-
+	"extends": "node_modules/@blake.regalia/tsconfig/tsconfig.node.json",
 	"compilerOptions": {
 		"moduleResolution": "Bundler",
 		"outDir": "dist",

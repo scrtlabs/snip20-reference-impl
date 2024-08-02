@@ -1,5 +1,7 @@
 //! BTBE stands for bitwise-trie of bucketed entries
 
+include!(concat!(env!("OUT_DIR"), "/config.rs"));
+
 use constant_time_eq::constant_time_eq;
 use primitive_types::U256;
 use secret_toolkit::{notification::hkdf_sha_256, serialization::{Bincode2, Serde}, storage::Item};
@@ -7,7 +9,7 @@ use serde::{Serialize, Deserialize,};
 use serde_big_array::BigArray;
 use cosmwasm_std::{CanonicalAddr, StdError, StdResult, Storage};
 
-use crate::dwb::{amount_u64, DelayedWriteBufferEntry, TxBundle};
+use crate::{dwb::{amount_u64, DelayedWriteBufferEntry, TxBundle}, gas_tracker::GasTracker};
 use crate::state::{safe_add_u64, INTERNAL_SECRET};
 
 pub const KEY_BTBE_ENTRY_HISTORY: &[u8] = b"btbe-entry-hist";
@@ -78,7 +80,7 @@ impl StoredEntry {
             new_balance
         } else {
             return Err(StdError::generic_err(format!(
-                "insufficient funds",
+                "insufficient funds while creating StoredEntry; balance:{}, amount_spent:{}", dwb_entry.amount()?, amount_spent,
             )));
         };
 
@@ -163,7 +165,7 @@ impl StoredEntry {
             new_balance
         } else {
             return Err(StdError::generic_err(format!(
-                "insufficient funds",
+                "insufficient funds while merging entry; balance:{}, amount_spent:{}", balance, amount_spent
             )));
         };
 
@@ -217,13 +219,11 @@ impl StoredEntry {
     }
 }
 
-const BTBE_BUCKET_LEN: u16 = 128;
-
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct BtbeBucket {
     pub capacity: u16,
     #[serde(with = "BigArray")]
-    pub entries: [StoredEntry; BTBE_BUCKET_LEN as usize],
+    pub entries: [StoredEntry; BTBE_CAPACITY as usize],
 }
 
 //static BTBE_ENTRY_HISTORY: Item<u64> = Item::new(KEY_BTBE_ENTRY_HISTORY);
@@ -236,9 +236,9 @@ type BucketEntryPosition = usize;
 impl BtbeBucket {
     pub fn new() -> StdResult<Self> {
         Ok(Self {
-            capacity: BTBE_BUCKET_LEN,
+            capacity: BTBE_CAPACITY,
             entries: [
-                StoredEntry::new(CanonicalAddr::from(&IMPOSSIBLE_ADDR))?; BTBE_BUCKET_LEN as usize
+                StoredEntry::new(CanonicalAddr::from(&IMPOSSIBLE_ADDR))?; BTBE_CAPACITY as usize
             ]
         })
     }
@@ -251,7 +251,7 @@ impl BtbeBucket {
         }
 
         // has capacity for a new entry; save entry to bucket 
-        self.entries[self.entries.len() - self.capacity as usize] = entry.clone();
+        self.entries[(BTBE_CAPACITY - self.capacity) as usize] = entry.clone();
 
         // update capacity
         self.capacity -= 1;
@@ -333,7 +333,7 @@ impl BitwiseTrieNode {
 /// Determines whether a given entry belongs in the left node (true) or right node (false)
 fn entry_belongs_in_left_node(secret: &[u8], entry: StoredEntry, bit_pos: u8) -> StdResult<bool> {
     // create key bytes
-    let key_bytes = hkdf_sha_256(&Some(BUCKETING_SALT_BYTES.to_vec()), secret, entry.address_slice(), 256)?;
+    let key_bytes = hkdf_sha_256(&Some(BUCKETING_SALT_BYTES.to_vec()), secret, entry.address_slice(), 32)?;
 
     // convert to u258
     let key_u256 = U256::from_big_endian(&key_bytes);
@@ -349,7 +349,7 @@ pub fn locate_btbe_node(storage: &dyn Storage, address: &CanonicalAddr) -> StdRe
     let secret = secret.as_slice();
 
     // create key bytes
-    let hash = hkdf_sha_256(&Some(BUCKETING_SALT_BYTES.to_vec()), secret, address.as_slice(), 256)?;
+    let hash = hkdf_sha_256(&Some(BUCKETING_SALT_BYTES.to_vec()), secret, address.as_slice(), 32)?;
     
     // start at root of trie
     let mut node_id: u64 = 1;
@@ -435,12 +435,23 @@ pub fn stored_tx_count(storage: &dyn Storage, entry: &Option<StoredEntry>) -> St
 
 // merges a dwb entry into the current node's bucket
 // `spent_amount` is any required subtraction due to being sender of tx
-pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferEntry, amount_spent: Option<u128>) -> StdResult<()> {
+pub fn merge_dwb_entry(
+    storage: &mut dyn Storage,
+    dwb_entry: DelayedWriteBufferEntry,
+    amount_spent: Option<u128>,
+    tracker: &mut GasTracker,
+) -> StdResult<()> {
+    #[cfg(feature="gas_tracking")]
+    let mut group1 = tracker.group("merge_dwb_entry.1");
+
     // locate the node that the given entry belongs in
-    let (mut node, node_id, mut bit_pos) = locate_btbe_node(storage, &dwb_entry.recipient()?)?;
+    let (mut node, mut node_id, mut bit_pos) = locate_btbe_node(storage, &dwb_entry.recipient()?)?;
 
     // load that node's current bucket
     let mut bucket = node.bucket(storage)?;
+
+    // bucket ID for logging purposes
+    let mut bucket_id = node.bucket;
 
     // search for an existing entry
     if let Some((idx, mut found_entry)) = bucket.constant_time_find_address(&dwb_entry.recipient()?) {
@@ -448,6 +459,9 @@ pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferE
         // merge amount and history from dwb entry
         found_entry.merge_dwb_entry(storage, &dwb_entry, amount_spent)?;
         bucket.entries[idx] = found_entry;
+
+        #[cfg(feature="gas_tracking")]
+        group1.logf(format!("@merged {} into node #{}, bucket #{} at position {} ", dwb_entry.recipient()?, node_id, bucket_id, idx));
 
         // save updated bucket to storage
         node.set_and_save_bucket(storage, bucket)?;
@@ -463,6 +477,9 @@ pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferE
         loop { // looping as many times as needed until the bucket has capacity for a new entry
             // try to add to the current bucket
             if bucket.add_entry(&btbe_entry) {
+                #[cfg(feature="gas_tracking")]
+                group1.logf(format!("@inserted into node #{}, bucket #{} (bitpos: {}) at position {}", node_id, bucket_id, bit_pos, BTBE_CAPACITY - bucket.capacity - 1));
+
                 // bucket has capacity and it added the new entry
                 // save bucket to storage
                 node.set_and_save_bucket(storage, bucket)?;
@@ -476,6 +493,7 @@ pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferE
 
                 // each entry
                 for entry in bucket.entries {
+                    // left_bucket.add_entry(&entry);
                     // route entry
                     if entry_belongs_in_left_node(secret, entry, bit_pos)? {
                         left_bucket.add_entry(&entry);
@@ -537,13 +555,20 @@ pub fn merge_dwb_entry(storage: &mut dyn Storage, dwb_entry: DelayedWriteBufferE
                 // save node
                 BTBE_TRIE_NODES.add_suffix(&node_id.to_be_bytes()).save(storage, &node)?;
 
+                #[cfg(feature="gas_tracking")]
+                group1.logf(format!("@split node #{}, bucket #{} at bitpos {}, ", node_id, bucket_id, bit_pos));
+
                 // route entry
                 if entry_belongs_in_left_node(secret, btbe_entry, bit_pos)? {
                     node = left;
+                    node_id = left_id;
                     bucket = left_bucket;
+                    bucket_id = left_bucket_id;
                 } else {
                     node = right;
+                    node_id = right_id;
                     bucket = right_bucket;
+                    bucket_id = right_bucket_id;
                 }
 
                 // increment bit position for next iteration of the loop

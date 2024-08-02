@@ -2,14 +2,15 @@ import type {DwbValidator} from './dwb';
 import type {GasChecker} from './gas-checker';
 import type {Dict, Nilable} from '@blake.regalia/belt';
 import type {SecretContractInterface} from '@solar-republic/contractor';
-import type {SecretApp} from '@solar-republic/neutrino';
+import type {SecretApp, WeakSecretAccAddr} from '@solar-republic/neutrino';
 import type {CwUint128, SecretQueryPermit, WeakUintStr} from '@solar-republic/types';
 
-import {entries} from '@blake.regalia/belt';
+import {entries, is_bigint, stringify_json} from '@blake.regalia/belt';
+import {queryCosmosBankBalance} from '@solar-republic/cosmos-grpc/cosmos/bank/v1beta1/query';
 import {sign_secret_query_permit} from '@solar-republic/neutrino';
 import BigNumber from 'bignumber.js';
 
-import {H_ADDRS, N_DECIMALS} from './constants';
+import {H_ADDRS, N_DECIMALS, P_LOCALSECRET_LCD} from './constants';
 import {fail} from './helper';
 
 
@@ -53,7 +54,12 @@ type TokenBalance = SecretContractInterface<{
 	};
 }>;
 
-export async function balance(k_app: SecretApp<TokenBalance>) {
+export async function scrt_balance(sa_owner: WeakSecretAccAddr): Promise<bigint> {
+	const [,, g_res] = await queryCosmosBankBalance(P_LOCALSECRET_LCD, sa_owner, 'uscrt');
+	return BigInt(g_res?.balance?.amount || '0');
+}
+
+export async function snip_balance(k_app: SecretApp<TokenBalance>) {
 	const g_permit = await sign_secret_query_permit(k_app.wallet, 'snip-balance', [k_app.contract.addr], ['balance']);
 	return await k_app.query('balance', {}, g_permit as unknown as null);
 }
@@ -68,35 +74,55 @@ export async function transfer(
 	const sa_owner = k_app_owner.wallet.addr;
 	const sa_recipient = k_app_recipient.wallet.addr;
 
+	// scrt balance of owner before transfer
+	// @ts-expect-error canonical addr
+	const xg_scrt_balance_owner_before = await scrt_balance(sa_owner);
+
 	// query balance of owner and recipient
 	const [
 		[g_balance_owner_before],
 		[g_balance_recipient_before],
 	] = await Promise.all([
-		balance(k_app_owner),
-		balance(k_app_recipient),
+		// @ts-expect-error secret app
+		snip_balance(k_app_owner),
+		// @ts-expect-error secret app
+		snip_balance(k_app_recipient),
 	]);
 
 	// execute transfer
 	const [g_exec, xc_code, sx_res, g_meta, h_events, si_txn] = await k_app_owner.exec('transfer', {
 		amount: `${xg_amount}` as CwUint128,
 		recipient: sa_recipient,
-	}, 100_000n);
+	}, 1000_000n);
 
-	if(xc_code) {
-		throw Error(sx_res);
-	}
-
-	// console.log(h_events);
+	// section header
+	console.log(`# Transfer ${BigNumber(xg_amount+'').shiftedBy(-N_DECIMALS).toFixed()} TKN ${H_ADDRS[sa_owner] || sa_owner} => ${H_ADDRS[sa_recipient] || sa_recipient}      |  ⏹  ${k_dwbv.empty} spaces  |  ⛽️ ${g_meta?.gas_used || '0'} gas used`);
 
 	// query balance of owner and recipient again
 	const [
 		[g_balance_owner_after],
 		[g_balance_recipient_after],
 	] = await Promise.all([
-		balance(k_app_owner),
-		balance(k_app_recipient),
+		// @ts-expect-error secret app
+		snip_balance(k_app_owner),
+		// @ts-expect-error secret app
+		snip_balance(k_app_recipient),
 	]);
+
+	if(xc_code) {
+		console.warn('Diagnostics', {
+			scrt_balance_before: xg_scrt_balance_owner_before,
+			// @ts-expect-error canonical addr
+			scrt_balance_after: await scrt_balance(sa_owner),
+			snip_balance_before: g_balance_owner_before?.amount,
+			snip_balance_after: g_balance_owner_after?.amount,
+			meta: stringify_json(g_meta),
+			events: h_events,
+			exec: g_exec,
+		});
+
+		throw Error(`Failed to execute transfer from ${k_app_owner.wallet.addr} [${xc_code}]: ${sx_res}`);
+	}
 
 	// sync the buffer
 	await k_dwbv.sync();
@@ -105,12 +131,11 @@ export async function transfer(
 	// const sg_gas_used = g_meta?.gas_used;
 	// console.log(`  ⏹  ${k_dwbv.empty} spaces`);	
 
-	// section header
-	console.log(`# Transfer ${BigNumber(xg_amount+'').shiftedBy(-N_DECIMALS).toFixed()} TKN ${H_ADDRS[sa_owner] || sa_owner} => ${H_ADDRS[sa_recipient]}      |  ⏹  ${k_dwbv.empty} spaces  |  ⛽️ ${g_meta!.gas_used} gas used`);
+	// console.log(stringify_json(h_events, null, '  '));
 
 	const h_tracking: GroupedGasLogs = {};
 	for(const [si_key, a_values] of entries(h_events!)) {
-		const m_key = /^wasm\.gas\.(\w+)$/.exec(si_key);
+		const m_key = /^wasm\.gas\.(.+)$/.exec(si_key);
 		if(m_key) {
 			const [, si_group] = m_key;
 
@@ -136,8 +161,6 @@ export async function transfer(
 		}
 	}
 
-	// console.log(h_tracking);
-
 	if(k_checker) {
 		k_checker.compare(h_tracking, BigInt(g_meta!.gas_used));
 	}
@@ -154,13 +177,13 @@ export async function transfer(
 		throw fail(`Failed to fetch balances`);
 	}
 
-	// expect exact amount difference
+	// expect exact amount difference for owner
 	const xg_owner_loss = BigInt(g_balance_owner_before.amount as string) - BigInt(g_balance_owner_after.amount);
 	if(xg_owner_loss !== xg_amount) {
 		fail(`Owner's balance changed by ${-xg_owner_loss}, but the amount sent was ${xg_amount}`);
 	}
 
-	// expect exact amount difference
+	// expect exact amount difference for recipient
 	const xg_recipient_gain = BigInt(g_balance_recipient_after.amount) - BigInt(g_balance_recipient_before.amount);
 	if(xg_recipient_gain !== xg_amount) {
 		fail(`Recipient's balance changed by ${xg_recipient_gain}, but the amount sent was ${xg_amount}`);

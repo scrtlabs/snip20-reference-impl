@@ -7,15 +7,17 @@ import {promisify} from 'node:util';
 import {gunzip} from 'node:zlib';
 
 import {base64_to_bytes, bytes_to_hex, bytes_to_text, cast, sha256} from '@blake.regalia/belt';
+import {queryCosmosBankBalance} from '@solar-republic/cosmos-grpc/cosmos/bank/v1beta1/query';
 import {encodeGoogleProtobufAny} from '@solar-republic/cosmos-grpc/google/protobuf/any';
 import {SI_MESSAGE_TYPE_SECRET_COMPUTE_MSG_STORE_CODE, SI_MESSAGE_TYPE_SECRET_COMPUTE_MSG_INSTANTIATE_CONTRACT, encodeSecretComputeMsgStoreCode, encodeSecretComputeMsgInstantiateContract} from '@solar-republic/cosmos-grpc/secret/compute/v1beta1/msg';
 import {querySecretComputeCodeHashByCodeId, querySecretComputeCodes} from '@solar-republic/cosmos-grpc/secret/compute/v1beta1/query';
 import {destructSecretRegistrationKey} from '@solar-republic/cosmos-grpc/secret/registration/v1beta1/msg';
 import {querySecretRegistrationTxKey} from '@solar-republic/cosmos-grpc/secret/registration/v1beta1/query';
-import {SecretWasm, broadcast_result, create_and_sign_tx_direct, exec_fees} from '@solar-republic/neutrino';
+import {SecretWasm, TendermintEventFilter, TendermintWs, broadcast_result, create_and_sign_tx_direct, exec_fees} from '@solar-republic/neutrino';
 
-import {X_GAS_PRICE, P_LOCALSECRET_LCD} from './constants';
+import {X_GAS_PRICE, P_LOCALSECRET_LCD, P_LOCALSECRET_RPC} from './constants';
 
+const k_tef = await TendermintEventFilter(P_LOCALSECRET_RPC);
 
 export async function exec(k_wallet: Wallet, atu8_msg: EncodedGoogleProtobufAny, xg_gas_limit: bigint): Promise<TxResultTuple> {
 	const [atu8_raw, atu8_signdoc, si_txn] = await create_and_sign_tx_direct(
@@ -25,7 +27,7 @@ export async function exec(k_wallet: Wallet, atu8_msg: EncodedGoogleProtobufAny,
 		xg_gas_limit
 	);
 
-	return await broadcast_result(k_wallet, atu8_raw, si_txn);
+	return await broadcast_result(k_wallet, atu8_raw, si_txn, k_tef);
 }
 
 export async function upload_code(k_wallet: Wallet, atu8_wasm: Uint8Array): Promise<WeakUintStr> {
@@ -56,7 +58,7 @@ export async function upload_code(k_wallet: Wallet, atu8_wasm: Uint8Array): Prom
 			k_wallet.addr,
 			atu8_bytecode
 		)
-	), 30_000_000n);
+	), 30_000000n);
 
 	if(xc_code) throw Error(sx_res);
 
@@ -65,8 +67,8 @@ export async function upload_code(k_wallet: Wallet, atu8_wasm: Uint8Array): Prom
 
 export async function instantiate_contract(k_wallet: Wallet, sg_code_id: WeakUintStr, h_init_msg: JsonObject): Promise<WeakSecretAccAddr> {
 	const [,, g_reg] = await querySecretRegistrationTxKey(P_LOCALSECRET_LCD);
-	const [atu8_cons_pk] = destructSecretRegistrationKey(g_reg);
-	const k_wasm = await SecretWasm(atu8_cons_pk);
+	const [atu8_cons_pk] = destructSecretRegistrationKey(g_reg!);
+	const k_wasm = SecretWasm(atu8_cons_pk!);
 	const [,, g_hash] = await querySecretComputeCodeHashByCodeId(P_LOCALSECRET_LCD, sg_code_id);
 
 	// @ts-expect-error imported types versioning

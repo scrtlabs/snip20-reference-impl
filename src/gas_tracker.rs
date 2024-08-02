@@ -81,4 +81,8 @@ impl<'a, 'b> GasGroup<'a, 'b> {
         self.tracker.logs.push(log_entry);
         self.index += 1;
     }
+
+    pub fn logf(&mut self, comment: String) {
+        self.log(comment.as_str())
+    }
 }

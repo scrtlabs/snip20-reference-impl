@@ -382,7 +382,7 @@ pub enum QueryMsg {
         query: QueryWithPermit,
     },
 
-    /// FOR TESTING ONLY! REMOVE
+    #[cfg(feature="gas_tracking")]
     Dwb { },
 }
 
@@ -508,7 +508,7 @@ pub enum QueryAnswer {
         minters: Vec<Addr>,
     },
 
-    /// FOR TESTING ONLY! REMOVE
+    #[cfg(feature="gas_tracking")]
     Dwb {
         dwb: String,
     },
