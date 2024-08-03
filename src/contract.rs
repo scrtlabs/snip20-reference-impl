@@ -313,7 +313,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
     };
 
     let padded_result = pad_handle_result(response, RESPONSE_BLOCK_SIZE);
-    msg.evaporate_to_target(api)?;
+    let evaporated = msg.evaporate_to_target(api)?;
+
     padded_result
 }
 

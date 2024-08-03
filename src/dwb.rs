@@ -11,6 +11,10 @@ use crate::state::{safe_add, safe_add_u64};
 use crate::transaction_history::{Tx, TRANSACTIONS};
 #[cfg(feature = "gas_tracking")]
 use crate::gas_tracker::GasTracker;
+#[cfg(feature = "gas_tracking")]
+use cosmwasm_std::{Binary, to_binary};
+#[cfg(feature = "gas_tracking")]
+use crate::msg::QueryAnswer;
 
 include!(concat!(env!("OUT_DIR"), "/config.rs"));
 

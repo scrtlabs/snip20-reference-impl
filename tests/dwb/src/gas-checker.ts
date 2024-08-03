@@ -23,9 +23,6 @@ export class GasChecker {
 
 		// each group
 		for(const [si_group, a_logs_local] of entries(h_local)) {
-			// logs emitted from this transfer group
-			let c_logs = 0;
-
 			// find group in baseline
 			const a_logs_baseline = _h_baseline[si_group];
 
@@ -50,12 +47,13 @@ export class GasChecker {
 
 				// comment only
 				if('#' === si_group[0]) {
-					console.log([
-						' '.repeat(8)+si_group.slice(0, 20).padEnd(20, ' '),
-						' '.repeat(3),
-						SX_ANSI_CYAN+s_comment_local+SX_ANSI_RESET,
-					].join(' │ '));
-					c_logs += 1;
+					if(s_comment_local.trim()) {
+						console.log([
+							' '.repeat(8)+si_group.slice(0, 20).padEnd(20, ' '),
+							' '.repeat(3),
+							SX_ANSI_CYAN+s_comment_local+SX_ANSI_RESET,
+						].join(' │ '));
+					}
 				}
 				// non-zero delta
 				else if(xg_delta || '@' === s_comment_local[0]) {
@@ -64,7 +62,6 @@ export class GasChecker {
 						delta_color(xg_delta, 3),
 						('@' === s_comment_local[0]? SX_ANSI_MAGENTA: '')+s_comment_local+SX_ANSI_RESET,
 					].join(' │ '));
-					c_logs += 1;
 				}
 			}
 		}

@@ -15,9 +15,9 @@ import {destructSecretRegistrationKey} from '@solar-republic/cosmos-grpc/secret/
 import {querySecretRegistrationTxKey} from '@solar-republic/cosmos-grpc/secret/registration/v1beta1/query';
 import {SecretWasm, TendermintEventFilter, TendermintWs, broadcast_result, create_and_sign_tx_direct, exec_fees} from '@solar-republic/neutrino';
 
-import {X_GAS_PRICE, P_LOCALSECRET_LCD, P_LOCALSECRET_RPC} from './constants';
+import {X_GAS_PRICE, P_SECRET_LCD, P_SECRET_RPC} from './constants';
 
-const k_tef = await TendermintEventFilter(P_LOCALSECRET_RPC);
+const k_tef = await TendermintEventFilter(P_SECRET_RPC);
 
 export async function exec(k_wallet: Wallet, atu8_msg: EncodedGoogleProtobufAny, xg_gas_limit: bigint): Promise<TxResultTuple> {
 	const [atu8_raw, atu8_signdoc, si_txn] = await create_and_sign_tx_direct(
@@ -43,11 +43,13 @@ export async function upload_code(k_wallet: Wallet, atu8_wasm: Uint8Array): Prom
 	const sb16_hash = cast<CwHexLower>(bytes_to_hex(atu8_hash));
 
 	// fetch all uploaded codes
-	const [,, g_codes] = await querySecretComputeCodes(P_LOCALSECRET_LCD);
+	const [,, g_codes] = await querySecretComputeCodes(P_SECRET_LCD);
 
 	// already uploaded
 	const g_existing = g_codes?.code_infos?.find(g => g.code_hash! === sb16_hash);
 	if(g_existing) {
+		console.info(`Found code ID ${g_existing.code_id} already uploaded to network`);
+
 		return g_existing.code_id as WeakUintStr;
 	}
 
@@ -66,10 +68,10 @@ export async function upload_code(k_wallet: Wallet, atu8_wasm: Uint8Array): Prom
 }
 
 export async function instantiate_contract(k_wallet: Wallet, sg_code_id: WeakUintStr, h_init_msg: JsonObject): Promise<WeakSecretAccAddr> {
-	const [,, g_reg] = await querySecretRegistrationTxKey(P_LOCALSECRET_LCD);
+	const [,, g_reg] = await querySecretRegistrationTxKey(P_SECRET_LCD);
 	const [atu8_cons_pk] = destructSecretRegistrationKey(g_reg!);
 	const k_wasm = SecretWasm(atu8_cons_pk!);
-	const [,, g_hash] = await querySecretComputeCodeHashByCodeId(P_LOCALSECRET_LCD, sg_code_id);
+	const [,, g_hash] = await querySecretComputeCodeHashByCodeId(P_SECRET_LCD, sg_code_id);
 
 	// @ts-expect-error imported types versioning
 	const atu8_body = await k_wasm.encodeMsg(g_hash!.code_hash, h_init_msg);

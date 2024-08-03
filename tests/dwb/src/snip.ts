@@ -10,7 +10,7 @@ import {queryCosmosBankBalance} from '@solar-republic/cosmos-grpc/cosmos/bank/v1
 import {sign_secret_query_permit} from '@solar-republic/neutrino';
 import BigNumber from 'bignumber.js';
 
-import {H_ADDRS, N_DECIMALS, P_LOCALSECRET_LCD} from './constants';
+import {H_ADDRS, N_DECIMALS, P_SECRET_LCD} from './constants';
 import {fail} from './helper';
 
 
@@ -55,7 +55,7 @@ type TokenBalance = SecretContractInterface<{
 }>;
 
 export async function scrt_balance(sa_owner: WeakSecretAccAddr): Promise<bigint> {
-	const [,, g_res] = await queryCosmosBankBalance(P_LOCALSECRET_LCD, sa_owner, 'uscrt');
+	const [,, g_res] = await queryCosmosBankBalance(P_SECRET_LCD, sa_owner, 'uscrt');
 	return BigInt(g_res?.balance?.amount || '0');
 }
 

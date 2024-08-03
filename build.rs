@@ -6,7 +6,7 @@ use std::path::Path;
 fn main() {
     // config parameters
     let dwb_capacity = env::var("DWB_CAPACITY").unwrap_or_else(|_| "64".to_string());
-    let btbe_capacity = env::var("BTBE_CAPACITY").unwrap_or_else(|_| "128".to_string());
+    let btbe_capacity = env::var("BTBE_CAPACITY").unwrap_or_else(|_| "64".to_string());
 
     // path to destination config.rs file
     let out_dir = env::var("OUT_DIR").expect("Missing OUT_DIR");

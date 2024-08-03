@@ -368,11 +368,11 @@ pub enum ExecuteAnswer {
 }
 
 pub trait Evaporator {
-    fn evaporate_to_target(&self, api: &dyn Api) -> StdResult<()>;
+    fn evaporate_to_target(&self, api: &dyn Api) -> StdResult<u64>;
 }
 
 impl Evaporator for ExecuteMsg {
-    fn evaporate_to_target(&self, api: &dyn Api) -> StdResult<()> {
+    fn evaporate_to_target(&self, api: &dyn Api) -> StdResult<u64> {
         match self {
             ExecuteMsg::Redeem { gas_target, .. }
             | ExecuteMsg::Deposit { gas_target, .. }
@@ -407,10 +407,11 @@ impl Evaporator for ExecuteMsg {
                     if gas_used < gas_target.u64() {
                         let evaporate_amount = gas_target.u64() - gas_used;
                         api.gas_evaporate(evaporate_amount as u32)?;
+                        return Ok(evaporate_amount)
                     }
-                    Ok(())
+                    Ok(0)
                 }
-                None => Ok(()),
+                None => Ok(0),
             },
         }
     }
