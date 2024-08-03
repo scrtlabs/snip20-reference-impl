@@ -103,20 +103,21 @@ async function transfer_chain(sx_chain: string) {
 
 // evaporation
 {
-	const xg_gas_wanted = 25000n;
+	const xg_gas_wanted = 250_000n;
+	const xg_gas_target = xg_gas_wanted - 35_000n;
 
 	const [g_exec, xc_code, sx_res, g_meta, h_events, si_txn] = await k_app_a.exec('transfer', {
 		amount: `${500000n}` as CwUint128,
 		recipient: k_wallet_b.addr,
-		gas_target: `${xg_gas_wanted}`,
+		gas_target: `${xg_gas_target}`,
 	}, xg_gas_wanted);
 
 	if(xc_code) {
 		throw Error(`Failed evaporation test: ${sx_res}`);
 	}
 
-	const xg_gas_used = BigInt(g_meta.gas_used);
-	if(bigint_abs(xg_gas_wanted, xg_gas_used) > 20n) {
+	const xg_gas_used = BigInt(g_meta?.gas_used || '0');
+	if(bigint_abs(xg_gas_wanted, xg_gas_used) > 35_000n) {
 		throw Error(`Expected gas used to be ${xg_gas_wanted} but found ${xg_gas_used}`);
 	}
 

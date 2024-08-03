@@ -408,9 +408,6 @@ impl Evaporator for ExecuteMsg {
                         let evaporate_amount = gas_target.u64() - gas_used;
                         api.gas_evaporate(evaporate_amount as u32)?;
                     }
-                    else {
-                        api.gas_evaporate(1000u32);
-                    }
                     Ok(())
                 }
                 None => Ok(()),
