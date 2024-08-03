@@ -1,10 +1,8 @@
 import type {GroupedGasLogs} from './snip';
 
-import {entries, stringify_json} from '@blake.regalia/belt';
+import {entries, bigint_abs} from '@blake.regalia/belt';
 
 import {SX_ANSI_GREEN, SX_ANSI_RED, SX_ANSI_MAGENTA, SX_ANSI_RESET, SX_ANSI_YELLOW} from './helper';
-
-const bigint_abs = (xg_a: bigint, xg_b=0n): bigint => xg_a > xg_b? xg_a - xg_b: xg_b - xg_a;
 
 const delta_color = (xg_delta: bigint, nl_pad=0) => (bigint_abs(xg_delta) >= 1n
 	? bigint_abs(xg_delta) > 2n

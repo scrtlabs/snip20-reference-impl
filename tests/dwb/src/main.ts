@@ -1,9 +1,14 @@
-import type {Snip24} from '@solar-republic/contractor';
+import type {Dict} from '@blake.regalia/belt';
+import type {SecretAccAddr, Snip24} from '@solar-republic/contractor';
+
+import type {CwUint128} from '@solar-republic/types';
 
 import {readFileSync} from 'node:fs';
 
-import {bytes, bytes_to_base64, entries, sha256, text_to_bytes} from '@blake.regalia/belt';
-import {SecretApp, SecretContract, Wallet, random_32} from '@solar-republic/neutrino';
+import {bytes, bytes_to_base64, entries, sha256, text_to_bytes, bigint_greater} from '@blake.regalia/belt';
+import {encodeCosmosBankMsgSend, SI_MESSAGE_TYPE_COSMOS_BANK_MSG_SEND} from '@solar-republic/cosmos-grpc/cosmos/bank/v1beta1/tx';
+import {encodeGoogleProtobufAny} from '@solar-republic/cosmos-grpc/google/protobuf/any';
+import {SecretApp, SecretContract, Wallet, broadcast_result, create_and_sign_tx_direct, random_32, type TxMeta} from '@solar-republic/neutrino';
 import {BigNumber} from 'bignumber.js';
 
 import {N_DECIMALS, P_LOCALSECRET_LCD, P_LOCALSECRET_RPC, X_GAS_PRICE, k_wallet_a, k_wallet_b, k_wallet_c, k_wallet_d} from './constants';
@@ -89,6 +94,7 @@ async function transfer_chain(sx_chain: string) {
 }
 
 {
+	// basic transfers between principals
 	await transfer_chain(`
 		1 TKN Alice => Bob
 		2 TKN Alice => Carol
@@ -98,8 +104,7 @@ async function transfer_chain(sx_chain: string) {
 		1 TKN David => Alice 	-- re-adds Alice to buffer; settles David for 1st time
 	`);
 
-	console.log('#'.repeat(80)+'\n--- Subsequent operations should incur almost exactly the same gas now ---\n'+'#'.repeat(80)+'\n');
-
+	// extended transfers between principals
 	await transfer_chain(`
 		1 TKN David => Bob
 		1 TKN David => Bob 		-- exact same transfer repeated
@@ -110,22 +115,111 @@ async function transfer_chain(sx_chain: string) {
 	`);
 
 
+	// gas checker ref
 	let k_checker: GasChecker | null = null;
 
-	for(let i_sim=0; i_sim<700; i_sim++) {
+	// grant action from previous simultion
+	let f_grant: undefined | (() => Promise<[w_result: {
+		spender: SecretAccAddr;
+		owner: SecretAccAddr;
+		allowance: CwUint128;
+	} | undefined, xc_code: number, s_response: string, g_meta: TxMeta | undefined, h_events: Dict<string[]> | undefined, si_txn: string | undefined]>);
+
+	// number of simulations to perform
+	const N_SIMULATIONS = 300;
+
+	// record maximum gas used for direct transfers
+	let xg_max_gas_used_transfer = 0n;
+
+	// simulate many transfers
+	for(let i_sim=0; i_sim<N_SIMULATIONS; i_sim++) {
 		const si_receiver = i_sim+'';
 
 		const k_wallet = await Wallet(await sha256(text_to_bytes(si_receiver)), 'secretdev-1', P_LOCALSECRET_LCD, P_LOCALSECRET_RPC, 'secret');
 
-		const k_app_receiver = SecretApp(k_wallet, k_contract, X_GAS_PRICE);
+		const k_app_sim = SecretApp(k_wallet, k_contract, X_GAS_PRICE);
 
+		// label
 		console.log(`Alice --> ${si_receiver}`);
 
+		// transfer some gas to sim account
+		const [atu8_raw,, si_txn] = await create_and_sign_tx_direct(k_wallet_b, [
+			encodeGoogleProtobufAny(
+				SI_MESSAGE_TYPE_COSMOS_BANK_MSG_SEND,
+				encodeCosmosBankMsgSend(k_wallet_b.addr, k_wallet.addr, [[`${1_000000n}`, 'uscrt']])
+			),
+		], [[`${5000n}`, 'uscrt']], 50_000n);
+
+		// submit all in parallel
+		const [
+			g_result_transfer,
+			[xc_send_gas, s_err_send_gas],
+			a_res_increase,
+		] = await Promise.all([
+			// @ts-expect-error secret app
+			transfer(k_dwbv, i_sim % 2? 1_000000n: 2_000000n, k_app_a, k_app_sim, k_checker),
+			broadcast_result(k_wallet, atu8_raw, si_txn),
+			f_grant?.(),
+		]);
+
+		// send gas error
+		if(xc_send_gas) {
+			throw Error(`Failed to transfer gas: ${s_err_send_gas}`);
+		}
+
+		// increase allowance error
+		if(f_grant && a_res_increase?.[1]) {
+			throw Error(`Failed to increase allowance: ${a_res_increase[2]}`);
+		}
+
+		// approve Alice as spender for future txs
+		f_grant = () => k_app_sim.exec('increase_allowance', {
+			spender: k_wallet_a.addr,
+			amount: `${1_000000n}` as CwUint128,
+		}, 60_000n);
+
+		if(!k_checker) {
+			k_checker = new GasChecker(g_result_transfer.tracking, g_result_transfer.gasUsed);
+		}
+
+		xg_max_gas_used_transfer = bigint_greater(xg_max_gas_used_transfer, g_result_transfer.gasUsed);
+	}
+
+	// reset checker
+	k_checker = null;
+
+	// record maximum gas used for transfer froms
+	let xg_max_gas_used_transfer_from = 0n;
+
+	// perform transfer_from
+	for(let i_sim=N_SIMULATIONS-2; i_sim>0; i_sim--) {
+		const si_owner = i_sim+'';
+		const si_recipient = (i_sim - 1)+'';
+
+		const k_wallet_owner = await Wallet(await sha256(text_to_bytes(si_owner)), 'secretdev-1', P_LOCALSECRET_LCD, P_LOCALSECRET_RPC, 'secret');
+		const k_wallet_recipient = await Wallet(await sha256(text_to_bytes(si_recipient)), 'secretdev-1', P_LOCALSECRET_LCD, P_LOCALSECRET_RPC, 'secret');
+
+		const k_app_owner = SecretApp(k_wallet_owner, k_contract, X_GAS_PRICE);
+		const k_app_recipient = SecretApp(k_wallet_recipient, k_contract, X_GAS_PRICE);
+
+		console.log(`${si_owner} --> ${si_recipient}`);
+
 		// @ts-expect-error secret app
-		const g_result = await transfer(k_dwbv, i_sim % 2? 1_000000n: 2_000000n, k_app_a, k_app_receiver, k_checker);
+		const g_result = await transfer(k_dwbv, 1_000000n, k_app_owner, k_app_recipient, k_checker, k_app_a);
 
 		if(!k_checker) {
 			k_checker = new GasChecker(g_result.tracking, g_result.gasUsed);
 		}
+
+		xg_max_gas_used_transfer_from = bigint_greater(xg_max_gas_used_transfer_from, g_result.gasUsed);
 	}
+
+	// report
+	console.log({
+		xg_max_gas_used_transfer,
+		xg_max_gas_used_transfer_from,
+	});
+
+	// done
+	process.exit(0);
 }

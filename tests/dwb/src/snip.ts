@@ -69,7 +69,8 @@ export async function transfer(
 	xg_amount: bigint,
 	k_app_owner: SecretApp,
 	k_app_recipient: SecretApp,
-	k_checker?: Nilable<GasChecker>
+	k_checker?: Nilable<GasChecker>,
+	k_app_sender?: SecretApp
 ): Promise<TransferResult> {
 	const sa_owner = k_app_owner.wallet.addr;
 	const sa_recipient = k_app_recipient.wallet.addr;
@@ -90,13 +91,19 @@ export async function transfer(
 	]);
 
 	// execute transfer
-	const [g_exec, xc_code, sx_res, g_meta, h_events, si_txn] = await k_app_owner.exec('transfer', {
-		amount: `${xg_amount}` as CwUint128,
-		recipient: sa_recipient,
-	}, 1000_000n);
+	const [g_exec, xc_code, sx_res, g_meta, h_events, si_txn] = k_app_sender
+		? await k_app_sender.exec('transfer_from', {
+			owner: k_app_owner.wallet.addr,
+			amount: `${xg_amount}` as CwUint128,
+			recipient: sa_recipient,
+		}, 1_000000n)
+		: await k_app_owner.exec('transfer', {
+			amount: `${xg_amount}` as CwUint128,
+			recipient: sa_recipient,
+		}, 1_000000n);
 
 	// section header
-	console.log(`# Transfer ${BigNumber(xg_amount+'').shiftedBy(-N_DECIMALS).toFixed()} TKN ${H_ADDRS[sa_owner] || sa_owner} => ${H_ADDRS[sa_recipient] || sa_recipient}      |  ⏹  ${k_dwbv.empty} spaces  |  ⛽️ ${g_meta?.gas_used || '0'} gas used`);
+	console.log(`# Transfer ${BigNumber(xg_amount+'').shiftedBy(-N_DECIMALS).toFixed()} TKN ${H_ADDRS[sa_owner] || sa_owner}${k_app_sender? ` (via ${H_ADDRS[k_app_sender.wallet.addr] || k_app_sender.wallet.addr})`: ''} => ${H_ADDRS[sa_recipient] || sa_recipient}      |  ⏹  ${k_dwbv.empty} spaces  |  ⛽️ ${g_meta?.gas_used || '0'} gas used`);
 
 	// query balance of owner and recipient again
 	const [
