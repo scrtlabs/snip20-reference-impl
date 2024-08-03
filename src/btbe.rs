@@ -522,7 +522,7 @@ pub fn merge_dwb_entry(
     #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
 ) -> StdResult<()> {
     #[cfg(feature = "gas_tracking")]
-    let mut group1 = tracker.group("merge_dwb_entry.1");
+    let mut group1 = tracker.group("#merge_dwb_entry.1");
 
     // locate the node that the given entry belongs in
     let (mut node, mut node_id, mut bit_pos) = locate_btbe_node(storage, &dwb_entry.recipient()?)?;
@@ -543,7 +543,7 @@ pub fn merge_dwb_entry(
 
         #[cfg(feature = "gas_tracking")]
         group1.logf(format!(
-            "@merged {} into node #{}, bucket #{} at position {} ",
+            "merged {} into node #{}, bucket #{} at position {} ",
             dwb_entry.recipient()?,
             node_id,
             bucket_id,
@@ -567,7 +567,7 @@ pub fn merge_dwb_entry(
             if bucket.add_entry(&btbe_entry) {
                 #[cfg(feature = "gas_tracking")]
                 group1.logf(format!(
-                    "@inserted into node #{}, bucket #{} (bitpos: {}) at position {}",
+                    "inserted into node #{}, bucket #{} (bitpos: {}) at position {}",
                     node_id,
                     bucket_id,
                     bit_pos,
@@ -661,7 +661,7 @@ pub fn merge_dwb_entry(
 
                 #[cfg(feature = "gas_tracking")]
                 group1.logf(format!(
-                    "@split node #{}, bucket #{} at bitpos {}, ",
+                    "split node #{}, bucket #{} at bitpos {}, ",
                     node_id, bucket_id, bit_pos
                 ));
 

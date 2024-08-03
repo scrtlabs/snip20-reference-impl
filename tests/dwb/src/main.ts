@@ -1,21 +1,22 @@
-import type {Dict} from '@blake.regalia/belt';
-import type {SecretAccAddr, Snip24} from '@solar-republic/contractor';
+import type {Dict, JsonObject} from '@blake.regalia/belt';
 
-import type {CwUint128} from '@solar-republic/types';
+import type {SecretContractInterface, FungibleTransferCall, SecretAccAddr, Snip24} from '@solar-republic/contractor';
+
+import type {CwUint128, WeakUint128Str} from '@solar-republic/types';
 
 import {readFileSync} from 'node:fs';
 
-import {bytes, bytes_to_base64, entries, sha256, text_to_bytes, bigint_greater} from '@blake.regalia/belt';
+import {bytes, bytes_to_base64, entries, sha256, text_to_bytes, bigint_greater, bigint_abs} from '@blake.regalia/belt';
 import {encodeCosmosBankMsgSend, SI_MESSAGE_TYPE_COSMOS_BANK_MSG_SEND} from '@solar-republic/cosmos-grpc/cosmos/bank/v1beta1/tx';
 import {encodeGoogleProtobufAny} from '@solar-republic/cosmos-grpc/google/protobuf/any';
-import {SecretApp, SecretContract, Wallet, broadcast_result, create_and_sign_tx_direct, random_32, type TxMeta} from '@solar-republic/neutrino';
+import {SecretApp, SecretContract, Wallet, broadcast_result, create_and_sign_tx_direct, random_32, type TxMeta, type WeakSecretAccAddr} from '@solar-republic/neutrino';
 import {BigNumber} from 'bignumber.js';
 
 import {N_DECIMALS, P_LOCALSECRET_LCD, P_LOCALSECRET_RPC, X_GAS_PRICE, k_wallet_a, k_wallet_b, k_wallet_c, k_wallet_d} from './constants';
 import {upload_code, instantiate_contract} from './contract';
 import {DwbValidator} from './dwb';
 import {GasChecker} from './gas-checker';
-import {transfer} from './snip';
+import {transfer, type TransferResult} from './snip';
 
 const S_CONTRACT_LABEL = 'snip2x-test_'+bytes_to_base64(crypto.getRandomValues(bytes(6)));
 
@@ -50,7 +51,14 @@ const sa_snip = await instantiate_contract(k_wallet_a, sg_code_id, {
 console.debug(`Running tests against ${sa_snip}...`);
 
 // @ts-expect-error deep instantiation
-const k_contract = await SecretContract<Snip24>(P_LOCALSECRET_LCD, sa_snip);
+const k_contract = await SecretContract<SecretContractInterface<{
+	extends: Snip24;
+	executions: {
+		transfer: [FungibleTransferCall & {
+			gas_target?: WeakUint128Str;
+		}];
+	};
+}>>(P_LOCALSECRET_LCD, sa_snip);
 
 const k_app_a = SecretApp(k_wallet_a, k_contract, X_GAS_PRICE);
 const k_app_b = SecretApp(k_wallet_b, k_contract, X_GAS_PRICE);
@@ -64,7 +72,7 @@ const H_APPS = {
 	d: k_app_d,
 };
 
-// @ts-expect-error validator!
+// #ts-expect-error validator!
 const k_dwbv = new DwbValidator(k_app_a);
 
 console.log('# Initialized');
@@ -85,12 +93,34 @@ async function transfer_chain(sx_chain: string) {
 		console.log(sx_amount, si_from, si_to);
 
 		// @ts-expect-error secret app
-		const g_result = await transfer(k_dwbv, xg_amount, H_APPS[si_from[0].toLowerCase()], H_APPS[si_to[0].toLowerCase()], k_checker);
+		const g_result = await transfer(k_dwbv, xg_amount, H_APPS[si_from[0].toLowerCase()] as SecretApp, H_APPS[si_to[0].toLowerCase()] as SecretApp, k_checker);
 
 		if(!k_checker) {
 			k_checker = new GasChecker(g_result.tracking, g_result.gasUsed);
 		}
 	}
+}
+
+// evaporation
+{
+	const xg_gas_wanted = 25000n;
+
+	const [g_exec, xc_code, sx_res, g_meta, h_events, si_txn] = await k_app_a.exec('transfer', {
+		amount: `${500000n}` as CwUint128,
+		recipient: k_wallet_b.addr,
+		gas_target: `${xg_gas_wanted}`,
+	}, xg_gas_wanted);
+
+	if(xc_code) {
+		throw Error(`Failed evaporation test: ${sx_res}`);
+	}
+
+	const xg_gas_used = BigInt(g_meta.gas_used);
+	if(bigint_abs(xg_gas_wanted, xg_gas_used) > 20n) {
+		throw Error(`Expected gas used to be ${xg_gas_wanted} but found ${xg_gas_used}`);
+	}
+
+	console.log(g_meta);
 }
 
 {
@@ -114,16 +144,11 @@ async function transfer_chain(sx_chain: string) {
 		1 TKN Carol => Bob 		-- yet again
 	`);
 
-
 	// gas checker ref
 	let k_checker: GasChecker | null = null;
 
 	// grant action from previous simultion
-	let f_grant: undefined | (() => Promise<[w_result: {
-		spender: SecretAccAddr;
-		owner: SecretAccAddr;
-		allowance: CwUint128;
-	} | undefined, xc_code: number, s_response: string, g_meta: TxMeta | undefined, h_events: Dict<string[]> | undefined, si_txn: string | undefined]>);
+	let f_grant: undefined | (() => Promise<[w_result: JsonObject | undefined, xc_code: number, s_response: string, g_meta: TxMeta | undefined, h_events: Dict<string[]> | undefined, si_txn: string | undefined]>);
 
 	// number of simulations to perform
 	const N_SIMULATIONS = 300;
@@ -152,11 +177,12 @@ async function transfer_chain(sx_chain: string) {
 
 		// submit all in parallel
 		const [
+			// @ts-expect-error totally stupid
 			g_result_transfer,
 			[xc_send_gas, s_err_send_gas],
 			a_res_increase,
 		] = await Promise.all([
-			// @ts-expect-error secret app
+			// #ts-expect-error secret app
 			transfer(k_dwbv, i_sim % 2? 1_000000n: 2_000000n, k_app_a, k_app_sim, k_checker),
 			broadcast_result(k_wallet, atu8_raw, si_txn),
 			f_grant?.(),
@@ -179,7 +205,7 @@ async function transfer_chain(sx_chain: string) {
 		}, 60_000n);
 
 		if(!k_checker) {
-			k_checker = new GasChecker(g_result_transfer.tracking, g_result_transfer.gasUsed);
+			k_checker = new GasChecker((g_result_transfer as TransferResult).tracking, (g_result_transfer as TransferResult).gasUsed);
 		}
 
 		xg_max_gas_used_transfer = bigint_greater(xg_max_gas_used_transfer, g_result_transfer.gasUsed);
@@ -204,7 +230,7 @@ async function transfer_chain(sx_chain: string) {
 
 		console.log(`${si_owner} --> ${si_recipient}`);
 
-		// @ts-expect-error secret app
+		// #ts-expect-error secret app
 		const g_result = await transfer(k_dwbv, 1_000000n, k_app_owner, k_app_recipient, k_checker, k_app_a);
 
 		if(!k_checker) {

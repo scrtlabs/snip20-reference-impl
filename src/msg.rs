@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{batch, transaction_history::Tx};
-use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128};
+use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128, Uint64};
 use secret_toolkit::permit::Permit;
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
@@ -91,11 +91,11 @@ pub enum ExecuteMsg {
     Redeem {
         amount: Uint128,
         denom: Option<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     Deposit {
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
@@ -104,7 +104,7 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     Send {
@@ -113,38 +113,38 @@ pub enum ExecuteMsg {
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchTransfer {
         actions: Vec<batch::TransferAction>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchSend {
         actions: Vec<batch::SendAction>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     Burn {
         amount: Uint128,
         memo: Option<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     RegisterReceive {
         code_hash: String,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     CreateViewingKey {
         entropy: String,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SetViewingKey {
         key: String,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
@@ -153,14 +153,14 @@ pub enum ExecuteMsg {
         spender: String,
         amount: Uint128,
         expiration: Option<u64>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     DecreaseAllowance {
         spender: String,
         amount: Uint128,
         expiration: Option<u64>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     TransferFrom {
@@ -168,7 +168,7 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SendFrom {
@@ -178,29 +178,29 @@ pub enum ExecuteMsg {
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchTransferFrom {
         actions: Vec<batch::TransferFromAction>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchSendFrom {
         actions: Vec<batch::SendFromAction>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BurnFrom {
         owner: String,
         amount: Uint128,
         memo: Option<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchBurnFrom {
         actions: Vec<batch::BurnFromAction>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
@@ -209,56 +209,56 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchMint {
         actions: Vec<batch::MintAction>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     AddMinters {
         minters: Vec<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     RemoveMinters {
         minters: Vec<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SetMinters {
         minters: Vec<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
     // Admin
     ChangeAdmin {
         address: String,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SetContractStatus {
         level: ContractStatusLevel,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     /// Add deposit/redeem support for these coin denoms
     AddSupportedDenoms {
         denoms: Vec<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
     },
     /// Remove deposit/redeem support for these coin denoms
     RemoveSupportedDenoms {
         denoms: Vec<String>,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
     },
 
     // Permit
     RevokePermit {
         permit_name: String,
-        gas_target: Option<u32>,
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 }
@@ -403,10 +403,13 @@ impl Evaporator for ExecuteMsg {
             | ExecuteMsg::RemoveSupportedDenoms { gas_target, .. }
             | ExecuteMsg::RevokePermit { gas_target, .. } => match gas_target {
                 Some(gas_target) => {
-                    let gas_used = api.check_gas()? as u32;
-                    if gas_used < *gas_target {
-                        let evaporate_amount = gas_target - gas_used;
-                        api.gas_evaporate(evaporate_amount)?;
+                    let gas_used = api.check_gas()?;
+                    if gas_used < gas_target.u64() {
+                        let evaporate_amount = gas_target.u64() - gas_used;
+                        api.gas_evaporate(evaporate_amount as u32)?;
+                    }
+                    else {
+                        api.gas_evaporate(1000u32);
                     }
                     Ok(())
                 }

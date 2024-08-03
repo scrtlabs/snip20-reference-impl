@@ -871,6 +871,7 @@ fn try_mint(
     #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
 
+    #[cfg(not(feature = "gas_tracking"))]
     Ok(resp)
 }
 
@@ -1110,6 +1111,7 @@ fn try_deposit(
     #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
 
+    #[cfg(not(feature = "gas_tracking"))]
     Ok(resp)
 }
 
@@ -1273,6 +1275,7 @@ fn try_transfer(
     #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
 
+    #[cfg(not(feature = "gas_tracking"))]
     Ok(resp)
 }
 
@@ -1309,6 +1312,7 @@ fn try_batch_transfer(
     #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
 
+    #[cfg(not(feature = "gas_tracking"))]
     Ok(resp)
 }
 
@@ -1428,6 +1432,7 @@ fn try_send(
     #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
 
+    #[cfg(not(feature = "gas_tracking"))]
     Ok(resp)
 }
 

@@ -96,11 +96,11 @@ export async function transfer(
 			owner: k_app_owner.wallet.addr,
 			amount: `${xg_amount}` as CwUint128,
 			recipient: sa_recipient,
-		}, 1_000000n)
+		}, 250000n)
 		: await k_app_owner.exec('transfer', {
 			amount: `${xg_amount}` as CwUint128,
 			recipient: sa_recipient,
-		}, 1_000000n);
+		}, 250000n);
 
 	// section header
 	console.log(`# Transfer ${BigNumber(xg_amount+'').shiftedBy(-N_DECIMALS).toFixed()} TKN ${H_ADDRS[sa_owner] || sa_owner}${k_app_sender? ` (via ${H_ADDRS[k_app_sender.wallet.addr] || k_app_sender.wallet.addr})`: ''} => ${H_ADDRS[sa_recipient] || sa_recipient}      |  ⏹  ${k_dwbv.empty} spaces  |  ⛽️ ${g_meta?.gas_used || '0'} gas used`);

@@ -2,7 +2,7 @@ import type {GroupedGasLogs} from './snip';
 
 import {entries, bigint_abs} from '@blake.regalia/belt';
 
-import {SX_ANSI_GREEN, SX_ANSI_RED, SX_ANSI_MAGENTA, SX_ANSI_RESET, SX_ANSI_YELLOW} from './helper';
+import {SX_ANSI_GREEN, SX_ANSI_RED, SX_ANSI_MAGENTA, SX_ANSI_RESET, SX_ANSI_YELLOW, SX_ANSI_CYAN} from './helper';
 
 const delta_color = (xg_delta: bigint, nl_pad=0) => (bigint_abs(xg_delta) >= 1n
 	? bigint_abs(xg_delta) > 2n
@@ -48,8 +48,17 @@ export class GasChecker {
 				// calculate delta
 				const xg_delta = xg_gap_local - xg_gap_baseline;
 
+				// comment only
+				if('#' === si_group[0]) {
+					console.log([
+						' '.repeat(8)+si_group.slice(0, 20).padEnd(20, ' '),
+						' '.repeat(3),
+						SX_ANSI_CYAN+s_comment_local+SX_ANSI_RESET,
+					].join(' │ '));
+					c_logs += 1;
+				}
 				// non-zero delta
-				if(xg_delta || '@' === s_comment_local[0]) {
+				else if(xg_delta || '@' === s_comment_local[0]) {
 					console.log([
 						' '.repeat(8)+si_group.slice(0, 20).padEnd(20, ' '),
 						delta_color(xg_delta, 3),
