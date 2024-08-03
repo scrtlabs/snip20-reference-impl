@@ -1,7 +1,8 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    entry_point, to_binary, Addr, Api, BankMsg, Binary, BlockInfo, CanonicalAddr, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128
+    entry_point, to_binary, Addr, Api, BankMsg, Binary, BlockInfo, CanonicalAddr, Coin, CosmosMsg,
+    Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit::notification::hkdf_sha_256;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
@@ -11,24 +12,28 @@ use secret_toolkit_crypto::{sha_256, ContractPrng};
 
 use crate::batch;
 
-use crate::dwb::{DelayedWriteBuffer, DWB, TX_NODES};
-#[cfg(feature="gas_tracking")]
+#[cfg(feature = "gas_tracking")]
 use crate::dwb::log_dwb;
+use crate::dwb::{DelayedWriteBuffer, DWB, TX_NODES};
 
+use crate::btbe::{
+    find_start_bundle, initialize_btbe, stored_balance, stored_entry, stored_tx_count,
+};
 use crate::gas_tracker::{GasTracker, LoggingExt};
 use crate::msg::Evaporator;
 use crate::msg::{
-    AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer,
-    ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
+    AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer, ExecuteMsg,
+    InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    safe_add, AllowancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET, PRNG, TOTAL_SUPPLY
+    safe_add, AllowancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG,
+    CONTRACT_STATUS, INTERNAL_SECRET, PRNG, TOTAL_SUPPLY,
 };
-use crate::btbe::{find_start_bundle, initialize_btbe, stored_balance, stored_entry, stored_tx_count};
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
-    store_burn_action, store_deposit_action, store_mint_action, store_redeem_action, store_transfer_action, Tx  
+    store_burn_action, store_deposit_action, store_mint_action, store_redeem_action,
+    store_transfer_action, Tx,
 };
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
@@ -102,18 +107,18 @@ pub fn instantiate(
     for balance in initial_balances {
         let amount = balance.amount.u128();
         let balance_address = deps.api.addr_canonicalize(balance.address.as_str())?;
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         let mut tracker = GasTracker::new(deps.api);
         perform_mint(
-            deps.storage, 
-            &mut rng, 
-            &raw_admin, 
-            &balance_address, 
+            deps.storage,
+            &mut rng,
+            &raw_admin,
+            &balance_address,
             amount,
             msg.symbol.clone(),
             Some("Initial Balance".to_string()),
             &env.block,
-            #[cfg(feature="gas_tracking")]
+            #[cfg(feature = "gas_tracking")]
             &mut tracker,
         )?;
 
@@ -176,11 +181,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
                 ExecuteMsg::SetContractStatus { level, .. } => {
                     set_contract_status(deps, info, level)
                 }
-                ExecuteMsg::Redeem {
-                    amount,
-                    denom,
-                    ..
-                } if contract_status == ContractStatusLevel::StopAllButRedeems => {
+                ExecuteMsg::Redeem { amount, denom, .. }
+                    if contract_status == ContractStatusLevel::StopAllButRedeems =>
+                {
                     try_redeem(deps, env, info, amount, denom)
                 }
                 _ => Err(StdError::generic_err(
@@ -194,14 +197,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
 
     let response = match msg.clone() {
         // Native
-        ExecuteMsg::Deposit { .. } => {
-            try_deposit(deps, env, info, &mut rng)
-        }
-        ExecuteMsg::Redeem {
-            amount,
-            denom,
-            ..
-        } => try_redeem(deps, env, info, amount, denom),
+        ExecuteMsg::Deposit { .. } => try_deposit(deps, env, info, &mut rng),
+        ExecuteMsg::Redeem { amount, denom, .. } => try_redeem(deps, env, info, amount, denom),
 
         // Base
         ExecuteMsg::Transfer {
@@ -209,15 +206,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_transfer(
-            deps,
-            env,
-            info,
-            &mut rng,
-            recipient,
-            amount,
-            memo,
-        ),
+        } => try_transfer(deps, env, info, &mut rng, recipient, amount, memo),
         ExecuteMsg::Send {
             recipient,
             recipient_code_hash,
@@ -239,14 +228,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ExecuteMsg::BatchTransfer { actions, .. } => {
             try_batch_transfer(deps, env, info, &mut rng, actions)
         }
-        ExecuteMsg::BatchSend { actions, .. } => {
-            try_batch_send(deps, env, info, &mut rng, actions)
-        }
-        ExecuteMsg::Burn {
-            amount,
-            memo,
-            ..
-        } => try_burn(deps, env, info, amount, memo),
+        ExecuteMsg::BatchSend { actions, .. } => try_batch_send(deps, env, info, &mut rng, actions),
+        ExecuteMsg::Burn { amount, memo, .. } => try_burn(deps, env, info, amount, memo),
         ExecuteMsg::RegisterReceive { code_hash, .. } => {
             try_register_receive(deps, info, code_hash)
         }
@@ -272,16 +255,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_transfer_from(
-            deps,
-            &env,
-            info,
-            &mut rng,
-            owner,
-            recipient,
-            amount,
-            memo,
-        ),
+        } => try_transfer_from(deps, &env, info, &mut rng, owner, recipient, amount, memo),
         ExecuteMsg::SendFrom {
             owner,
             recipient,
@@ -313,17 +287,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_burn_from(
-            deps,
-            &env,
-            info,
-            owner,
-            amount,
-            memo,
-        ),
-        ExecuteMsg::BatchBurnFrom { actions, .. } => {
-            try_batch_burn_from(deps, &env, info, actions)
-        }
+        } => try_burn_from(deps, &env, info, owner, amount, memo),
+        ExecuteMsg::BatchBurnFrom { actions, .. } => try_batch_burn_from(deps, &env, info, actions),
 
         // Mint
         ExecuteMsg::Mint {
@@ -331,18 +296,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => try_mint(
-            deps,
-            env,
-            info,
-            &mut rng,
-            recipient,
-            amount,
-            memo,
-        ),
-        ExecuteMsg::BatchMint { actions, .. } => {
-            try_batch_mint(deps, env, info, &mut rng, actions)
-        }
+        } => try_mint(deps, env, info, &mut rng, recipient, amount, memo),
+        ExecuteMsg::BatchMint { actions, .. } => try_batch_mint(deps, env, info, &mut rng, actions),
 
         // Other
         ExecuteMsg::ChangeAdmin { address, .. } => change_admin(deps, info, address),
@@ -372,9 +327,9 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             QueryMsg::ExchangeRate {} => query_exchange_rate(deps.storage),
             QueryMsg::Minters { .. } => query_minters(deps),
             QueryMsg::WithPermit { permit, query } => permit_queries(deps, permit, query),
-            
-            #[cfg(feature="gas_tracking")]
-            QueryMsg::Dwb {  } => log_dwb(deps.storage),
+
+            #[cfg(feature = "gas_tracking")]
+            QueryMsg::Dwb {} => log_dwb(deps.storage),
 
             _ => viewing_keys_queries(deps, msg),
         },
@@ -409,10 +364,7 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
         QueryWithPermit::TransferHistory { .. } => {
             return Err(StdError::generic_err(TRANSFER_HISTORY_UNSUPPORTED_MSG));
         }
-        QueryWithPermit::TransactionHistory {
-            page,
-            page_size,
-        } => {
+        QueryWithPermit::TransactionHistory { page, page_size } => {
             if !permit.check_permission(&TokenPermissions::History) {
                 return Err(StdError::generic_err(format!(
                     "No permission to query history, got permissions {:?}",
@@ -420,12 +372,7 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
                 )));
             }
 
-            query_transactions(
-                deps,
-                account,
-                page.unwrap_or(0),
-                page_size,
-            )
+            query_transactions(deps, account, page.unwrap_or(0), page_size)
         }
         QueryWithPermit::Allowance { owner, spender } => {
             if !permit.check_permission(&TokenPermissions::Allowance) {
@@ -502,18 +449,13 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
                 QueryMsg::Balance { address, .. } => query_balance(deps, address),
                 QueryMsg::TransferHistory { .. } => {
                     return Err(StdError::generic_err(TRANSFER_HISTORY_UNSUPPORTED_MSG));
-                },
+                }
                 QueryMsg::TransactionHistory {
                     address,
                     page,
                     page_size,
                     ..
-                } => query_transactions(
-                    deps,
-                    address,
-                    page.unwrap_or(0),
-                    page_size,
-                ),
+                } => query_transactions(deps, address, page.unwrap_or(0), page_size),
                 QueryMsg::Allowance { owner, spender, .. } => query_allowance(deps, owner, spender),
                 QueryMsg::AllowancesGiven {
                     owner,
@@ -623,10 +565,13 @@ pub fn query_transactions(
     let dwb_index = dwb.recipient_match(&account_raw);
     let mut txs_in_dwb = vec![];
     let txs_in_dwb_count = dwb.entries[dwb_index].list_len()?;
-    if dwb_index > 0 && txs_in_dwb_count > 0 && start < txs_in_dwb_count as u32 { // skip if start is after buffer entries
+    if dwb_index > 0 && txs_in_dwb_count > 0 && start < txs_in_dwb_count as u32 {
+        // skip if start is after buffer entries
         let head_node_index = dwb.entries[dwb_index].head_node()?;
         if head_node_index > 0 {
-            let head_node = TX_NODES.add_suffix(&head_node_index.to_be_bytes()).load(deps.storage)?;
+            let head_node = TX_NODES
+                .add_suffix(&head_node_index.to_be_bytes())
+                .load(deps.storage)?;
             txs_in_dwb = head_node.to_vec(deps.storage, deps.api)?;
         }
     }
@@ -658,10 +603,14 @@ pub fn query_transactions(
                 let mut bundle_idx = tx_bundles_idx_len - 1;
                 loop {
                     let tx_bundle = entry.get_tx_bundle_at(deps.storage, bundle_idx.clone())?;
-                    let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
+                    let head_node = TX_NODES
+                        .add_suffix(&tx_bundle.head_node.to_be_bytes())
+                        .load(deps.storage)?;
                     let list_len = tx_bundle.list_len as u32;
                     if txs_left <= list_len {
-                        txs.extend_from_slice(&head_node.to_vec(deps.storage, deps.api)?[0..txs_left as usize]);
+                        txs.extend_from_slice(
+                            &head_node.to_vec(deps.storage, deps.api)?[0..txs_left as usize],
+                        );
                         break;
                     }
                     txs.extend(head_node.to_vec(deps.storage, deps.api)?);
@@ -681,20 +630,24 @@ pub fn query_transactions(
         // bundle tx offsets are chronological, but we need reverse chronological
         // so get the settled start index as if order is reversed
         //println!("OPTION 3");
-        let settled_start = settled_tx_count.saturating_sub(start - txs_in_dwb_count).saturating_sub(1);
-        
-        if let Some((bundle_idx, tx_bundle, start_at)) = find_start_bundle(
-            deps.storage, 
-            &account_raw, 
-            settled_start
-        )? {
+        let settled_start = settled_tx_count
+            .saturating_sub(start - txs_in_dwb_count)
+            .saturating_sub(1);
+
+        if let Some((bundle_idx, tx_bundle, start_at)) =
+            find_start_bundle(deps.storage, &account_raw, settled_start)?
+        {
             let mut txs_left = end - start;
 
-            let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
+            let head_node = TX_NODES
+                .add_suffix(&tx_bundle.head_node.to_be_bytes())
+                .load(deps.storage)?;
             let list_len = tx_bundle.list_len as u32;
             if start_at + txs_left <= list_len {
                 // this first bundle has all the txs we need
-                txs = head_node.to_vec(deps.storage, deps.api)?[start_at as usize..(start_at + txs_left) as usize].to_vec();
+                txs = head_node.to_vec(deps.storage, deps.api)?
+                    [start_at as usize..(start_at + txs_left) as usize]
+                    .to_vec();
             } else {
                 // get the rest of the txs in this bundle and then go back through history
                 txs = head_node.to_vec(deps.storage, deps.api)?[start_at as usize..].to_vec();
@@ -705,11 +658,17 @@ pub fn query_transactions(
                     let mut bundle_idx = bundle_idx - 1;
                     if let Some(entry) = account_stored_entry {
                         loop {
-                            let tx_bundle = entry.get_tx_bundle_at(deps.storage, bundle_idx.clone())?;
-                            let head_node = TX_NODES.add_suffix(&tx_bundle.head_node.to_be_bytes()).load(deps.storage)?;
+                            let tx_bundle =
+                                entry.get_tx_bundle_at(deps.storage, bundle_idx.clone())?;
+                            let head_node = TX_NODES
+                                .add_suffix(&tx_bundle.head_node.to_be_bytes())
+                                .load(deps.storage)?;
                             let list_len = tx_bundle.list_len as u32;
                             if txs_left <= list_len {
-                                txs.extend_from_slice(&head_node.to_vec(deps.storage, deps.api)?[0..txs_left as usize]);
+                                txs.extend_from_slice(
+                                    &head_node.to_vec(deps.storage, deps.api)?
+                                        [0..txs_left as usize],
+                                );
                                 break;
                             }
                             txs.extend(head_node.to_vec(deps.storage, deps.api)?);
@@ -721,7 +680,7 @@ pub fn query_transactions(
                             }
                         }
                     }
-                }   
+                }
             }
         }
     }
@@ -837,8 +796,7 @@ fn try_mint_impl(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
-    #[cfg(feature="gas_tracking")]
-    tracker: &mut GasTracker,
+    #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
 ) -> StdResult<()> {
     let raw_amount = amount.u128();
     let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
@@ -853,7 +811,7 @@ fn try_mint_impl(
         denom,
         memo,
         block,
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         tracker,
     )?;
 
@@ -891,7 +849,7 @@ fn try_mint(
     let minted_amount = safe_add(&mut total_supply, amount.u128());
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     // Note that even when minted_amount is equal to 0 we still want to perform the operations for logic consistency
@@ -904,14 +862,13 @@ fn try_mint(
         constants.symbol,
         memo,
         &env.block,
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         &mut tracker,
     )?;
 
-    let resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?);
+    let resp = Response::new().set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?);
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
 
     Ok(resp)
@@ -947,7 +904,7 @@ fn try_batch_mint(
 
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
 
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         let mut tracker: GasTracker = GasTracker::new(deps.api);
 
         try_mint_impl(
@@ -959,7 +916,7 @@ fn try_batch_mint(
             constants.symbol.clone(),
             action.memo,
             &env.block,
-            #[cfg(feature="gas_tracking")]
+            #[cfg(feature = "gas_tracking")]
             &mut tracker,
         )?;
     }
@@ -1134,24 +1091,23 @@ fn try_deposit(
 
     let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     perform_deposit(
         deps.storage,
-        rng, 
+        rng,
         &sender_address,
         raw_amount,
         "uscrt".to_string(),
         &env.block,
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         &mut tracker,
     )?;
 
-    let resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?);
+    let resp = Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?);
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
 
     Ok(resp)
@@ -1191,12 +1147,7 @@ fn try_redeem(
     let sender_address = deps.api.addr_canonicalize(info.sender.as_str())?;
     let amount_raw = amount.u128();
 
-    let tx_id = store_redeem_action(
-        deps.storage,
-        amount.u128(),
-        constants.symbol,
-        &env.block,
-    )?;
+    let tx_id = store_redeem_action(deps.storage, amount.u128(), constants.symbol, &env.block)?;
 
     // load delayed write buffer
     let mut dwb = DWB.load(deps.storage)?;
@@ -1205,12 +1156,12 @@ fn try_redeem(
 
     // settle the signer's account in buffer
     dwb.settle_sender_or_owner_account(
-        deps.storage, 
-        &sender_address, 
-        tx_id, 
+        deps.storage,
+        &sender_address,
+        tx_id,
         amount_raw,
-        "redeem", 
-        #[cfg(feature="gas_tracking")]
+        "redeem",
+        #[cfg(feature = "gas_tracking")]
         &mut tracker,
     )?;
 
@@ -1259,8 +1210,7 @@ fn try_transfer_impl(
     denom: String,
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
-    #[cfg(feature="gas_tracking")]
-    tracker: &mut GasTracker,
+    #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
 ) -> StdResult<()> {
     let raw_sender = deps.api.addr_canonicalize(sender.as_str())?;
     let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
@@ -1275,7 +1225,7 @@ fn try_transfer_impl(
         denom,
         memo,
         block,
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         tracker,
     )?;
 
@@ -1296,7 +1246,7 @@ fn try_transfer(
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     try_transfer_impl(
@@ -1308,20 +1258,19 @@ fn try_transfer(
         symbol,
         memo,
         &env.block,
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         &mut tracker,
     )?;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut group1 = tracker.group("try_transfer.rest");
 
-    let resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
- 
-    #[cfg(feature="gas_tracking")]
+    let resp = Response::new().set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
+
+    #[cfg(feature = "gas_tracking")]
     group1.log("rest");
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
 
     Ok(resp)
@@ -1336,7 +1285,7 @@ fn try_batch_transfer(
 ) -> StdResult<Response> {
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     for action in actions {
@@ -1350,15 +1299,14 @@ fn try_batch_transfer(
             symbol.clone(),
             action.memo,
             &env.block,
-            #[cfg(feature="gas_tracking")]
+            #[cfg(feature = "gas_tracking")]
             &mut tracker,
         )?;
     }
 
-    let resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
+    let resp = Response::new().set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
 
     Ok(resp)
@@ -1407,8 +1355,7 @@ fn try_send_impl(
     memo: Option<String>,
     msg: Option<Binary>,
     block: &cosmwasm_std::BlockInfo,
-    #[cfg(feature="gas_tracking")]
-    tracker: &mut GasTracker,
+    #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
 ) -> StdResult<()> {
     try_transfer_impl(
         deps,
@@ -1419,7 +1366,7 @@ fn try_send_impl(
         denom,
         memo.clone(),
         block,
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         tracker,
     )?;
 
@@ -1455,7 +1402,7 @@ fn try_send(
     let mut messages = vec![];
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     try_send_impl(
@@ -1470,7 +1417,7 @@ fn try_send(
         memo,
         msg,
         &env.block,
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         &mut tracker,
     )?;
 
@@ -1478,7 +1425,7 @@ fn try_send(
         .add_messages(messages)
         .set_data(to_binary(&ExecuteAnswer::Send { status: Success })?);
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
 
     Ok(resp)
@@ -1494,7 +1441,7 @@ fn try_batch_send(
     let mut messages = vec![];
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     for action in actions {
@@ -1511,7 +1458,7 @@ fn try_batch_send(
             action.memo,
             action.msg,
             &env.block,
-            #[cfg(feature="gas_tracking")]
+            #[cfg(feature = "gas_tracking")]
             &mut tracker,
         )?;
     }
@@ -1582,7 +1529,7 @@ fn try_transfer_from_impl(
 
     use_allowance(deps.storage, env, owner, spender, raw_amount)?;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     perform_transfer(
@@ -1595,7 +1542,7 @@ fn try_transfer_from_impl(
         denom,
         memo,
         &env.block,
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         &mut tracker,
     )?;
 
@@ -1797,40 +1744,41 @@ fn try_burn_from(
     let raw_burner = deps.api.addr_canonicalize(info.sender.as_str())?;
 
     let tx_id = store_burn_action(
-        deps.storage, 
+        deps.storage,
         raw_owner.clone(),
-        raw_burner.clone(), 
+        raw_burner.clone(),
         raw_amount,
         constants.symbol,
-        memo, 
-        &env.block
+        memo,
+        &env.block,
     )?;
 
     // load delayed write buffer
     let mut dwb = DWB.load(deps.storage)?;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut tracker = GasTracker::new(deps.api);
 
     // settle the owner's account in buffer
     dwb.settle_sender_or_owner_account(
-        deps.storage, 
-        &raw_owner, 
-        tx_id, 
-        raw_amount, 
-        "burn", 
-        #[cfg(feature="gas_tracking")]
+        deps.storage,
+        &raw_owner,
+        tx_id,
+        raw_amount,
+        "burn",
+        #[cfg(feature = "gas_tracking")]
         &mut tracker,
     )?;
-    if raw_burner != raw_owner { // also settle sender's account
+    if raw_burner != raw_owner {
+        // also settle sender's account
         dwb.settle_sender_or_owner_account(
-            deps.storage, 
-            &raw_burner, 
-            tx_id, 
+            deps.storage,
+            &raw_burner,
+            tx_id,
             0,
-             "burn", 
-             #[cfg(feature="gas_tracking")]
-             &mut tracker,
+            "burn",
+            #[cfg(feature = "gas_tracking")]
+            &mut tracker,
         )?;
     }
 
@@ -1874,43 +1822,43 @@ fn try_batch_burn_from(
         use_allowance(deps.storage, env, &owner, &info.sender, amount)?;
 
         let tx_id = store_burn_action(
-            deps.storage, 
+            deps.storage,
             raw_owner.clone(),
-            raw_spender.clone(), 
+            raw_spender.clone(),
             amount,
             constants.symbol.clone(),
-            action.memo.clone(), 
-            &env.block
+            action.memo.clone(),
+            &env.block,
         )?;
-    
+
         // load delayed write buffer
         let mut dwb = DWB.load(deps.storage)?;
 
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         let mut tracker = GasTracker::new(deps.api);
-    
+
         // settle the owner's account in buffer
         dwb.settle_sender_or_owner_account(
-            deps.storage, 
-            &raw_owner, 
-            tx_id, 
-            amount, 
+            deps.storage,
+            &raw_owner,
+            tx_id,
+            amount,
             "burn",
-            #[cfg(feature="gas_tracking")] 
+            #[cfg(feature = "gas_tracking")]
             &mut tracker,
         )?;
         if raw_spender != raw_owner {
             dwb.settle_sender_or_owner_account(
-                deps.storage, 
-                &raw_spender, 
-                tx_id, 
-                0, 
-                "burn", 
-                #[cfg(feature="gas_tracking")]
+                deps.storage,
+                &raw_spender,
+                tx_id,
+                0,
+                "burn",
+                #[cfg(feature = "gas_tracking")]
                 &mut tracker,
             )?;
         }
-    
+
         DWB.save(deps.storage, &dwb)?;
 
         // remove from supply
@@ -2100,29 +2048,29 @@ fn try_burn(
     let raw_burn_address = deps.api.addr_canonicalize(info.sender.as_str())?;
 
     let tx_id = store_burn_action(
-        deps.storage, 
+        deps.storage,
         raw_burn_address.clone(),
-        raw_burn_address.clone(), 
+        raw_burn_address.clone(),
         raw_amount,
         constants.symbol,
-        memo, 
-        &env.block
+        memo,
+        &env.block,
     )?;
 
     // load delayed write buffer
     let mut dwb = DWB.load(deps.storage)?;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut tracker = GasTracker::new(deps.api);
 
     // settle the signer's account in buffer
     dwb.settle_sender_or_owner_account(
-        deps.storage, 
-        &raw_burn_address, 
-        tx_id, 
-        raw_amount, 
-        "burn", 
-        #[cfg(feature="gas_tracking")]
+        deps.storage,
+        &raw_burn_address,
+        tx_id,
+        raw_amount,
+        "burn",
+        #[cfg(feature = "gas_tracking")]
         &mut tracker,
     )?;
 
@@ -2151,67 +2099,66 @@ fn perform_transfer(
     denom: String,
     memo: Option<String>,
     block: &BlockInfo,
-    #[cfg(feature="gas_tracking")]
-    tracker: &mut GasTracker,
+    #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
 ) -> StdResult<()> {
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut group1 = tracker.group("perform_transfer.1");
 
     // first store the tx information in the global append list of txs and get the new tx id
     let tx_id = store_transfer_action(store, from, sender, to, amount, denom, memo, block)?;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     group1.log("@store_transfer_action");
 
     // load delayed write buffer
     let mut dwb = DWB.load(store)?;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     group1.log("DWB.load");
 
     let transfer_str = "transfer";
 
     // settle the owner's account
     dwb.settle_sender_or_owner_account(
-        store, 
-        from, 
-        tx_id, 
-        amount, 
+        store,
+        from,
+        tx_id,
+        amount,
         transfer_str,
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         tracker,
     )?;
 
     // if this is a *_from action, settle the sender's account, too
     if sender != from {
         dwb.settle_sender_or_owner_account(
-            store, 
-            sender, 
-            tx_id, 
-            0, 
-            transfer_str, 
-            #[cfg(feature="gas_tracking")]
+            store,
+            sender,
+            tx_id,
+            0,
+            transfer_str,
+            #[cfg(feature = "gas_tracking")]
             tracker,
         )?;
     }
 
     // add the tx info for the recipient to the buffer
     dwb.add_recipient(
-        store, 
-        rng, 
-        to, 
-        tx_id, 
-        amount, 
-        #[cfg(feature="gas_tracking")]
+        store,
+        rng,
+        to,
+        tx_id,
+        amount,
+        #[cfg(feature = "gas_tracking")]
         tracker,
     )?;
-    
-    #[cfg(feature="gas_tracking")]
+
+    #[cfg(feature = "gas_tracking")]
     let mut group2 = tracker.group("perform_transfer.2");
 
     DWB.save(store, &dwb)?;
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     group2.log("DWB.save");
 
     Ok(())
@@ -2226,8 +2173,7 @@ fn perform_mint(
     denom: String,
     memo: Option<String>,
     block: &BlockInfo,
-    #[cfg(feature="gas_tracking")]
-    tracker: &mut GasTracker,
+    #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
     let tx_id = store_mint_action(store, minter, to, amount, denom, memo, block)?;
@@ -2238,24 +2184,24 @@ fn perform_mint(
     // if minter is not recipient, settle them
     if minter != to {
         dwb.settle_sender_or_owner_account(
-            store, 
-            minter, 
-            tx_id, 
-            0, 
+            store,
+            minter,
+            tx_id,
+            0,
             "mint",
-            #[cfg(feature="gas_tracking")]
+            #[cfg(feature = "gas_tracking")]
             tracker,
         )?;
     }
 
     // add the tx info for the recipient to the buffer
     dwb.add_recipient(
-        store, 
-        rng, 
-        to, 
-        tx_id, 
-        amount, 
-        #[cfg(feature="gas_tracking")]
+        store,
+        rng,
+        to,
+        tx_id,
+        amount,
+        #[cfg(feature = "gas_tracking")]
         tracker,
     )?;
 
@@ -2271,8 +2217,7 @@ fn perform_deposit(
     amount: u128,
     denom: String,
     block: &BlockInfo,
-    #[cfg(feature="gas_tracking")]
-    tracker: &mut GasTracker,
+    #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
 ) -> StdResult<()> {
     // first store the tx information in the global append list of txs and get the new tx id
     let tx_id = store_deposit_action(store, amount, denom, block)?;
@@ -2282,12 +2227,12 @@ fn perform_deposit(
 
     // add the tx info for the recipient to the buffer
     dwb.add_recipient(
-        store, 
-        rng, 
-        to, 
-        tx_id, 
+        store,
+        rng,
+        to,
+        tx_id,
         amount,
-        #[cfg(feature="gas_tracking")]
+        #[cfg(feature = "gas_tracking")]
         tracker,
     )?;
 
@@ -2343,9 +2288,8 @@ mod tests {
     use std::any::Any;
 
     use cosmwasm_std::{
-        testing::*, Api,
-        from_binary, BlockInfo, ContractInfo, MessageInfo, OwnedDeps, QueryResponse, ReplyOn,
-        SubMsg, Timestamp, TransactionInfo, WasmMsg,
+        from_binary, testing::*, Api, BlockInfo, ContractInfo, MessageInfo, OwnedDeps,
+        QueryResponse, ReplyOn, SubMsg, Timestamp, TransactionInfo, WasmMsg,
     };
     use secret_toolkit::permit::{PermitParams, PermitSignature, PubKey};
 
@@ -2591,7 +2535,7 @@ mod tests {
             init_result.err().unwrap()
         );
 
-        /* 
+        /*
         let (init_result, _deps) = init_helper(vec![
             InitialBalance {
                 address: "lebron".to_string(),
@@ -2653,7 +2597,10 @@ mod tests {
             .addr_canonicalize(Addr::unchecked("alice").as_str())
             .unwrap();
 
-        assert_eq!(5000 - 1000, stored_balance(&deps.storage, &bob_addr).unwrap());
+        assert_eq!(
+            5000 - 1000,
+            stored_balance(&deps.storage, &bob_addr).unwrap()
+        );
         // alice has not been settled yet
         assert_ne!(1000, stored_balance(&deps.storage, &alice_addr).unwrap());
 
@@ -2665,10 +2612,10 @@ mod tests {
         let alice_entry = dwb.entries[2];
         assert_eq!(1, alice_entry.list_len().unwrap());
         assert_eq!(1000, alice_entry.amount().unwrap());
-        // the id of the head_node 
+        // the id of the head_node
         assert_eq!(4, alice_entry.head_node().unwrap());
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
-        assert_eq!(2, tx_count); 
+        assert_eq!(2, tx_count);
 
         //let tx_node1 = TX_NODES.add_suffix(&1u64.to_be_bytes()).load(&deps.storage).unwrap();
         //println!("tx node 1: {tx_node1:?}");
@@ -2696,7 +2643,10 @@ mod tests {
             .addr_canonicalize(Addr::unchecked("charlie").as_str())
             .unwrap();
 
-        assert_eq!(5000 - 1000 - 100, stored_balance(&deps.storage, &bob_addr).unwrap());
+        assert_eq!(
+            5000 - 1000 - 100,
+            stored_balance(&deps.storage, &bob_addr).unwrap()
+        );
         // alice has not been settled yet
         assert_ne!(1000, stored_balance(&deps.storage, &alice_addr).unwrap());
         // charlie has not been settled yet
@@ -2710,10 +2660,10 @@ mod tests {
         let charlie_entry = dwb.entries[3];
         assert_eq!(1, charlie_entry.list_len().unwrap());
         assert_eq!(100, charlie_entry.amount().unwrap());
-        // the id of the head_node 
+        // the id of the head_node
         assert_eq!(6, charlie_entry.head_node().unwrap());
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
-        assert_eq!(3, tx_count); 
+        assert_eq!(3, tx_count);
 
         // send another 500 to alice from bob
         let handle_msg = ExecuteMsg::Transfer {
@@ -2731,7 +2681,10 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        assert_eq!(5000 - 1000 - 100 - 500, stored_balance(&deps.storage, &bob_addr).unwrap());
+        assert_eq!(
+            5000 - 1000 - 100 - 500,
+            stored_balance(&deps.storage, &bob_addr).unwrap()
+        );
         // make sure alice has not been settled yet
         assert_ne!(1500, stored_balance(&deps.storage, &alice_addr).unwrap());
 
@@ -2743,49 +2696,50 @@ mod tests {
         let alice_entry = dwb.entries[2];
         assert_eq!(2, alice_entry.list_len().unwrap());
         assert_eq!(1500, alice_entry.amount().unwrap());
-        // the id of the head_node 
+        // the id of the head_node
         assert_eq!(8, alice_entry.head_node().unwrap());
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
-        assert_eq!(4, tx_count); 
+        assert_eq!(4, tx_count);
 
         // convert head_node to vec
-        let alice_nodes = TX_NODES.add_suffix(
-            &alice_entry
-                .head_node().unwrap()
-                .to_be_bytes()).load(&deps.storage).unwrap()
-                .to_vec(&deps.storage, &deps.api).unwrap();
+        let alice_nodes = TX_NODES
+            .add_suffix(&alice_entry.head_node().unwrap().to_be_bytes())
+            .load(&deps.storage)
+            .unwrap()
+            .to_vec(&deps.storage, &deps.api)
+            .unwrap();
 
         let expected_alice_nodes: Vec<Tx> = vec![
-            Tx { 
-                id: 4, 
-                action: TxAction::Transfer { 
+            Tx {
+                id: 4,
+                action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin {
-                    amount: Uint128::from(500_u128), 
-                    denom: "SECSEC".to_string(),
-                },
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 2, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
+                    recipient: Addr::unchecked("alice"),
                 },
                 coins: Coin {
-                    amount: Uint128::from(1000_u128), 
+                    amount: Uint128::from(500_u128),
                     denom: "SECSEC".to_string(),
                 },
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 2,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    amount: Uint128::from(1000_u128),
+                    denom: "SECSEC".to_string(),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
         ];
         assert_eq!(alice_nodes, expected_alice_nodes);
 
@@ -2810,7 +2764,10 @@ mod tests {
             .addr_canonicalize(Addr::unchecked("ernie").as_str())
             .unwrap();
 
-        assert_eq!(5000 - 1000 - 100 - 500 - 200, stored_balance(&deps.storage, &bob_addr).unwrap());
+        assert_eq!(
+            5000 - 1000 - 100 - 500 - 200,
+            stored_balance(&deps.storage, &bob_addr).unwrap()
+        );
         // alice has not been settled yet
         assert_ne!(1500, stored_balance(&deps.storage, &alice_addr).unwrap());
         // charlie has not been settled yet
@@ -2827,10 +2784,10 @@ mod tests {
         let ernie_entry = dwb.entries[4];
         assert_eq!(1, ernie_entry.list_len().unwrap());
         assert_eq!(200, ernie_entry.amount().unwrap());
-        // the id of the head_node 
+        // the id of the head_node
         assert_eq!(10, ernie_entry.head_node().unwrap());
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
-        assert_eq!(5, tx_count); 
+        assert_eq!(5, tx_count);
 
         // now alice sends 50 to dora
         // this should settle alice and create entry for dora
@@ -2854,7 +2811,10 @@ mod tests {
             .unwrap();
 
         // alice has been settled
-        assert_eq!(1500 - 50, stored_balance(&deps.storage, &alice_addr).unwrap());
+        assert_eq!(
+            1500 - 50,
+            stored_balance(&deps.storage, &alice_addr).unwrap()
+        );
         // dora has not been settled
         assert_ne!(50, stored_balance(&deps.storage, &dora_addr).unwrap());
 
@@ -2867,7 +2827,7 @@ mod tests {
         let dora_entry = dwb.entries[5];
         assert_eq!(1, dora_entry.list_len().unwrap());
         assert_eq!(50, dora_entry.amount().unwrap());
-        // the id of the head_node 
+        // the id of the head_node
         assert_eq!(12, dora_entry.head_node().unwrap());
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
         assert_eq!(6, tx_count);
@@ -2885,13 +2845,16 @@ mod tests {
             };
             let info = mock_info("bob", &[]);
             let mut env = mock_env();
-            env.block.random = Some(Binary::from(&[255-i; 32]));
+            env.block.random = Some(Binary::from(&[255 - i; 32]));
             let handle_result = execute(deps.as_mut(), env, info, handle_msg);
 
             let result = handle_result.unwrap();
             assert!(ensure_success(result));
         }
-        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59, stored_balance(&deps.storage, &bob_addr).unwrap());
+        assert_eq!(
+            5000 - 1000 - 100 - 500 - 200 - 59,
+            stored_balance(&deps.storage, &bob_addr).unwrap()
+        );
 
         let dwb = DWB.load(&deps.storage).unwrap();
         //println!("DWB: {dwb:?}");
@@ -2916,7 +2879,10 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59 - 1, stored_balance(&deps.storage, &bob_addr).unwrap());
+        assert_eq!(
+            5000 - 1000 - 100 - 500 - 200 - 59 - 1,
+            stored_balance(&deps.storage, &bob_addr).unwrap()
+        );
 
         //let dwb = DWB.load(&deps.storage).unwrap();
         //println!("DWB: {dwb:?}");
@@ -2938,7 +2904,10 @@ mod tests {
         let result = handle_result.unwrap();
         assert!(ensure_success(result));
 
-        assert_eq!(5000 - 1000 - 100 - 500 - 200 - 59 - 1 - 1, stored_balance(&deps.storage, &bob_addr).unwrap());
+        assert_eq!(
+            5000 - 1000 - 100 - 500 - 200 - 59 - 1 - 1,
+            stored_balance(&deps.storage, &bob_addr).unwrap()
+        );
 
         //let dwb = DWB.load(&deps.storage).unwrap();
         //println!("DWB: {dwb:?}");
@@ -2956,14 +2925,17 @@ mod tests {
 
             let info = mock_info("bob", &[]);
             let mut env = mock_env();
-            env.block.random = Some(Binary::from(&[125-i; 32]));
+            env.block.random = Some(Binary::from(&[125 - i; 32]));
             let handle_result = execute(deps.as_mut(), env, info, handle_msg);
 
             let result = handle_result.unwrap();
             assert!(ensure_success(result));
 
             // alice should not settle
-            assert_eq!(1500 - 50, stored_balance(&deps.storage, &alice_addr).unwrap());
+            assert_eq!(
+                1500 - 50,
+                stored_balance(&deps.storage, &alice_addr).unwrap()
+            );
         }
 
         // alice sends 1 to dora to settle
@@ -2998,7 +2970,7 @@ mod tests {
 
             let info = mock_info("bob", &[]);
             let mut env = mock_env();
-            env.block.random = Some(Binary::from(&[200-i; 32]));
+            env.block.random = Some(Binary::from(&[200 - i; 32]));
             let handle_result = execute(deps.as_mut(), env, info, handle_msg);
 
             let result = handle_result.unwrap();
@@ -3035,7 +3007,7 @@ mod tests {
         assert_eq!(balance, Uint128::new(3999));
 
         // now we use alice to check query transaction history pagination works
-        
+
         //
         // check last 3 transactions for alice (all in dwb)
         //
@@ -3052,55 +3024,56 @@ mod tests {
         };
         //println!("transfers: {transfers:?}");
         let expected_transfers = vec![
-            Tx { 
-                id: 168, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(50u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 167, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(49u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 166, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(48u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
+            Tx {
+                id: 168,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(50u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 167,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(49u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 166,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(48u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
             },
         ];
         assert_eq!(transfers, expected_transfers);
 
         //
-        // check 6 transactions for alice that span over end of the 50 in dwb and settled 
+        // check 6 transactions for alice that span over end of the 50 in dwb and settled
         // page: 8, page size: 6
         // start is index 48
         //
@@ -3117,96 +3090,96 @@ mod tests {
         };
         //println!("transfers: {transfers:?}");
         let expected_transfers = vec![
-            Tx { 
-                id: 120, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(2u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 119, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin { 
+            Tx {
+                id: 120,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
                     denom: "SECSEC".to_string(),
-                    amount: Uint128::from(1u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 118, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("alice"), 
-                    sender: Addr::unchecked("alice"), 
-                    recipient: Addr::unchecked("dora") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(1u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 117, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(50u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 116, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(49u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 115, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(48u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }
+                    amount: Uint128::from(2u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 119,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(1u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 118,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("alice"),
+                    sender: Addr::unchecked("alice"),
+                    recipient: Addr::unchecked("dora"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(1u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 117,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(50u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 116,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(49u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 115,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(48u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
         ];
         assert_eq!(transfers, expected_transfers);
 
@@ -3231,82 +3204,81 @@ mod tests {
         };
         //println!("transfers: {transfers:?}");
         let expected_transfers = vec![
-            Tx { 
-                id: 69, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(2u128) 
-                }, 
-                memo: None, 
-                block_time: 
-                1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 68, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(1u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 6, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("alice"), 
-                    sender: Addr::unchecked("alice"), 
-                    recipient: Addr::unchecked("dora") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(50u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 4, 
-                action: TxAction::Transfer { 
+            Tx {
+                id: 69,
+                action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(500u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }, 
-            Tx { 
-                id: 2, 
-                action: TxAction::Transfer { 
-                    from: Addr::unchecked("bob"), 
-                    sender: Addr::unchecked("bob"), 
-                    recipient: Addr::unchecked("alice") 
-                }, 
-                coins: Coin { 
-                    denom: "SECSEC".to_string(), 
-                    amount: Uint128::from(1000u128) 
-                }, 
-                memo: None, 
-                block_time: 1571797419, 
-                block_height: 12345 
-            }
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(2u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 68,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(1u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 6,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("alice"),
+                    sender: Addr::unchecked("alice"),
+                    recipient: Addr::unchecked("dora"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(50u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 4,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(500u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
+            Tx {
+                id: 2,
+                action: TxAction::Transfer {
+                    from: Addr::unchecked("bob"),
+                    sender: Addr::unchecked("bob"),
+                    recipient: Addr::unchecked("alice"),
+                },
+                coins: Coin {
+                    denom: "SECSEC".to_string(),
+                    amount: Uint128::from(1000u128),
+                },
+                memo: None,
+                block_time: 1571797419,
+                block_height: 12345,
+            },
         ];
         //let transfers_len = transfers.len();
         //println!("transfers.len(): {transfers_len}");
@@ -3803,9 +3775,15 @@ mod tests {
                     height: 12_345,
                     time: Timestamp::from_seconds(1_571_797_420),
                     chain_id: "cosmos-testnet-14002".to_string(),
-                    random: Some(Binary::from(&[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31])),
+                    random: Some(Binary::from(&[
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ])),
                 },
-                transaction: Some(TransactionInfo { index: 3, hash: "1010".to_string()}),
+                transaction: Some(TransactionInfo {
+                    index: 3,
+                    hash: "1010".to_string(),
+                }),
                 contract: ContractInfo {
                     address: Addr::unchecked(MOCK_CONTRACT_ADDR.to_string()),
                     code_hash: "".to_string(),
@@ -5654,10 +5632,10 @@ mod tests {
         let init_config: InitConfig = from_binary(&Binary::from(
             format!(
                 "{{\"public_total_supply\":{},
-            \"enable_deposit\":{},
-            \"enable_redeem\":{},
-            \"enable_mint\":{},
-            \"enable_burn\":{}}}",
+                \"enable_deposit\":{},
+                \"enable_redeem\":{},
+                \"enable_mint\":{},
+                \"enable_burn\":{}}}",
                 true, true, false, false, false
             )
             .as_bytes(),
@@ -6534,5 +6512,4 @@ mod tests {
 
         assert_eq!(transfers, expected_transfers);
     }
-
 }

@@ -245,12 +245,12 @@ pub enum ExecuteMsg {
         padding: Option<String>,
     },
     /// Add deposit/redeem support for these coin denoms
-    AddSupportedDenoms { 
+    AddSupportedDenoms {
         denoms: Vec<String>,
         gas_target: Option<u32>,
     },
     /// Remove deposit/redeem support for these coin denoms
-    RemoveSupportedDenoms { 
+    RemoveSupportedDenoms {
         denoms: Vec<String>,
         gas_target: Option<u32>,
     },
@@ -463,8 +463,8 @@ pub enum QueryMsg {
         query: QueryWithPermit,
     },
 
-    #[cfg(feature="gas_tracking")]
-    Dwb { },
+    #[cfg(feature = "gas_tracking")]
+    Dwb {},
 }
 
 impl QueryMsg {
@@ -589,7 +589,7 @@ pub enum QueryAnswer {
         minters: Vec<Addr>,
     },
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     Dwb {
         dwb: String,
     },
