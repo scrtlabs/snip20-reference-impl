@@ -104,7 +104,7 @@ async function transfer_chain(sx_chain: string) {
 // evaporation
 {
 	const xg_gas_wanted = 250_000n;
-	const xg_gas_target = xg_gas_wanted - 35_000n;
+	const xg_gas_target = xg_gas_wanted - 36_000n;
 
 	const [g_exec, xc_code, sx_res, g_meta, h_events, si_txn] = await k_app_a.exec('transfer', {
 		amount: `${500000n}` as CwUint128,
