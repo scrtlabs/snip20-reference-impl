@@ -1,7 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Api, BlockInfo, CanonicalAddr, Coin, StdError, StdResult, Storage, Uint128};
+use cosmwasm_std::{
+    Addr, Api, BlockInfo, CanonicalAddr, Coin, StdError, StdResult, Storage, Uint128,
+};
 
 use secret_toolkit::storage::Item;
 
@@ -180,17 +182,17 @@ impl StoredTxAction {
             TxCode::Mint => {
                 let minter = self.address1.ok_or_else(mint_addr_err)?;
                 let recipient = self.address2.ok_or_else(mint_addr_err)?;
-                TxAction::Mint { 
-                    minter: api.addr_humanize(&minter)?, 
-                    recipient: api.addr_humanize(&recipient)?
+                TxAction::Mint {
+                    minter: api.addr_humanize(&minter)?,
+                    recipient: api.addr_humanize(&recipient)?,
                 }
             }
             TxCode::Burn => {
                 let burner = self.address1.ok_or_else(burn_addr_err)?;
                 let owner = self.address2.ok_or_else(burn_addr_err)?;
-                TxAction::Burn { 
+                TxAction::Burn {
                     burner: api.addr_humanize(&burner)?,
-                    owner: api.addr_humanize(&owner)? 
+                    owner: api.addr_humanize(&owner)?,
                 }
             }
             TxCode::Deposit => TxAction::Deposit {},
@@ -249,7 +251,9 @@ pub fn append_new_stored_tx(
         block_height: block.height,
     };
 
-    TRANSACTIONS.add_suffix(&serial_id.to_be_bytes()).save(store, &stored_tx)?;
+    TRANSACTIONS
+        .add_suffix(&serial_id.to_be_bytes())
+        .save(store, &stored_tx)?;
     TX_COUNT.save(store, &(serial_id))?;
     Ok(serial_id)
 }
@@ -265,11 +269,7 @@ pub fn store_transfer_action(
     memo: Option<String>,
     block: &BlockInfo,
 ) -> StdResult<u64> {
-    let action = StoredTxAction::transfer(
-        owner.clone(), 
-        sender.clone(), 
-        receiver.clone()
-    );
+    let action = StoredTxAction::transfer(owner.clone(), sender.clone(), receiver.clone());
     append_new_stored_tx(store, &action, amount, denom, memo, block)
 }
 
@@ -282,10 +282,7 @@ pub fn store_mint_action(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<u64> {
-    let action = StoredTxAction::mint(
-        minter.clone(), 
-        recipient.clone()
-    );
+    let action = StoredTxAction::mint(minter.clone(), recipient.clone());
     append_new_stored_tx(store, &action, amount, denom, memo, block)
 }
 
@@ -299,10 +296,7 @@ pub fn store_burn_action(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
 ) -> StdResult<u64> {
-    let action = StoredTxAction::burn(
-        owner, 
-        burner
-    );
+    let action = StoredTxAction::burn(owner, burner);
     append_new_stored_tx(store, &action, amount, denom, memo, block)
 }
 

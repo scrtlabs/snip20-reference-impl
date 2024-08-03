@@ -3,14 +3,21 @@
 include!(concat!(env!("OUT_DIR"), "/config.rs"));
 
 use constant_time_eq::constant_time_eq;
-use primitive_types::U256;
-use secret_toolkit::{notification::hkdf_sha_256, serialization::{Bincode2, Serde}, storage::Item};
-use serde::{Serialize, Deserialize,};
-use serde_big_array::BigArray;
 use cosmwasm_std::{CanonicalAddr, StdError, StdResult, Storage};
+use primitive_types::U256;
+use secret_toolkit::{
+    notification::hkdf_sha_256,
+    serialization::{Bincode2, Serde},
+    storage::Item,
+};
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
-use crate::{dwb::{amount_u64, DelayedWriteBufferEntry, TxBundle}, gas_tracker::GasTracker};
 use crate::state::{safe_add_u64, INTERNAL_SECRET};
+use crate::{
+    dwb::{amount_u64, DelayedWriteBufferEntry, TxBundle},
+    gas_tracker::GasTracker,
+};
 
 pub const KEY_BTBE_ENTRY_HISTORY: &[u8] = b"btbe-entry-hist";
 pub const KEY_BTBE_BUCKETS_COUNT: &[u8] = b"btbe-buckets-cnt";
@@ -29,34 +36,38 @@ const U128_BYTES: usize = 16;
 const BTBE_BUCKET_ADDRESS_BYTES: usize = 54;
 #[cfg(not(test))]
 const BTBE_BUCKET_ADDRESS_BYTES: usize = 20;
-const BTBE_BUCKET_BALANCE_BYTES: usize = 8;  // Max 16 (u128)
-const BTBE_BUCKET_HISTORY_BYTES: usize = 4;  // Max 4  (u32)
+const BTBE_BUCKET_BALANCE_BYTES: usize = 8; // Max 16 (u128)
+const BTBE_BUCKET_HISTORY_BYTES: usize = 4; // Max 4  (u32)
 
 const_assert!(BTBE_BUCKET_BALANCE_BYTES <= U128_BYTES);
 const_assert!(BTBE_BUCKET_HISTORY_BYTES <= U32_BYTES);
 
-const BTBE_BUCKET_ENTRY_BYTES: usize = BTBE_BUCKET_ADDRESS_BYTES + BTBE_BUCKET_BALANCE_BYTES + BTBE_BUCKET_HISTORY_BYTES;
+const BTBE_BUCKET_ENTRY_BYTES: usize =
+    BTBE_BUCKET_ADDRESS_BYTES + BTBE_BUCKET_BALANCE_BYTES + BTBE_BUCKET_HISTORY_BYTES;
 
 /// canonical address bytes corresponding to the 33-byte null public key, in hexadecimal
 #[cfg(test)]
-const IMPOSSIBLE_ADDR: [u8; BTBE_BUCKET_ADDRESS_BYTES] = [0x29,0xCF,0xC6,0x37,0x62,0x55,0xA7,0x84,0x51,0xEE,0xB4,0xB1,0x29,0xED,0x8E,0xAC,0xFF,0xA2,0xFE,0xEF,
-                                                          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-                                                          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00];
+const IMPOSSIBLE_ADDR: [u8; BTBE_BUCKET_ADDRESS_BYTES] = [
+    0x29, 0xCF, 0xC6, 0x37, 0x62, 0x55, 0xA7, 0x84, 0x51, 0xEE, 0xB4, 0xB1, 0x29, 0xED, 0x8E, 0xAC,
+    0xFF, 0xA2, 0xFE, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
 #[cfg(not(test))]
-const IMPOSSIBLE_ADDR: [u8; BTBE_BUCKET_ADDRESS_BYTES] = [0x29,0xCF,0xC6,0x37,0x62,0x55,0xA7,0x84,0x51,0xEE,0xB4,0xB1,0x29,0xED,0x8E,0xAC,0xFF,0xA2,0xFE,0xEF];
+const IMPOSSIBLE_ADDR: [u8; BTBE_BUCKET_ADDRESS_BYTES] = [
+    0x29, 0xCF, 0xC6, 0x37, 0x62, 0x55, 0xA7, 0x84, 0x51, 0xEE, 0xB4, 0xB1, 0x29, 0xED, 0x8E, 0xAC,
+    0xFF, 0xA2, 0xFE, 0xEF,
+];
 
 /// A `StoredEntry` consists of the address, balance, and tx bundle history length in a byte array representation.
-/// The methods of the struct implementation also handle pushing and getting the tx bundle history in a simplified 
+/// The methods of the struct implementation also handle pushing and getting the tx bundle history in a simplified
 /// append store.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(test, derive(Eq))]
-pub struct StoredEntry(
-    #[serde(with = "BigArray")]
-    [u8; BTBE_BUCKET_ENTRY_BYTES],
-);
+pub struct StoredEntry(#[serde(with = "BigArray")] [u8; BTBE_BUCKET_ENTRY_BYTES]);
 
 impl StoredEntry {
-    fn new(address: CanonicalAddr) -> StdResult<Self> {
+    fn new(address: &CanonicalAddr) -> StdResult<Self> {
         let address = address.as_slice();
 
         if address.len() != BTBE_BUCKET_ADDRESS_BYTES {
@@ -65,13 +76,15 @@ impl StoredEntry {
 
         let mut result = [0u8; BTBE_BUCKET_ENTRY_BYTES];
         result[..BTBE_BUCKET_ADDRESS_BYTES].copy_from_slice(address);
-        Ok(Self {
-            0: result,
-        })
+        Ok(Self { 0: result })
     }
 
-    fn from(storage: &mut dyn Storage, dwb_entry: &DelayedWriteBufferEntry, amount_spent: Option<u128>) -> StdResult<Self> {
-        let mut entry = StoredEntry::new(dwb_entry.recipient()?)?;
+    fn from(
+        storage: &mut dyn Storage,
+        dwb_entry: &DelayedWriteBufferEntry,
+        amount_spent: Option<u128>,
+    ) -> StdResult<Self> {
+        let mut entry = StoredEntry::new(&dwb_entry.recipient()?)?;
 
         let amount_spent = amount_u64(amount_spent)?;
 
@@ -80,18 +93,20 @@ impl StoredEntry {
             new_balance
         } else {
             return Err(StdError::generic_err(format!(
-                "insufficient funds while creating StoredEntry; balance:{}, amount_spent:{}", dwb_entry.amount()?, amount_spent,
+                "insufficient funds while creating StoredEntry; balance:{}, amount_spent:{}",
+                dwb_entry.amount()?,
+                amount_spent,
             )));
         };
 
         entry.set_balance(balance)?;
         entry.push_tx_bundle(
-            storage, 
+            storage,
             &TxBundle {
                 head_node: dwb_entry.head_node()?,
                 list_len: dwb_entry.list_len()?,
                 offset: 0,
-            }
+            },
         )?;
 
         Ok(entry)
@@ -145,14 +160,16 @@ impl StoredEntry {
     }
 
     pub fn merge_dwb_entry(
-        &mut self, 
-        storage: &mut dyn Storage, 
-        dwb_entry: &DelayedWriteBufferEntry, 
-        amount_spent: Option<u128>
+        &mut self,
+        storage: &mut dyn Storage,
+        dwb_entry: &DelayedWriteBufferEntry,
+        amount_spent: Option<u128>,
     ) -> StdResult<()> {
         let history_len = self.history_len()?;
         if history_len == 0 {
-            return Err(StdError::generic_err("use `from` to create new entry from dwb_entry"));
+            return Err(StdError::generic_err(
+                "use `from` to create new entry from dwb_entry",
+            ));
         }
 
         let mut balance = self.balance()?;
@@ -165,7 +182,8 @@ impl StoredEntry {
             new_balance
         } else {
             return Err(StdError::generic_err(format!(
-                "insufficient funds while merging entry; balance:{}, amount_spent:{}", balance, amount_spent
+                "insufficient funds while merging entry; balance:{}, amount_spent:{}",
+                balance, amount_spent
             )));
         };
 
@@ -196,17 +214,37 @@ impl StoredEntry {
 
     /// tries to get the element at pos
     fn get_tx_bundle_at_unchecked(&self, storage: &dyn Storage, pos: u32) -> StdResult<TxBundle> {
-        let bundle_data = storage.get(&[KEY_BTBE_ENTRY_HISTORY, self.address_slice(), pos.to_be_bytes().as_slice()].concat());
-        let bundle_data = bundle_data.ok_or_else(|| { return StdError::generic_err("tx bundle not found"); } )?;
-        Bincode2::deserialize(
-            &bundle_data
-        )
+        let bundle_data = storage.get(
+            &[
+                KEY_BTBE_ENTRY_HISTORY,
+                self.address_slice(),
+                pos.to_be_bytes().as_slice(),
+            ]
+            .concat(),
+        );
+        let bundle_data = bundle_data.ok_or_else(|| {
+            return StdError::generic_err("tx bundle not found");
+        })?;
+        Bincode2::deserialize(&bundle_data)
     }
 
     /// Sets data at a given index
-    fn set_tx_bundle_at_unchecked(&self, storage: &mut dyn Storage, pos: u32, bundle: &TxBundle) -> StdResult<()> {
+    fn set_tx_bundle_at_unchecked(
+        &self,
+        storage: &mut dyn Storage,
+        pos: u32,
+        bundle: &TxBundle,
+    ) -> StdResult<()> {
         let bundle_data = Bincode2::serialize(bundle)?;
-        storage.set(&[KEY_BTBE_ENTRY_HISTORY, self.address_slice(), pos.to_be_bytes().as_slice()].concat(), &bundle_data);
+        storage.set(
+            &[
+                KEY_BTBE_ENTRY_HISTORY,
+                self.address_slice(),
+                pos.to_be_bytes().as_slice(),
+            ]
+            .concat(),
+            &bundle_data,
+        );
         Ok(())
     }
 
@@ -237,9 +275,8 @@ impl BtbeBucket {
     pub fn new() -> StdResult<Self> {
         Ok(Self {
             capacity: BTBE_CAPACITY,
-            entries: [
-                StoredEntry::new(CanonicalAddr::from(&IMPOSSIBLE_ADDR))?; BTBE_CAPACITY as usize
-            ]
+            entries: [StoredEntry::new(&CanonicalAddr::from(&IMPOSSIBLE_ADDR))?;
+                BTBE_CAPACITY as usize],
         })
     }
 
@@ -250,7 +287,7 @@ impl BtbeBucket {
             return false;
         }
 
-        // has capacity for a new entry; save entry to bucket 
+        // has capacity for a new entry; save entry to bucket
         self.entries[(BTBE_CAPACITY - self.capacity) as usize] = entry.clone();
 
         // update capacity
@@ -261,7 +298,10 @@ impl BtbeBucket {
     }
 
     /// Searches the bucket for an entry containing the given address
-    pub fn constant_time_find_address(&self, address: &CanonicalAddr) -> Option<(usize, StoredEntry)> {
+    pub fn constant_time_find_address(
+        &self,
+        address: &CanonicalAddr,
+    ) -> Option<(usize, StoredEntry)> {
         let address = address.as_slice();
 
         // contant-time only applies to this part, so that the index of the entry cannot be distinguished
@@ -279,6 +319,7 @@ impl BtbeBucket {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct BitwiseTrieNode {
     pub left: u64,
     pub right: u64,
@@ -300,7 +341,9 @@ impl BitwiseTrieNode {
         BTBE_BUCKETS_COUNT.save(storage, &buckets_count)?;
 
         // save bucket to storage
-        BTBE_BUCKETS.add_suffix(&bucket_id.to_be_bytes()).save(storage, &bucket)?;
+        BTBE_BUCKETS
+            .add_suffix(&bucket_id.to_be_bytes())
+            .save(storage, &bucket)?;
 
         // create new node
         Ok(Self {
@@ -313,27 +356,40 @@ impl BitwiseTrieNode {
     // loads the node's bucket from storage
     pub fn bucket(self, storage: &dyn Storage) -> StdResult<BtbeBucket> {
         if self.bucket == 0 {
-            return Err(StdError::generic_err("btbe: attempted to load bucket of branch node"));
+            return Err(StdError::generic_err(
+                "btbe: attempted to load bucket of branch node",
+            ));
         }
 
         // load bucket from storage
-        BTBE_BUCKETS.add_suffix(&self.bucket.to_be_bytes()).load(storage)
+        BTBE_BUCKETS
+            .add_suffix(&self.bucket.to_be_bytes())
+            .load(storage)
     }
 
     // stores the bucket associated with this node
     fn set_and_save_bucket(self, storage: &mut dyn Storage, bucket: BtbeBucket) -> StdResult<()> {
         if self.bucket == 0 {
-            return Err(StdError::generic_err("btbe: attempted to store a bucket to a branch node"));
+            return Err(StdError::generic_err(
+                "btbe: attempted to store a bucket to a branch node",
+            ));
         }
 
-        BTBE_BUCKETS.add_suffix(&self.bucket.to_be_bytes()).save(storage, &bucket)
+        BTBE_BUCKETS
+            .add_suffix(&self.bucket.to_be_bytes())
+            .save(storage, &bucket)
     }
 }
 
 /// Determines whether a given entry belongs in the left node (true) or right node (false)
 fn entry_belongs_in_left_node(secret: &[u8], entry: StoredEntry, bit_pos: u8) -> StdResult<bool> {
     // create key bytes
-    let key_bytes = hkdf_sha_256(&Some(BUCKETING_SALT_BYTES.to_vec()), secret, entry.address_slice(), 32)?;
+    let key_bytes = hkdf_sha_256(
+        &Some(BUCKETING_SALT_BYTES.to_vec()),
+        secret,
+        entry.address_slice(),
+        32,
+    )?;
 
     // convert to u258
     let key_u256 = U256::from_big_endian(&key_bytes);
@@ -342,18 +398,28 @@ fn entry_belongs_in_left_node(secret: &[u8], entry: StoredEntry, bit_pos: u8) ->
     return Ok(U256::from(0) == (key_u256 >> (255 - bit_pos)) & U256::from(1));
 }
 
-/// Locates a btbe node given an address; returns tuple of (node, bit position)
-pub fn locate_btbe_node(storage: &dyn Storage, address: &CanonicalAddr) -> StdResult<(BitwiseTrieNode, u64, u8)> {
+/// Locates a btbe node given an address; returns tuple of (node, node_id, bit position)
+pub fn locate_btbe_node(
+    storage: &dyn Storage,
+    address: &CanonicalAddr,
+) -> StdResult<(BitwiseTrieNode, u64, u8)> {
     // load internal contract secret
     let secret = INTERNAL_SECRET.load(storage)?;
     let secret = secret.as_slice();
 
     // create key bytes
-    let hash = hkdf_sha_256(&Some(BUCKETING_SALT_BYTES.to_vec()), secret, address.as_slice(), 32)?;
-    
+    let hash = hkdf_sha_256(
+        &Some(BUCKETING_SALT_BYTES.to_vec()),
+        secret,
+        address.as_slice(),
+        32,
+    )?;
+
     // start at root of trie
     let mut node_id: u64 = 1;
-    let mut node = BTBE_TRIE_NODES.add_suffix(&node_id.to_be_bytes()).load(storage)?;
+    let mut node = BTBE_TRIE_NODES
+        .add_suffix(&node_id.to_be_bytes())
+        .load(storage)?;
     let mut bit_pos: u8 = 0;
 
     // while the node has children
@@ -365,10 +431,16 @@ pub fn locate_btbe_node(storage: &dyn Storage, address: &CanonicalAddr) -> StdRe
         bit_pos += 1;
 
         // choose left or right child depending on bit value
-        node_id = if bit_value == 0 { node.left } else { node.right };
+        node_id = if bit_value == 0 {
+            node.left
+        } else {
+            node.right
+        };
 
         // load child node
-        node = BTBE_TRIE_NODES.add_suffix(&node_id.to_be_bytes()).load(storage)?;
+        node = BTBE_TRIE_NODES
+            .add_suffix(&node_id.to_be_bytes())
+            .load(storage)?;
     }
 
     Ok((node, node_id, bit_pos))
@@ -377,17 +449,23 @@ pub fn locate_btbe_node(storage: &dyn Storage, address: &CanonicalAddr) -> StdRe
 /// Does a binary search on the append store to find the bundle where the `start_idx` tx can be found.
 /// For a paginated search `start_idx` = `page` * `page_size`.
 /// Returns the bundle index, the bundle, and the index in the bundle list to start at
-pub fn find_start_bundle(storage: &dyn Storage, account: &CanonicalAddr, start_idx: u32) -> StdResult<Option<(u32, TxBundle, u32)>> {
+pub fn find_start_bundle(
+    storage: &dyn Storage,
+    account: &CanonicalAddr,
+    start_idx: u32,
+) -> StdResult<Option<(u32, TxBundle, u32)>> {
     let (node, _, _) = locate_btbe_node(storage, account)?;
     let bucket = node.bucket(storage)?;
     if let Some((_, entry)) = bucket.constant_time_find_address(account) {
         let mut left = 0u32;
         let mut right = entry.history_len()?;
-    
+
         while left <= right {
             let mid = (left + right) / 2;
             let mid_bundle = entry.get_tx_bundle_at(storage, mid)?;
-            if start_idx >= mid_bundle.offset && start_idx < mid_bundle.offset + (mid_bundle.list_len as u32) {
+            if start_idx >= mid_bundle.offset
+                && start_idx < mid_bundle.offset + (mid_bundle.list_len as u32)
+            {
                 // we have the correct bundle
                 // which index in list to start at?
                 let start_at = (mid_bundle.list_len as u32) - (start_idx - mid_bundle.offset) - 1;
@@ -404,7 +482,10 @@ pub fn find_start_bundle(storage: &dyn Storage, account: &CanonicalAddr, start_i
 }
 
 /// gets the StoredEntry for a given account
-pub fn stored_entry(storage: &dyn Storage, account: &CanonicalAddr) -> StdResult<Option<StoredEntry>> {
+pub fn stored_entry(
+    storage: &dyn Storage,
+    account: &CanonicalAddr,
+) -> StdResult<Option<StoredEntry>> {
     let (node, _, _) = locate_btbe_node(storage, account)?;
     let bucket = node.bucket(storage)?;
     Ok(bucket.constant_time_find_address(account).map(|b| b.1))
@@ -432,17 +513,15 @@ pub fn stored_tx_count(storage: &dyn Storage, entry: &Option<StoredEntry>) -> St
     Ok(0)
 }
 
-
 // merges a dwb entry into the current node's bucket
 // `spent_amount` is any required subtraction due to being sender of tx
 pub fn merge_dwb_entry(
     storage: &mut dyn Storage,
-    dwb_entry: DelayedWriteBufferEntry,
+    dwb_entry: &DelayedWriteBufferEntry,
     amount_spent: Option<u128>,
-    #[cfg(feature="gas_tracking")]
-    tracker: &mut GasTracker,
+    #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
 ) -> StdResult<()> {
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     let mut group1 = tracker.group("merge_dwb_entry.1");
 
     // locate the node that the given entry belongs in
@@ -455,14 +534,21 @@ pub fn merge_dwb_entry(
     let mut bucket_id = node.bucket;
 
     // search for an existing entry
-    if let Some((idx, mut found_entry)) = bucket.constant_time_find_address(&dwb_entry.recipient()?) {
+    if let Some((idx, mut found_entry)) = bucket.constant_time_find_address(&dwb_entry.recipient()?)
+    {
         // found existing entry
         // merge amount and history from dwb entry
         found_entry.merge_dwb_entry(storage, &dwb_entry, amount_spent)?;
         bucket.entries[idx] = found_entry;
 
-        #[cfg(feature="gas_tracking")]
-        group1.logf(format!("@merged {} into node #{}, bucket #{} at position {} ", dwb_entry.recipient()?, node_id, bucket_id, idx));
+        #[cfg(feature = "gas_tracking")]
+        group1.logf(format!(
+            "@merged {} into node #{}, bucket #{} at position {} ",
+            dwb_entry.recipient()?,
+            node_id,
+            bucket_id,
+            idx
+        ));
 
         // save updated bucket to storage
         node.set_and_save_bucket(storage, bucket)?;
@@ -475,11 +561,18 @@ pub fn merge_dwb_entry(
         let secret = INTERNAL_SECRET.load(storage)?;
         let secret = secret.as_slice();
 
-        loop { // looping as many times as needed until the bucket has capacity for a new entry
+        loop {
+            // looping as many times as needed until the bucket has capacity for a new entry
             // try to add to the current bucket
             if bucket.add_entry(&btbe_entry) {
-                #[cfg(feature="gas_tracking")]
-                group1.logf(format!("@inserted into node #{}, bucket #{} (bitpos: {}) at position {}", node_id, bucket_id, bit_pos, BTBE_CAPACITY - bucket.capacity - 1));
+                #[cfg(feature = "gas_tracking")]
+                group1.logf(format!(
+                    "@inserted into node #{}, bucket #{} (bitpos: {}) at position {}",
+                    node_id,
+                    bucket_id,
+                    bit_pos,
+                    BTBE_CAPACITY - bucket.capacity - 1
+                ));
 
                 // bucket has capacity and it added the new entry
                 // save bucket to storage
@@ -505,7 +598,9 @@ pub fn merge_dwb_entry(
 
                 // save left node's bucket to storage, recycling this node's bucket ID
                 let left_bucket_id = node.bucket;
-                BTBE_BUCKETS.add_suffix(&left_bucket_id.to_be_bytes()).save(storage, &left_bucket)?;
+                BTBE_BUCKETS
+                    .add_suffix(&left_bucket_id.to_be_bytes())
+                    .save(storage, &left_bucket)?;
 
                 // global count of buckets
                 let mut buckets_count = BTBE_BUCKETS_COUNT.load(storage).unwrap_or_default();
@@ -513,7 +608,9 @@ pub fn merge_dwb_entry(
                 // bucket ID for right node
                 buckets_count += 1;
                 let right_bucket_id = buckets_count;
-                BTBE_BUCKETS.add_suffix(&right_bucket_id.to_be_bytes()).save(storage, &right_bucket)?;
+                BTBE_BUCKETS
+                    .add_suffix(&right_bucket_id.to_be_bytes())
+                    .save(storage, &right_bucket)?;
 
                 // save updated count
                 BTBE_BUCKETS_COUNT.save(storage, &buckets_count)?;
@@ -545,8 +642,12 @@ pub fn merge_dwb_entry(
                 };
 
                 // save left and right node to storage
-                BTBE_TRIE_NODES.add_suffix(&left_id.to_be_bytes()).save(storage, &left)?;
-                BTBE_TRIE_NODES.add_suffix(&right_id.to_be_bytes()).save(storage, &right)?;
+                BTBE_TRIE_NODES
+                    .add_suffix(&left_id.to_be_bytes())
+                    .save(storage, &left)?;
+                BTBE_TRIE_NODES
+                    .add_suffix(&right_id.to_be_bytes())
+                    .save(storage, &right)?;
 
                 // convert this into a branch node
                 node.left = left_id;
@@ -554,10 +655,15 @@ pub fn merge_dwb_entry(
                 node.bucket = 0;
 
                 // save node
-                BTBE_TRIE_NODES.add_suffix(&node_id.to_be_bytes()).save(storage, &node)?;
+                BTBE_TRIE_NODES
+                    .add_suffix(&node_id.to_be_bytes())
+                    .save(storage, &node)?;
 
-                #[cfg(feature="gas_tracking")]
-                group1.logf(format!("@split node #{}, bucket #{} at bitpos {}, ", node_id, bucket_id, bit_pos));
+                #[cfg(feature = "gas_tracking")]
+                group1.logf(format!(
+                    "@split node #{}, bucket #{} at bitpos {}, ",
+                    node_id, bucket_id, bit_pos
+                ));
 
                 // route entry
                 if entry_belongs_in_left_node(secret, btbe_entry, bit_pos)? {
@@ -585,12 +691,228 @@ pub fn merge_dwb_entry(
 pub fn initialize_btbe(storage: &mut dyn Storage) -> StdResult<()> {
     let bucket = BtbeBucket::new()?;
     let node = BitwiseTrieNode::new_leaf(storage, bucket)?;
-    
+
     // save count
     BTBE_TRIE_NODES_COUNT.save(storage, &1)?;
-    
+
     // save root node to storage
-    BTBE_TRIE_NODES.add_suffix(&1_u64.to_be_bytes()).save(storage, &node)?;
+    BTBE_TRIE_NODES
+        .add_suffix(&1_u64.to_be_bytes())
+        .save(storage, &node)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+
+    use crate::contract::instantiate;
+    use crate::msg::{InitialBalance, InstantiateMsg, QueryAnswer};
+    use cosmwasm_std::{
+        from_binary, testing::*, Addr, Api, Binary, OwnedDeps, QueryResponse, Response, Uint128,
+    };
+
+    use super::*;
+
+    fn init_helper(
+        initial_balances: Vec<InitialBalance>,
+    ) -> (
+        StdResult<Response>,
+        OwnedDeps<MockStorage, MockApi, MockQuerier>,
+    ) {
+        let mut deps = mock_dependencies_with_balance(&[]);
+        let env = mock_env();
+        let info = mock_info("instantiator", &[]);
+
+        let init_msg = InstantiateMsg {
+            name: "sec-sec".to_string(),
+            admin: Some("admin".to_string()),
+            symbol: "SECSEC".to_string(),
+            decimals: 8,
+            initial_balances: Some(initial_balances),
+            prng_seed: Binary::from("lolz fun yay".as_bytes()),
+            config: None,
+            supported_denoms: None,
+        };
+
+        (instantiate(deps.as_mut(), env, info, init_msg), deps)
+    }
+
+    fn extract_error_msg<T: Any>(error: StdResult<T>) -> String {
+        match error {
+            Ok(response) => {
+                let bin_err = (&response as &dyn Any)
+                    .downcast_ref::<QueryResponse>()
+                    .expect("An error was expected, but no error could be extracted");
+                match from_binary(bin_err).unwrap() {
+                    QueryAnswer::ViewingKeyError { msg } => msg,
+                    _ => panic!("Unexpected query answer"),
+                }
+            }
+            Err(err) => match err {
+                StdError::GenericErr { msg, .. } => msg,
+                _ => panic!("Unexpected result from init"),
+            },
+        }
+    }
+
+    #[test]
+    fn test_stored_entry() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: "bob".to_string(),
+            amount: Uint128::new(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+        let _env = mock_env();
+        let _info = mock_info("bob", &[]);
+
+        let canonical = deps
+            .api
+            .addr_canonicalize(Addr::unchecked("bob".to_string()).as_str())
+            .unwrap();
+        let entry = StoredEntry::new(&canonical).unwrap();
+        assert_eq!(entry.address().unwrap(), canonical);
+        assert_eq!(entry.balance().unwrap(), 0_u64);
+
+        let dwb_entry = DelayedWriteBufferEntry::new(&canonical).unwrap();
+
+        // expect error if trying to spend too much
+        let entry = StoredEntry::from(&mut deps.storage, &dwb_entry, Some(1));
+        let error = extract_error_msg(entry);
+        assert!(error.contains("insufficient funds"));
+
+        let entry = StoredEntry::from(&mut deps.storage, &dwb_entry, None).unwrap();
+        assert_eq!(entry.address().unwrap(), canonical);
+        assert_eq!(entry.balance().unwrap(), 0_u64);
+    }
+
+    #[test]
+    fn test_btbe() {
+        let (init_result, mut deps) = init_helper(vec![InitialBalance {
+            address: "bob".to_string(),
+            amount: Uint128::new(5000),
+        }]);
+        assert!(
+            init_result.is_ok(),
+            "Init failed: {}",
+            init_result.err().unwrap()
+        );
+        let _env = mock_env();
+        let _info = mock_info("bob", &[]);
+
+        let _ = initialize_btbe(&mut deps.storage).unwrap();
+
+        let btbe_node_count = BTBE_TRIE_NODES_COUNT.load(&deps.storage).unwrap();
+        assert_eq!(btbe_node_count, 1);
+
+        for i in 1..=128 {
+            let canonical = deps
+                .api
+                .addr_canonicalize(Addr::unchecked(format!("{i}zzzzzz")).as_str())
+                .unwrap();
+            let entry = StoredEntry::new(&canonical).unwrap();
+            assert_eq!(entry.address().unwrap(), canonical);
+            assert_eq!(entry.balance().unwrap(), 0_u64);
+
+            let dwb_entry = DelayedWriteBufferEntry::new(&canonical).unwrap();
+
+            let _result = merge_dwb_entry(&mut deps.storage, &dwb_entry, None);
+
+            let btbe_node_count = BTBE_TRIE_NODES_COUNT.load(&deps.storage).unwrap();
+            assert_eq!(btbe_node_count, 1);
+
+            let (node, node_id, bit_pos) = locate_btbe_node(&deps.storage, &canonical).unwrap();
+            assert_eq!(
+                node,
+                BitwiseTrieNode {
+                    left: 0,
+                    right: 0,
+                    bucket: 2,
+                }
+            );
+            assert_eq!(node_id, 1);
+            assert_eq!(bit_pos, 0);
+        }
+
+        // btbe trie should split nodes when get to 129th entry
+        let canonical = deps
+            .api
+            .addr_canonicalize(Addr::unchecked(format!("bob")).as_str())
+            .unwrap();
+        let entry = StoredEntry::new(&canonical).unwrap();
+        assert_eq!(entry.address().unwrap(), canonical);
+        assert_eq!(entry.balance().unwrap(), 0_u64);
+
+        let dwb_entry = DelayedWriteBufferEntry::new(&canonical).unwrap();
+
+        let _result = merge_dwb_entry(&mut deps.storage, &dwb_entry, None);
+
+        let btbe_node_count = BTBE_TRIE_NODES_COUNT.load(&deps.storage).unwrap();
+        assert_eq!(btbe_node_count, 3);
+        let (node, node_id, bit_pos) = locate_btbe_node(&deps.storage, &canonical).unwrap();
+        assert_eq!(
+            node,
+            BitwiseTrieNode {
+                left: 0,
+                right: 0,
+                bucket: 3,
+            }
+        );
+        assert_eq!(node_id, 3);
+        assert_eq!(bit_pos, 1);
+
+        // have other addresses been moved to new nodes
+        let first = deps
+            .api
+            .addr_canonicalize(Addr::unchecked(format!("1zzzzzz")).as_str())
+            .unwrap();
+        let (node, node_id, bit_pos) = locate_btbe_node(&deps.storage, &first).unwrap();
+        assert_eq!(
+            node,
+            BitwiseTrieNode {
+                left: 0,
+                right: 0,
+                bucket: 2,
+            }
+        );
+        assert_eq!(node_id, 2);
+        assert_eq!(bit_pos, 1);
+
+        let second = deps
+            .api
+            .addr_canonicalize(Addr::unchecked(format!("2zzzzzz")).as_str())
+            .unwrap();
+        let (node, node_id, bit_pos) = locate_btbe_node(&deps.storage, &second).unwrap();
+        assert_eq!(
+            node,
+            BitwiseTrieNode {
+                left: 0,
+                right: 0,
+                bucket: 3,
+            }
+        );
+        assert_eq!(node_id, 3);
+        assert_eq!(bit_pos, 1);
+
+        let canonical_entry = stored_entry(&deps.storage, &canonical).unwrap().unwrap();
+        assert_eq!(canonical_entry.balance().unwrap(), 0);
+        let first_entry = stored_entry(&deps.storage, &first).unwrap().unwrap();
+        assert_eq!(first_entry.balance().unwrap(), 0);
+        let second_entry = stored_entry(&deps.storage, &second).unwrap().unwrap();
+        assert_eq!(second_entry.balance().unwrap(), 0);
+        let not_entry = stored_entry(
+            &deps.storage,
+            &deps
+                .api
+                .addr_canonicalize(Addr::unchecked("alice".to_string()).as_str())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(not_entry, None);
+    }
 }

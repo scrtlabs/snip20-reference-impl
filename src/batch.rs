@@ -58,4 +58,3 @@ pub struct BurnFromAction {
     pub amount: Uint128,
     pub memo: Option<String>,
 }
-
