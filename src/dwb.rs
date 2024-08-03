@@ -49,14 +49,6 @@ pub struct DelayedWriteBuffer {
     pub entries: [DelayedWriteBufferEntry; DWB_LEN as usize],
 }
 
-//#[inline]
-//fn random_addr(rng: &mut ContractPrng) -> CanonicalAddr {
-//    #[cfg(test)]
-//    return CanonicalAddr::from(&[rng.rand_bytes(), rng.rand_bytes()].concat()[0..DWB_RECIPIENT_BYTES]); // because mock canonical addr is 54 bytes
-//    #[cfg(not(test))]
-//    CanonicalAddr::from(&rng.rand_bytes()[0..DWB_RECIPIENT_BYTES]) // canonical addr is 20 bytes (less than 32)
-//}
-
 pub fn random_in_range(rng: &mut ContractPrng, a: u32, b: u32) -> StdResult<u32> {
     if b <= a {
         return Err(StdError::generic_err("invalid range"));
@@ -79,7 +71,7 @@ impl DelayedWriteBuffer {
             empty_space_counter: DWB_LEN - 1,
             // first entry is a dummy entry for constant-time writing
             entries: [
-                DelayedWriteBufferEntry::new(CanonicalAddr::from(&ZERO_ADDR))?; DWB_LEN as usize
+                DelayedWriteBufferEntry::new(&CanonicalAddr::from(&ZERO_ADDR))?; DWB_LEN as usize
             ]
         })
     }
@@ -127,7 +119,7 @@ impl DelayedWriteBuffer {
 
         let result = merge_dwb_entry(
             store, 
-            entry, 
+            &entry, 
             Some(amount_spent),
             #[cfg(feature="gas_tracking")]
             tracker
@@ -153,7 +145,7 @@ impl DelayedWriteBuffer {
         let entry = self.entries[matched_entry_idx];
 
         // create a new entry to replace the released one, giving it the same address to avoid introducing random addresses
-        let replacement_entry = DelayedWriteBufferEntry::new(entry.recipient()?)?;
+        let replacement_entry = DelayedWriteBufferEntry::new(&entry.recipient()?)?;
 
         // add entry amount to the stored balance for the address (will be 0 if dummy)
         safe_add(&mut balance, entry.amount()? as u128);
@@ -163,16 +155,6 @@ impl DelayedWriteBuffer {
 
         Ok((balance, entry))
     }
-
-    //fn unique_random_entry(&self, rng: &mut ContractPrng) -> StdResult<DelayedWriteBufferEntry> {
-    //    // produce a new random address
-    //    let mut replacement_address = random_addr(rng);
-    //    // ensure random addr is not already in dwb (extremely unlikely!!)
-    //    while self.recipient_match(&replacement_address) > 0 {
-    //        replacement_address = random_addr(rng);
-    //    }
-    //    DelayedWriteBufferEntry::new(replacement_address)
-    //}
 
     // returns matched index for a given address
     pub fn recipient_match(&self, address: &CanonicalAddr) -> usize {
@@ -270,7 +252,7 @@ impl DelayedWriteBuffer {
         let dwb_entry = self.entries[actual_settle_index];
         merge_dwb_entry(
             store,
-            dwb_entry,
+            &dwb_entry,
             None,
             #[cfg(feature="gas_tracking")]
             tracker
@@ -342,7 +324,7 @@ pub struct DelayedWriteBufferEntry(
 );
 
 impl DelayedWriteBufferEntry {
-    pub fn new(recipient: CanonicalAddr) -> StdResult<Self> {
+    pub fn new(recipient: &CanonicalAddr) -> StdResult<Self> {
         let recipient = recipient.as_slice();
         if recipient.len() != DWB_RECIPIENT_BYTES {
             return Err(StdError::generic_err("dwb: invalid recipient length"));
@@ -499,7 +481,10 @@ impl TxNode {
     }
 }
 
-
+/// A tx bundle is 1 or more tx nodes added to an account's history.
+/// The bundle points to a linked list of transaction nodes, which each reference
+/// a transaction record by its global id.
+/// used with add_suffix(canonical addr of account)
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TxBundle {
     /// TX_NODES idx - pointer to the head tx node in the linked list
@@ -509,16 +494,6 @@ pub struct TxBundle {
     /// offset of the first tx of this bundle in the history of txs for the account (for pagination)
     pub offset: u32,
 }
-
-/// A tx bundle is 1 or more tx nodes added to an account's history.
-/// The bundle points to a linked list of transaction nodes, which each reference
-/// a transaction record by its global id.
-/// used with add_suffix(canonical addr of account)
-//pub static ACCOUNT_TXS: AppendStore<TxBundle> = AppendStore::new(KEY_ACCOUNT_TXS);
-
-/// Keeps track of the total count of txs for an account (not tx bundles)
-/// used with add_suffix(canonical addr of account)
-//pub static ACCOUNT_TX_COUNT: Item<u32> = Item::new(KEY_ACCOUNT_TX_COUNT);
 
 #[inline]
 fn constant_time_is_not_zero(value: i32) -> u32 {
@@ -584,7 +559,7 @@ mod tests {
         let _info = mock_info("bob", &[]);
 
         let recipient = CanonicalAddr::from(ZERO_ADDR);
-        let mut dwb_entry = DelayedWriteBufferEntry::new(recipient).unwrap();
+        let mut dwb_entry = DelayedWriteBufferEntry::new(&recipient).unwrap();
         assert_eq!(dwb_entry, DelayedWriteBufferEntry([0u8; DWB_ENTRY_BYTES]));
 
         assert_eq!(dwb_entry.recipient().unwrap(), CanonicalAddr::from(ZERO_ADDR));
