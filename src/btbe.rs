@@ -14,10 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 use crate::state::{safe_add_u64, INTERNAL_SECRET};
-use crate::{
-    dwb::{amount_u64, DelayedWriteBufferEntry, TxBundle},
-    gas_tracker::GasTracker,
-};
+use crate::dwb::{amount_u64, DelayedWriteBufferEntry, TxBundle};
+#[cfg(feature = "gas_tracking")]
+use crate::gas_tracker::GasTracker;
 
 pub const KEY_BTBE_ENTRY_HISTORY: &[u8] = b"btbe-entry-hist";
 pub const KEY_BTBE_BUCKETS_COUNT: &[u8] = b"btbe-buckets-cnt";
@@ -27,9 +26,7 @@ pub const KEY_BTBE_TRIE_NODES_COUNT: &[u8] = b"btbe-trie-nodes-cnt";
 
 const BUCKETING_SALT_BYTES: &[u8; 14] = b"bucketing-salt";
 
-const U16_BYTES: usize = 2;
 const U32_BYTES: usize = 4;
-const U64_BYTES: usize = 8;
 const U128_BYTES: usize = 16;
 
 #[cfg(test)]

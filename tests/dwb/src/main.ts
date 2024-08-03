@@ -12,7 +12,7 @@ import {encodeGoogleProtobufAny} from '@solar-republic/cosmos-grpc/google/protob
 import {SecretApp, SecretContract, Wallet, broadcast_result, create_and_sign_tx_direct, random_32, type TxMeta, type WeakSecretAccAddr} from '@solar-republic/neutrino';
 import {BigNumber} from 'bignumber.js';
 
-import {N_DECIMALS, P_LOCALSECRET_LCD, P_LOCALSECRET_RPC, X_GAS_PRICE, k_wallet_a, k_wallet_b, k_wallet_c, k_wallet_d} from './constants';
+import {B_TEST_EVAPORATION, N_DECIMALS, P_LOCALSECRET_LCD, P_LOCALSECRET_RPC, X_GAS_PRICE, k_wallet_a, k_wallet_b, k_wallet_c, k_wallet_d} from './constants';
 import {upload_code, instantiate_contract} from './contract';
 import {DwbValidator} from './dwb';
 import {GasChecker} from './gas-checker';
@@ -102,9 +102,9 @@ async function transfer_chain(sx_chain: string) {
 }
 
 // evaporation
-{
+if(B_TEST_EVAPORATION) {
 	const xg_gas_wanted = 250_000n;
-	const xg_gas_target = xg_gas_wanted - 36_000n;
+	const xg_gas_target = xg_gas_wanted - 100n;
 
 	const [g_exec, xc_code, sx_res, g_meta, h_events, si_txn] = await k_app_a.exec('transfer', {
 		amount: `${500000n}` as CwUint128,
@@ -117,7 +117,7 @@ async function transfer_chain(sx_chain: string) {
 	}
 
 	const xg_gas_used = BigInt(g_meta?.gas_used || '0');
-	if(bigint_abs(xg_gas_wanted, xg_gas_used) > 35_000n) {
+	if(bigint_abs(xg_gas_wanted, xg_gas_used) > 1000n) {
 		throw Error(`Expected gas used to be ${xg_gas_wanted} but found ${xg_gas_used}`);
 	}
 

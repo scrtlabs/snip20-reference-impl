@@ -2539,24 +2539,6 @@ mod tests {
             "Init failed: {}",
             init_result.err().unwrap()
         );
-
-        /*
-        let (init_result, _deps) = init_helper(vec![
-            InitialBalance {
-                address: "lebron".to_string(),
-                amount: Uint128::new(u128::max_value()),
-            },
-            InitialBalance {
-                address: "giannis".to_string(),
-                amount: Uint128::new(1),
-            },
-        ]);
-        let error = extract_error_msg(init_result);
-        assert_eq!(
-            error,
-            "The sum of all initial balances exceeds the maximum possible total supply"
-        );
-        */
     }
 
     // Handle tests
@@ -2621,11 +2603,6 @@ mod tests {
         assert_eq!(4, alice_entry.head_node().unwrap());
         let tx_count = TX_COUNT.load(&deps.storage).unwrap_or_default();
         assert_eq!(2, tx_count);
-
-        //let tx_node1 = TX_NODES.add_suffix(&1u64.to_be_bytes()).load(&deps.storage).unwrap();
-        //println!("tx node 1: {tx_node1:?}");
-        //let tx_node2 = TX_NODES.add_suffix(&2u64.to_be_bytes()).load(&deps.storage).unwrap();
-        //println!("tx node 2: {tx_node2:?}");
 
         // now send 100 to charlie from bob
         let handle_msg = ExecuteMsg::Transfer {

@@ -1,17 +1,16 @@
 use constant_time_eq::constant_time_eq;
-use cosmwasm_std::{to_binary, Api, Binary, CanonicalAddr, StdError, StdResult, Storage};
+use cosmwasm_std::{Api, CanonicalAddr, StdError, StdResult, Storage};
 use rand::RngCore;
 use secret_toolkit::storage::Item;
 use secret_toolkit_crypto::ContractPrng;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use std::env::var;
 
 use crate::btbe::{merge_dwb_entry, stored_balance};
-use crate::gas_tracker::GasTracker;
-use crate::msg::QueryAnswer;
 use crate::state::{safe_add, safe_add_u64};
 use crate::transaction_history::{Tx, TRANSACTIONS};
+#[cfg(feature = "gas_tracking")]
+use crate::gas_tracker::GasTracker;
 
 include!(concat!(env!("OUT_DIR"), "/config.rs"));
 

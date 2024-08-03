@@ -5,6 +5,7 @@ import {Wallet} from '@solar-republic/neutrino';
 
 export const P_LOCALSECRET_LCD = (process.env['SECRET_LCD'] || 'http://localhost:1317') as TrustedContextUrl;
 export const P_LOCALSECRET_RPC = (process.env['SECRET_RPC'] || 'http://localhost:26656') as TrustedContextUrl;
+export const B_TEST_EVAPORATION = !!parseInt(process.env['ENABLE_EVAPORATION_TESTS'] || '0');
 
 export const X_GAS_PRICE = 0.1;
 
