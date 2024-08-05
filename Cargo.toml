@@ -30,6 +30,7 @@ overflow-checks = true
 #default = ["debug-print"]
 backtraces = ["cosmwasm-std/backtraces"]
 gas_tracking = []
+gas_evaporation = []
 
 # debug-print = ["cosmwasm-std/debug-print"]
 [dependencies]

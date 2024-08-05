@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{batch, transaction_history::Tx};
-use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128};
+use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128, Uint64};
 use secret_toolkit::permit::Permit;
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
@@ -91,9 +91,13 @@ pub enum ExecuteMsg {
     Redeem {
         amount: Uint128,
         denom: Option<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     Deposit {
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
@@ -102,6 +106,8 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     Send {
@@ -110,31 +116,45 @@ pub enum ExecuteMsg {
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchTransfer {
         actions: Vec<batch::TransferAction>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchSend {
         actions: Vec<batch::SendAction>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     Burn {
         amount: Uint128,
         memo: Option<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     RegisterReceive {
         code_hash: String,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     CreateViewingKey {
         entropy: String,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SetViewingKey {
         key: String,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
@@ -143,12 +163,16 @@ pub enum ExecuteMsg {
         spender: String,
         amount: Uint128,
         expiration: Option<u64>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     DecreaseAllowance {
         spender: String,
         amount: Uint128,
         expiration: Option<u64>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     TransferFrom {
@@ -156,6 +180,8 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SendFrom {
@@ -165,24 +191,34 @@ pub enum ExecuteMsg {
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchTransferFrom {
         actions: Vec<batch::TransferFromAction>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchSendFrom {
         actions: Vec<batch::SendFromAction>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BurnFrom {
         owner: String,
         amount: Uint128,
         memo: Option<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchBurnFrom {
         actions: Vec<batch::BurnFromAction>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
@@ -191,42 +227,66 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchMint {
         actions: Vec<batch::MintAction>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     AddMinters {
         minters: Vec<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     RemoveMinters {
         minters: Vec<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SetMinters {
         minters: Vec<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
     // Admin
     ChangeAdmin {
         address: String,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SetContractStatus {
         level: ContractStatusLevel,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     /// Add deposit/redeem support for these coin denoms
-    AddSupportedDenoms { denoms: Vec<String> },
+    AddSupportedDenoms {
+        denoms: Vec<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
+    },
     /// Remove deposit/redeem support for these coin denoms
-    RemoveSupportedDenoms { denoms: Vec<String> },
+    RemoveSupportedDenoms {
+        denoms: Vec<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
+    },
 
     // Permit
     RevokePermit {
         permit_name: String,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 }
@@ -335,6 +395,58 @@ pub enum ExecuteAnswer {
     },
 }
 
+#[cfg(feature = "gas_evaporation")]
+pub trait Evaporator {
+    fn evaporate_to_target(&self, api: &dyn Api) -> StdResult<u64>;
+}
+
+#[cfg(feature = "gas_evaporation")]
+impl Evaporator for ExecuteMsg {
+    fn evaporate_to_target(&self, api: &dyn Api) -> StdResult<u64> {
+        match self {
+            ExecuteMsg::Redeem { gas_target, .. }
+            | ExecuteMsg::Deposit { gas_target, .. }
+            | ExecuteMsg::Transfer { gas_target, .. }
+            | ExecuteMsg::Send { gas_target, .. }
+            | ExecuteMsg::BatchTransfer { gas_target, .. }
+            | ExecuteMsg::BatchSend { gas_target, .. }
+            | ExecuteMsg::Burn { gas_target, .. }
+            | ExecuteMsg::RegisterReceive { gas_target, .. }
+            | ExecuteMsg::CreateViewingKey { gas_target, .. }
+            | ExecuteMsg::SetViewingKey { gas_target, .. }
+            | ExecuteMsg::IncreaseAllowance { gas_target, .. }
+            | ExecuteMsg::DecreaseAllowance { gas_target, .. }
+            | ExecuteMsg::TransferFrom { gas_target, .. }
+            | ExecuteMsg::SendFrom { gas_target, .. }
+            | ExecuteMsg::BatchTransferFrom { gas_target, .. }
+            | ExecuteMsg::BatchSendFrom { gas_target, .. }
+            | ExecuteMsg::BurnFrom { gas_target, .. }
+            | ExecuteMsg::BatchBurnFrom { gas_target, .. }
+            | ExecuteMsg::Mint { gas_target, .. }
+            | ExecuteMsg::BatchMint { gas_target, .. }
+            | ExecuteMsg::AddMinters { gas_target, .. }
+            | ExecuteMsg::RemoveMinters { gas_target, .. }
+            | ExecuteMsg::SetMinters { gas_target, .. }
+            | ExecuteMsg::ChangeAdmin { gas_target, .. }
+            | ExecuteMsg::SetContractStatus { gas_target, .. }
+            | ExecuteMsg::AddSupportedDenoms { gas_target, .. }
+            | ExecuteMsg::RemoveSupportedDenoms { gas_target, .. }
+            | ExecuteMsg::RevokePermit { gas_target, .. } => match gas_target {
+                Some(gas_target) => {
+                    let gas_used = api.check_gas()?;
+                    if gas_used < gas_target.u64() {
+                        let evaporate_amount = gas_target.u64() - gas_used;
+                        // api.gas_evaporate(evaporate_amount as u32)?;
+                        return Ok(evaporate_amount)
+                    }
+                    Ok(0)
+                }
+                None => Ok(0),
+            },
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[serde(rename_all = "snake_case")]
@@ -382,8 +494,8 @@ pub enum QueryMsg {
         query: QueryWithPermit,
     },
 
-    #[cfg(feature="gas_tracking")]
-    Dwb { },
+    #[cfg(feature = "gas_tracking")]
+    Dwb {},
 }
 
 impl QueryMsg {
@@ -508,7 +620,7 @@ pub enum QueryAnswer {
         minters: Vec<Addr>,
     },
 
-    #[cfg(feature="gas_tracking")]
+    #[cfg(feature = "gas_tracking")]
     Dwb {
         dwb: String,
     },

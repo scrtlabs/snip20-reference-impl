@@ -1,10 +1,8 @@
 import type {GroupedGasLogs} from './snip';
 
-import {entries, stringify_json} from '@blake.regalia/belt';
+import {entries, bigint_abs} from '@blake.regalia/belt';
 
-import {SX_ANSI_GREEN, SX_ANSI_RED, SX_ANSI_MAGENTA, SX_ANSI_RESET, SX_ANSI_YELLOW} from './helper';
-
-const bigint_abs = (xg_a: bigint, xg_b=0n): bigint => xg_a > xg_b? xg_a - xg_b: xg_b - xg_a;
+import {SX_ANSI_GREEN, SX_ANSI_RED, SX_ANSI_MAGENTA, SX_ANSI_RESET, SX_ANSI_YELLOW, SX_ANSI_CYAN} from './helper';
 
 const delta_color = (xg_delta: bigint, nl_pad=0) => (bigint_abs(xg_delta) >= 1n
 	? bigint_abs(xg_delta) > 2n
@@ -25,9 +23,6 @@ export class GasChecker {
 
 		// each group
 		for(const [si_group, a_logs_local] of entries(h_local)) {
-			// logs emitted from this transfer group
-			let c_logs = 0;
-
 			// find group in baseline
 			const a_logs_baseline = _h_baseline[si_group];
 
@@ -50,14 +45,23 @@ export class GasChecker {
 				// calculate delta
 				const xg_delta = xg_gap_local - xg_gap_baseline;
 
+				// comment only
+				if('#' === si_group[0]) {
+					if(s_comment_local.trim()) {
+						console.log([
+							' '.repeat(8)+si_group.slice(0, 20).padEnd(20, ' '),
+							' '.repeat(3),
+							SX_ANSI_CYAN+s_comment_local+SX_ANSI_RESET,
+						].join(' │ '));
+					}
+				}
 				// non-zero delta
-				if(xg_delta || '@' === s_comment_local[0]) {
+				else if(xg_delta || '@' === s_comment_local[0]) {
 					console.log([
 						' '.repeat(8)+si_group.slice(0, 20).padEnd(20, ' '),
 						delta_color(xg_delta, 3),
 						('@' === s_comment_local[0]? SX_ANSI_MAGENTA: '')+s_comment_local+SX_ANSI_RESET,
 					].join(' │ '));
-					c_logs += 1;
 				}
 			}
 		}

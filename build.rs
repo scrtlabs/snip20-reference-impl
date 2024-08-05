@@ -6,10 +6,10 @@ use std::path::Path;
 fn main() {
     // config parameters
     let dwb_capacity = env::var("DWB_CAPACITY").unwrap_or_else(|_| "64".to_string());
-    let btbe_capacity = env::var("BTBE_CAPACITY").unwrap_or_else(|_| "128".to_string());
+    let btbe_capacity = env::var("BTBE_CAPACITY").unwrap_or_else(|_| "64".to_string());
 
     // path to destination config.rs file
-	let out_dir = env::var("OUT_DIR").expect("Missing OUT_DIR");
+    let out_dir = env::var("OUT_DIR").expect("Missing OUT_DIR");
     let dest_path = Path::new(&out_dir).join("config.rs");
 
     // write constants
@@ -17,7 +17,7 @@ fn main() {
     write!(file, "pub const DWB_CAPACITY: u16 = {};\n", dwb_capacity).unwrap();
     write!(file, "pub const BTBE_CAPACITY: u16 = {};\n", btbe_capacity).unwrap();
 
-	// monitor
-	println!("cargo:rerun-if-env-changed=DWB_CAPACITY");
-	println!("cargo:rerun-if-env-changed=BTBE_CAPACITY");
+    // monitor
+    println!("cargo:rerun-if-env-changed=DWB_CAPACITY");
+    println!("cargo:rerun-if-env-changed=BTBE_CAPACITY");
 }
