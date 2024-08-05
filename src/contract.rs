@@ -20,6 +20,7 @@ use crate::btbe::{
     find_start_bundle, initialize_btbe, stored_balance, stored_entry, stored_tx_count,
 };
 use crate::gas_tracker::{GasTracker, LoggingExt};
+#[cfg(feature = "gas_evaporation")]
 use crate::msg::Evaporator;
 use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer, ExecuteMsg,
@@ -313,6 +314,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
     };
 
     let padded_result = pad_handle_result(response, RESPONSE_BLOCK_SIZE);
+
+    #[cfg(feature = "gas_evaporation")]
     let evaporated = msg.evaporate_to_target(api)?;
 
     padded_result
@@ -2566,6 +2569,7 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -2610,6 +2614,7 @@ mod tests {
             recipient: "charlie".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -2653,6 +2658,7 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(500),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -2731,6 +2737,7 @@ mod tests {
             recipient: "ernie".to_string(),
             amount: Uint128::new(200),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -2778,6 +2785,7 @@ mod tests {
             recipient: "dora".to_string(),
             amount: Uint128::new(50),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -2851,6 +2859,7 @@ mod tests {
             recipient,
             amount: Uint128::new(1),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -2876,6 +2885,7 @@ mod tests {
             recipient,
             amount: Uint128::new(1),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -2927,6 +2937,7 @@ mod tests {
             recipient: "dora".to_string(),
             amount: Uint128::new(1),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -2965,6 +2976,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "key".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3277,6 +3289,7 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(10000),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3302,6 +3315,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::RegisterReceive {
             code_hash: "this_is_a_hash_of_a_code".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3318,6 +3332,7 @@ mod tests {
             amount: Uint128::new(100),
             memo: Some("my memo".to_string()),
             padding: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             msg: Some(to_binary("hey hey you you").unwrap()),
         };
@@ -3367,6 +3382,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::RegisterReceive {
             code_hash: "this_is_a_hash_of_a_code".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3398,6 +3414,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::CreateViewingKey {
             entropy: "".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3440,6 +3457,7 @@ mod tests {
         // Set VK
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "hi lol".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3461,6 +3479,7 @@ mod tests {
         let actual_vk = "x".to_string().repeat(VIEWING_KEY_SIZE);
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: actual_vk.clone(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3486,6 +3505,7 @@ mod tests {
     ) -> Result<Response, StdError> {
         let handle_msg = ExecuteMsg::RevokePermit {
             permit_name: permit_name.to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3694,6 +3714,7 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3709,6 +3730,7 @@ mod tests {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             expiration: Some(1_571_797_420),
         };
@@ -3726,6 +3748,7 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3742,6 +3765,7 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2000),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3784,6 +3808,7 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(2000),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3818,6 +3843,7 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3849,6 +3875,7 @@ mod tests {
             amount: Uint128::new(2500),
             memo: None,
             msg: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3863,6 +3890,7 @@ mod tests {
         let handle_msg = ExecuteMsg::IncreaseAllowance {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
             expiration: None,
@@ -3883,6 +3911,7 @@ mod tests {
             amount: Uint128::new(2500),
             memo: None,
             msg: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3896,6 +3925,7 @@ mod tests {
         // Sanity check
         let handle_msg = ExecuteMsg::RegisterReceive {
             code_hash: "lolz".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3923,6 +3953,7 @@ mod tests {
             amount: Uint128::new(2000),
             memo: Some("my memo".to_string()),
             msg: Some(send_msg),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -3969,6 +4000,7 @@ mod tests {
             amount: Uint128::new(1),
             memo: None,
             msg: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4014,6 +4046,7 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4029,6 +4062,7 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4044,6 +4078,7 @@ mod tests {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             expiration: None,
         };
@@ -4060,6 +4095,7 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2500),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4075,6 +4111,7 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(2000),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4102,6 +4139,7 @@ mod tests {
             owner: "bob".to_string(),
             amount: Uint128::new(1),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4163,6 +4201,7 @@ mod tests {
             .collect();
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4229,6 +4268,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4264,6 +4304,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4298,6 +4339,7 @@ mod tests {
             .collect();
         let handle_msg = ExecuteMsg::BatchBurnFrom {
             actions,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4325,6 +4367,7 @@ mod tests {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             expiration: None,
         };
@@ -4354,6 +4397,7 @@ mod tests {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             expiration: None,
         };
@@ -4371,6 +4415,7 @@ mod tests {
             spender: "alice".to_string(),
             amount: Uint128::new(50),
             padding: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             expiration: None,
         };
@@ -4410,6 +4455,7 @@ mod tests {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             expiration: None,
         };
@@ -4439,6 +4485,7 @@ mod tests {
             spender: "alice".to_string(),
             amount: Uint128::new(2000),
             padding: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             expiration: None,
         };
@@ -4476,6 +4523,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::ChangeAdmin {
             address: "bob".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4507,6 +4555,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetContractStatus {
             level: ContractStatusLevel::StopAll,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4578,6 +4627,7 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4592,6 +4642,7 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4610,6 +4661,7 @@ mod tests {
             amount: Uint128::new(1000),
             denom: None,
             padding: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
         };
         let info = mock_info("butler", &[]);
@@ -4626,6 +4678,7 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: Option::from("uscrt".to_string()),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4677,6 +4730,7 @@ mod tests {
         );
         // test when deposit disabled
         let handle_msg = ExecuteMsg::Deposit {
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4693,6 +4747,7 @@ mod tests {
         assert!(error.contains("Tried to deposit an unsupported coin uscrt"));
 
         let handle_msg = ExecuteMsg::Deposit {
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4722,6 +4777,7 @@ mod tests {
 
         let create_vk_msg = ExecuteMsg::CreateViewingKey {
             entropy: "34".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4778,6 +4834,7 @@ mod tests {
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(100),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4793,6 +4850,7 @@ mod tests {
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(burn_amount),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4844,6 +4902,7 @@ mod tests {
             recipient: "lebron".to_string(),
             amount: Uint128::new(mint_amount),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4860,6 +4919,7 @@ mod tests {
             recipient: "lebron".to_string(),
             amount: Uint128::new(mint_amount),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4900,6 +4960,7 @@ mod tests {
 
         let pause_msg = ExecuteMsg::SetContractStatus {
             level: ContractStatusLevel::StopAllButRedeems,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4912,6 +4973,7 @@ mod tests {
 
         let mint_msg = ExecuteMsg::AddMinters {
             minters: vec!["not_admin".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4924,6 +4986,7 @@ mod tests {
 
         let mint_msg = ExecuteMsg::RemoveMinters {
             minters: vec!["admin".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4936,6 +4999,7 @@ mod tests {
 
         let mint_msg = ExecuteMsg::SetMinters {
             minters: vec!["not_admin".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4948,6 +5012,7 @@ mod tests {
 
         let change_admin_msg = ExecuteMsg::ChangeAdmin {
             address: "not_admin".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4981,6 +5046,7 @@ mod tests {
 
         let pause_msg = ExecuteMsg::SetContractStatus {
             level: ContractStatusLevel::StopAllButRedeems,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -4999,6 +5065,7 @@ mod tests {
             recipient: "account".to_string(),
             amount: Uint128::new(123),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5015,6 +5082,7 @@ mod tests {
         let withdraw_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(5000),
             denom: Option::from("uscrt".to_string()),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5043,6 +5111,7 @@ mod tests {
 
         let pause_msg = ExecuteMsg::SetContractStatus {
             level: ContractStatusLevel::StopAll,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5061,6 +5130,7 @@ mod tests {
             recipient: "account".to_string(),
             amount: Uint128::new(123),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5077,6 +5147,7 @@ mod tests {
         let withdraw_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(5000),
             denom: Option::from("uscrt".to_string()),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5122,6 +5193,7 @@ mod tests {
         // try when mint disabled
         let handle_msg = ExecuteMsg::SetMinters {
             minters: vec!["bob".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5134,6 +5206,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetMinters {
             minters: vec!["bob".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5146,6 +5219,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetMinters {
             minters: vec!["bob".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5159,6 +5233,7 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5172,6 +5247,7 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5214,6 +5290,7 @@ mod tests {
         // try when mint disabled
         let handle_msg = ExecuteMsg::AddMinters {
             minters: vec!["bob".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5226,6 +5303,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::AddMinters {
             minters: vec!["bob".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5238,6 +5316,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::AddMinters {
             minters: vec!["bob".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5251,6 +5330,7 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5264,6 +5344,7 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5305,6 +5386,7 @@ mod tests {
         // try when mint disabled
         let handle_msg = ExecuteMsg::RemoveMinters {
             minters: vec!["bob".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5317,6 +5399,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::RemoveMinters {
             minters: vec!["admin".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5329,6 +5412,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::RemoveMinters {
             minters: vec!["admin".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5342,6 +5426,7 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5356,6 +5441,7 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5369,6 +5455,7 @@ mod tests {
         // Removing another extra time to ensure nothing funky happens
         let handle_msg = ExecuteMsg::RemoveMinters {
             minters: vec!["admin".to_string()],
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5382,6 +5469,7 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5396,6 +5484,7 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5434,6 +5523,7 @@ mod tests {
 
         let create_vk_msg = ExecuteMsg::CreateViewingKey {
             entropy: "34".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5842,6 +5932,7 @@ mod tests {
             spender: "lebron".to_string(),
             amount: Uint128::new(2000),
             padding: None,
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             expiration: None,
         };
@@ -5874,6 +5965,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: vk1.clone(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -5893,6 +5985,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: vk2.clone(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -6193,6 +6286,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "key".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -6252,6 +6346,7 @@ mod tests {
 
         let handle_msg = ExecuteMsg::SetViewingKey {
             key: "key".to_string(),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -6264,6 +6359,7 @@ mod tests {
         let handle_msg = ExecuteMsg::Burn {
             amount: Uint128::new(1),
             memo: Some("my burn message".to_string()),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -6280,6 +6376,7 @@ mod tests {
         let handle_msg = ExecuteMsg::Redeem {
             amount: Uint128::new(1000),
             denom: Option::from("uscrt".to_string()),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -6297,6 +6394,7 @@ mod tests {
             recipient: "bob".to_string(),
             amount: Uint128::new(100),
             memo: Some("my mint message".to_string()),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -6307,6 +6405,7 @@ mod tests {
         assert!(ensure_success(handle_result.unwrap()));
 
         let handle_msg = ExecuteMsg::Deposit {
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -6329,6 +6428,7 @@ mod tests {
             recipient: "alice".to_string(),
             amount: Uint128::new(1000),
             memo: Some("my transfer message #1".to_string()),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -6343,6 +6443,7 @@ mod tests {
             recipient: "banana".to_string(),
             amount: Uint128::new(500),
             memo: Some("my transfer message #2".to_string()),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };
@@ -6357,6 +6458,7 @@ mod tests {
             recipient: "mango".to_string(),
             amount: Uint128::new(2500),
             memo: Some("my transfer message #3".to_string()),
+            #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
         };

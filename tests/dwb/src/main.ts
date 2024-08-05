@@ -77,11 +77,6 @@ const H_APPS = {
 // #ts-expect-error validator!
 const k_dwbv = new DwbValidator(k_app_a);
 
-console.log('# Initialized');
-await k_dwbv.sync();
-k_dwbv.print();
-console.log('\n');
-
 async function transfer_chain(sx_chain: string) {
 	const a_lines = sx_chain.split(/\s*\n+\s*/g).filter(s => s && /^\s*(\d+)/.test(s));
 
@@ -106,7 +101,7 @@ async function transfer_chain(sx_chain: string) {
 // evaporation
 if(B_TEST_EVAPORATION) {
 	const xg_post_evaporate_buffer = 50_000n;
-	const xg_gas_wanted = 100_000n;
+	const xg_gas_wanted = 150_000n;
 	const xg_gas_target = xg_gas_wanted - xg_post_evaporate_buffer;
 
 	const [g_exec, xc_code, sx_res, g_meta, h_events, si_txn] = await k_app_a.exec('transfer', {
@@ -131,6 +126,11 @@ if(B_TEST_EVAPORATION) {
 }
 
 {
+	console.log('# Initialized');
+	await k_dwbv.sync();
+	k_dwbv.print();
+	console.log('\n');
+
 	// basic transfers between principals
 	await transfer_chain(`
 		1 TKN Alice => Bob
