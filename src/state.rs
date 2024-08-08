@@ -4,14 +4,12 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Addr, StdError, StdResult, Storage};
 use secret_toolkit::serialization::Json;
 use secret_toolkit::storage::{Item, Keymap, Keyset};
-use secret_toolkit_crypto::SHA256_HASH_SIZE;
 
 use crate::msg::ContractStatusLevel;
 
 pub const KEY_CONFIG: &[u8] = b"config";
 pub const KEY_TOTAL_SUPPLY: &[u8] = b"total_supply";
 pub const KEY_CONTRACT_STATUS: &[u8] = b"contract_status";
-pub const KEY_PRNG: &[u8] = b"prng";
 pub const KEY_MINTERS: &[u8] = b"minters";
 pub const KEY_TX_COUNT: &[u8] = b"tx-count";
 
@@ -54,22 +52,9 @@ pub static TOTAL_SUPPLY: Item<u128> = Item::new(KEY_TOTAL_SUPPLY);
 
 pub static CONTRACT_STATUS: Item<ContractStatusLevel, Json> = Item::new(KEY_CONTRACT_STATUS);
 
-pub static PRNG: Item<[u8; SHA256_HASH_SIZE]> = Item::new(KEY_PRNG);
-
 pub static MINTERS: Item<Vec<Addr>> = Item::new(KEY_MINTERS);
 
 pub static TX_COUNT: Item<u64> = Item::new(KEY_TX_COUNT);
-
-pub struct PrngStore {}
-impl PrngStore {
-    pub fn load(store: &dyn Storage) -> StdResult<[u8; SHA256_HASH_SIZE]> {
-        PRNG.load(store).map_err(|_err| StdError::generic_err(""))
-    }
-
-    pub fn save(store: &mut dyn Storage, prng_seed: [u8; SHA256_HASH_SIZE]) -> StdResult<()> {
-        PRNG.save(store, &prng_seed)
-    }
-}
 
 pub struct MintersStore {}
 impl MintersStore {

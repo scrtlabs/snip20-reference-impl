@@ -1,9 +1,11 @@
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    entry_point, to_binary, Addr, Api, BankMsg, Binary, BlockInfo, CanonicalAddr, Coin, CosmosMsg,
+    entry_point, to_binary, Addr, BankMsg, Binary, BlockInfo, CanonicalAddr, Coin, CosmosMsg,
     Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128,
 };
+#[cfg(feature = "gas_evaporation")]
+use cosmwasm_std::Api;
 use secret_toolkit::notification::hkdf_sha_256;
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
@@ -19,6 +21,7 @@ use crate::dwb::{DelayedWriteBuffer, DWB, TX_NODES};
 use crate::btbe::{
     find_start_bundle, initialize_btbe, stored_balance, stored_entry, stored_tx_count,
 };
+#[cfg(feature = "gas_tracking")]
 use crate::gas_tracker::{GasTracker, LoggingExt};
 #[cfg(feature = "gas_evaporation")]
 use crate::msg::Evaporator;
@@ -28,8 +31,8 @@ use crate::msg::{
 };
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    safe_add, AllowancesStore, Config, MintersStore, PrngStore, ReceiverHashStore, CONFIG,
-    CONTRACT_STATUS, INTERNAL_SECRET, PRNG, TOTAL_SUPPLY,
+    safe_add, AllowancesStore, Config, MintersStore, ReceiverHashStore, CONFIG,
+    CONTRACT_STATUS, INTERNAL_SECRET, TOTAL_SUPPLY,
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
@@ -72,9 +75,6 @@ pub fn instantiate(
 
     let mut total_supply: u128 = 0;
 
-    let prng_seed_hashed = sha_256(&msg.prng_seed.0);
-    PrngStore::save(deps.storage, prng_seed_hashed)?;
-
     // initialize the bitwise-trie of bucketed entries
     initialize_btbe(deps.storage)?;
 
@@ -84,7 +84,6 @@ pub fn instantiate(
     let initial_balances = msg.initial_balances.unwrap_or_default();
     let raw_admin = deps.api.addr_canonicalize(admin.as_str())?;
     let rng_seed = env.block.random.as_ref().unwrap();
-    let mut rng = ContractPrng::new(rng_seed.as_slice(), &prng_seed_hashed);
 
     // use entropy and env.random to create an internal secret for the contract
     let entropy = msg.prng_seed.0.as_slice();
@@ -105,6 +104,7 @@ pub fn instantiate(
     )?;
     INTERNAL_SECRET.save(deps.storage, &internal_secret)?;
 
+    let mut rng = ContractPrng::new(rng_seed.as_slice(), &sha_256(&msg.prng_seed.0));
     for balance in initial_balances {
         let amount = balance.amount.u128();
         let balance_address = deps.api.addr_canonicalize(balance.address.as_str())?;
@@ -163,18 +163,24 @@ pub fn instantiate(
     };
     MintersStore::save(deps.storage, minters)?;
 
-    ViewingKey::set_seed(deps.storage, &prng_seed_hashed);
+    let vk_seed = hkdf_sha_256(
+        &salt,
+        rng_seed.0.as_slice(),
+        "contract_viewing_key".as_bytes(),
+        32,
+    )?;
+    ViewingKey::set_seed(deps.storage, &vk_seed);
 
     Ok(Response::default())
 }
 
 #[entry_point]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
-    let seed = env.block.random.as_ref().unwrap();
-    let mut rng = ContractPrng::new(seed.as_slice(), &PRNG.load(deps.storage)?);
+    let mut rng = ContractPrng::from_env(&env);
 
     let contract_status = CONTRACT_STATUS.load(deps.storage)?;
 
+    #[cfg(feature = "gas_evaporation")]
     let api = deps.api;
     match contract_status {
         ContractStatusLevel::StopAll | ContractStatusLevel::StopAllButRedeems => {
@@ -234,7 +240,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ExecuteMsg::RegisterReceive { code_hash, .. } => {
             try_register_receive(deps, info, code_hash)
         }
-        ExecuteMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, info, entropy),
+        ExecuteMsg::CreateViewingKey { entropy, .. } => try_create_key(deps, env, info, entropy, &mut rng),
         ExecuteMsg::SetViewingKey { key, .. } => try_set_key(deps, info, key),
 
         // Allowance
@@ -944,14 +950,17 @@ pub fn try_create_key(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    entropy: String,
+    entropy: Option<String>,
+    rng: &mut ContractPrng,
 ) -> StdResult<Response> {
+    let entropy = [entropy.unwrap_or_default().as_bytes(), &rng.rand_bytes()].concat();
+
     let key = ViewingKey::create(
         deps.storage,
         &info,
         &env,
         info.sender.as_str(),
-        entropy.as_ref(),
+        &entropy,
     );
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::CreateViewingKey { key })?))
@@ -1158,6 +1167,7 @@ fn try_redeem(
     // load delayed write buffer
     let mut dwb = DWB.load(deps.storage)?;
 
+    #[cfg(feature = "gas_tracking")]
     let mut tracker = GasTracker::new(deps.api);
 
     // settle the signer's account in buffer
@@ -2831,6 +2841,7 @@ mod tests {
                 recipient,
                 amount: Uint128::new(1),
                 memo: None,
+                #[cfg(feature = "gas_evaporation")]
                 gas_target: None,
                 padding: None,
             };
@@ -2912,6 +2923,7 @@ mod tests {
                 recipient: "alice".to_string(),
                 amount: Uint128::new(i.into()),
                 memo: None,
+                #[cfg(feature = "gas_evaporation")]
                 gas_target: None,
                 padding: None,
             };
@@ -2958,6 +2970,7 @@ mod tests {
                 recipient: "alice".to_string(),
                 amount: Uint128::new(i.into()),
                 memo: None,
+                #[cfg(feature = "gas_evaporation")]
                 gas_target: None,
                 padding: None,
             };
@@ -3413,7 +3426,7 @@ mod tests {
         );
 
         let handle_msg = ExecuteMsg::CreateViewingKey {
-            entropy: "".to_string(),
+            entropy: None,
             #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
@@ -4230,6 +4243,7 @@ mod tests {
                 spender: "alice".to_string(),
                 amount: Uint128::new(allowance_size),
                 padding: None,
+                #[cfg(feature = "gas_evaporation")]
                 gas_target: None,
                 expiration: None,
             };
@@ -4245,6 +4259,7 @@ mod tests {
                 owner: "name".to_string(),
                 amount: Uint128::new(2500),
                 memo: None,
+                #[cfg(feature = "gas_evaporation")]
                 gas_target: None,
                 padding: None,
             };
@@ -4776,7 +4791,7 @@ mod tests {
         assert_ne!(stored_balance(&deps.storage, &canonical).unwrap(), 6000);
 
         let create_vk_msg = ExecuteMsg::CreateViewingKey {
-            entropy: "34".to_string(),
+            entropy: Some("34".to_string()),
             #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
@@ -5522,7 +5537,7 @@ mod tests {
         );
 
         let create_vk_msg = ExecuteMsg::CreateViewingKey {
-            entropy: "34".to_string(),
+            entropy: Some("34".to_string()),
             #[cfg(feature = "gas_evaporation")]
             gas_target: None,
             padding: None,
@@ -6062,6 +6077,7 @@ mod tests {
         for i in 0..num_owners {
             let handle_msg = ExecuteMsg::SetViewingKey {
                 key: vk.clone(),
+                #[cfg(feature = "gas_evaporation")]
                 gas_target: None,
                 padding: None,
             };
@@ -6086,6 +6102,7 @@ mod tests {
                     spender: format!("spender{}", j),
                     amount: Uint128::new(50),
                     padding: None,
+                    #[cfg(feature = "gas_evaporation")]
                     gas_target: None,
                     expiration: None,
                 };
@@ -6100,6 +6117,7 @@ mod tests {
 
                 let handle_msg = ExecuteMsg::SetViewingKey {
                     key: vk.clone(),
+                    #[cfg(feature = "gas_evaporation")]
                     gas_target: None,
                     padding: None,
                 };
