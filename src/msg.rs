@@ -4,7 +4,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{batch, transaction_history::Tx};
-use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128, Uint64};
+use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128,};
+#[cfg(feature = "gas_evaporation")]
+use cosmwasm_std::Uint64;
 use secret_toolkit::permit::Permit;
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
@@ -146,7 +148,7 @@ pub enum ExecuteMsg {
         padding: Option<String>,
     },
     CreateViewingKey {
-        entropy: String,
+        entropy: Option<String>,
         #[cfg(feature = "gas_evaporation")]
         gas_target: Option<Uint64>,
         padding: Option<String>,
