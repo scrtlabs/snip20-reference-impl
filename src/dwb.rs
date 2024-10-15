@@ -88,7 +88,7 @@ impl DelayedWriteBuffer {
         amount_spent: u128,
         op_name: &str,
         #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
-    ) -> StdResult<()> {
+    ) -> StdResult<u128> {
         #[cfg(feature = "gas_tracking")]
         let mut group1 = tracker.group("settle_sender_or_owner_account.1");
 
@@ -98,7 +98,8 @@ impl DelayedWriteBuffer {
         #[cfg(feature = "gas_tracking")]
         group1.log("release_dwb_recipient");
 
-        if balance.checked_sub(amount_spent).is_none() {
+        let checked_balance = balance.checked_sub(amount_spent);
+        if checked_balance.is_none() {
             return Err(StdError::generic_err(format!(
                 "insufficient funds to {op_name}: balance={balance}, required={amount_spent}",
             )));
@@ -119,15 +120,15 @@ impl DelayedWriteBuffer {
             entry.amount()?
         ));
 
-        let result = merge_dwb_entry(
+        merge_dwb_entry(
             store,
             &entry,
             Some(amount_spent),
             #[cfg(feature = "gas_tracking")]
             tracker,
-        );
+        )?;
 
-        result
+        Ok(checked_balance.unwrap())
     }
 
     /// "releases" a given recipient from the buffer, removing their entry if one exists
