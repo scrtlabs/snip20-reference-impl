@@ -4,10 +4,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{batch, transaction_history::Tx};
-use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128,};
+use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128, Uint64,};
 #[cfg(feature = "gas_evaporation")]
 use cosmwasm_std::Uint64;
-use secret_toolkit::permit::Permit;
+use secret_toolkit::{notification::ChannelInfoData, permit::Permit};
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Serialize, Deserialize, Clone, JsonSchema)]
@@ -491,13 +491,35 @@ pub enum QueryMsg {
         page_size: u32,
     },
     Minters {},
+
+    // SNIP-52 Private Push Notifications
+    /// Public query to list all notification channels
+    ListChannels {},
+    /// Authenticated query allows clients to obtain the seed
+    /// and schema for a specific channel.
+    ChannelInfo {
+        channels: Vec<String>,
+        txhash: Option<String>,
+        viewer: ViewerInfo,
+    },
+
     WithPermit {
         permit: Permit,
         query: QueryWithPermit,
     },
 
+    // for debug purposes only
     #[cfg(feature = "gas_tracking")]
     Dwb {},
+}
+
+/// the address and viewing key making an authenticated query request
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct ViewerInfo {
+    /// querying address
+    pub address: String,
+    /// authentication key string
+    pub viewing_key: String,
 }
 
 impl QueryMsg {
@@ -534,6 +556,10 @@ impl QueryMsg {
                 let spender = api.addr_validate(spender.as_str())?;
                 Ok((vec![spender], key.clone()))
             }
+            Self::ChannelInfo { viewer, .. } => {
+                let address = api.addr_validate(viewer.address.as_str())?;
+                Ok((vec![address], viewer.viewing_key.clone()))
+            }
             _ => panic!("This query type does not require authentication"),
         }
     }
@@ -565,6 +591,11 @@ pub enum QueryWithPermit {
     TransactionHistory {
         page: Option<u32>,
         page_size: u32,
+    },
+    // SNIP-52 Private Push Notifications
+    ChannelInfo {
+        channels: Vec<String>,
+        txhash: Option<String>,
     },
 }
 
@@ -620,6 +651,18 @@ pub enum QueryAnswer {
     },
     Minters {
         minters: Vec<Addr>,
+    },
+    
+    // SNIP-52 Private Push Notifications
+    ListChannels {
+        channels: Vec<String>,
+    },
+    ChannelInfo {
+        /// scopes validity of this response
+        as_of_block: Uint64,
+        /// shared secret in base64
+        seed: Binary,
+        channels: Vec<ChannelInfoData>,
     },
 
     #[cfg(feature = "gas_tracking")]

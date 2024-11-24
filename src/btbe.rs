@@ -6,10 +6,10 @@ use constant_time_eq::constant_time_eq;
 use cosmwasm_std::{CanonicalAddr, StdError, StdResult, Storage};
 use primitive_types::U256;
 use secret_toolkit::{
-    notification::hkdf_sha_256,
     serialization::{Bincode2, Serde},
     storage::Item,
 };
+use secret_toolkit_crypto::hkdf_sha_256;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -511,7 +511,7 @@ pub fn stored_tx_count(storage: &dyn Storage, entry: &Option<StoredEntry>) -> St
 }
 
 // merges a dwb entry into the current node's bucket
-// `spent_amount` is any required subtraction due to being sender of tx
+// `amount_spent` is any required subtraction due to being sender of tx
 pub fn merge_dwb_entry(
     storage: &mut dyn Storage,
     dwb_entry: &DelayedWriteBufferEntry,

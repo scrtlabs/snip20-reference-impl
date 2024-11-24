@@ -716,7 +716,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit"
 version = "0.10.0"
-source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git?rev=8aed92d589dc119f69d20f8538d5a6eea8003d95#8aed92d589dc119f69d20f8538d5a6eea8003d95"
 dependencies = [
  "secret-toolkit-crypto",
  "secret-toolkit-notification",
@@ -730,8 +730,9 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-crypto"
 version = "0.10.0"
-source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git?rev=8aed92d589dc119f69d20f8538d5a6eea8003d95#8aed92d589dc119f69d20f8538d5a6eea8003d95"
 dependencies = [
+ "hkdf",
  "rand_chacha",
  "rand_core 0.6.4",
  "secp256k1",
@@ -742,7 +743,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-notification"
 version = "0.10.0"
-source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git?rev=8aed92d589dc119f69d20f8538d5a6eea8003d95#8aed92d589dc119f69d20f8538d5a6eea8003d95"
 dependencies = [
  "chacha20poly1305",
  "generic-array",
@@ -760,7 +761,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-permit"
 version = "0.10.0"
-source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git?rev=8aed92d589dc119f69d20f8538d5a6eea8003d95#8aed92d589dc119f69d20f8538d5a6eea8003d95"
 dependencies = [
  "bech32",
  "remain",
@@ -774,7 +775,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-serialization"
 version = "0.10.0"
-source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git?rev=8aed92d589dc119f69d20f8538d5a6eea8003d95#8aed92d589dc119f69d20f8538d5a6eea8003d95"
 dependencies = [
  "bincode2",
  "schemars",
@@ -785,7 +786,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-storage"
 version = "0.10.0"
-source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git?rev=8aed92d589dc119f69d20f8538d5a6eea8003d95#8aed92d589dc119f69d20f8538d5a6eea8003d95"
 dependencies = [
  "secret-cosmwasm-std",
  "secret-cosmwasm-storage",
@@ -796,7 +797,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-utils"
 version = "0.10.0"
-source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git?rev=8aed92d589dc119f69d20f8538d5a6eea8003d95#8aed92d589dc119f69d20f8538d5a6eea8003d95"
 dependencies = [
  "schemars",
  "secret-cosmwasm-std",
@@ -807,7 +808,7 @@ dependencies = [
 [[package]]
 name = "secret-toolkit-viewing-key"
 version = "0.10.0"
-source = "git+https://github.com/SolarRepublic/secret-toolkit.git#1bf8c5f3f08e75276fa812cb248c6eda5cd3beae"
+source = "git+https://github.com/SolarRepublic/secret-toolkit.git?rev=8aed92d589dc119f69d20f8538d5a6eea8003d95#8aed92d589dc119f69d20f8538d5a6eea8003d95"
 dependencies = [
  "base64 0.21.7",
  "schemars",
@@ -915,11 +916,12 @@ dependencies = [
 
 [[package]]
 name = "snip20-reference-impl"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "base64 0.21.7",
  "constant_time_eq",
  "cosmwasm-schema",
+ "minicbor-ser",
  "primitive-types",
  "rand",
  "schemars",

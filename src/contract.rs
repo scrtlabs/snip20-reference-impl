@@ -2,15 +2,15 @@
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, BlockInfo, CanonicalAddr, Coin, CosmosMsg,
-    Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128,
+    Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, Uint64,
 };
 #[cfg(feature = "gas_evaporation")]
 use cosmwasm_std::Api;
-use secret_toolkit::notification::hkdf_sha_256;
+use secret_toolkit::notification::{get_seed, notification_id, BloomParameters, ChannelInfoData, Descriptor, FlatDescriptor, Notification, NotificationData, StructDescriptor,};
 use secret_toolkit::permit::{Permit, RevokedPermits, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
-use secret_toolkit_crypto::{sha_256, ContractPrng};
+use secret_toolkit_crypto::{hkdf_sha_256, sha_256, ContractPrng};
 
 use crate::batch;
 
@@ -29,10 +29,10 @@ use crate::msg::{
     AllowanceGivenResult, AllowanceReceivedResult, ContractStatusLevel, ExecuteAnswer, ExecuteMsg,
     InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit, ResponseStatus::Success,
 };
+use crate::notifications::{multi_received_data, multi_spent_data, AllowanceNotificationData, ReceivedNotificationData, SpentNotificationData, MULTI_RECEIVED_CHANNEL_BLOOM_K, MULTI_RECEIVED_CHANNEL_BLOOM_N, MULTI_RECEIVED_CHANNEL_ID, MULTI_RECEIVED_CHANNEL_PACKET_SIZE, MULTI_SPENT_CHANNEL_BLOOM_K, MULTI_SPENT_CHANNEL_BLOOM_N, MULTI_SPENT_CHANNEL_ID, MULTI_SPENT_CHANNEL_PACKET_SIZE};
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
-    safe_add, AllowancesStore, Config, MintersStore, ReceiverHashStore, CONFIG,
-    CONTRACT_STATUS, INTERNAL_SECRET, TOTAL_SUPPLY,
+    safe_add, AllowancesStore, Config, MintersStore, ReceiverHashStore, CHANNELS, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET, TOTAL_SUPPLY
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 use crate::transaction_history::{
@@ -42,6 +42,7 @@ use crate::transaction_history::{
 
 /// We make sure that responses from `handle` are padded to a multiple of this size.
 pub const RESPONSE_BLOCK_SIZE: usize = 256;
+pub const NOTIFICATION_BLOCK_SIZE: usize = 36;
 pub const PREFIX_REVOKED_PERMITS: &str = "revoked_permits";
 
 #[entry_point]
@@ -103,6 +104,19 @@ pub fn instantiate(
         32,
     )?;
     INTERNAL_SECRET.save(deps.storage, &internal_secret)?;
+
+    // Hard-coded channels
+    let channels: Vec<String> = vec![
+        ReceivedNotificationData::CHANNEL_ID.to_string(),
+        SpentNotificationData::CHANNEL_ID.to_string(),
+        AllowanceNotificationData::CHANNEL_ID.to_string(),
+        MULTI_RECEIVED_CHANNEL_ID.to_string(),
+        MULTI_SPENT_CHANNEL_ID.to_string(),
+    ];
+
+    for channel in channels {
+        CHANNELS.insert(deps.storage, &channel)?;
+    }
 
     let mut rng = ContractPrng::new(rng_seed.as_slice(), &sha_256(&msg.prng_seed.0));
     for balance in initial_balances {
@@ -328,7 +342,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
 }
 
 #[entry_point]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     pad_query_result(
         match msg {
             QueryMsg::TokenInfo {} => query_token_info(deps.storage),
@@ -336,18 +350,19 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             QueryMsg::ContractStatus {} => query_contract_status(deps.storage),
             QueryMsg::ExchangeRate {} => query_exchange_rate(deps.storage),
             QueryMsg::Minters { .. } => query_minters(deps),
-            QueryMsg::WithPermit { permit, query } => permit_queries(deps, permit, query),
+            QueryMsg::ListChannels {} => query_list_channels(deps),
+            QueryMsg::WithPermit { permit, query } => permit_queries(deps, env, permit, query),
 
             #[cfg(feature = "gas_tracking")]
             QueryMsg::Dwb {} => log_dwb(deps.storage),
 
-            _ => viewing_keys_queries(deps, msg),
+            _ => viewing_keys_queries(deps, env, msg),
         },
         RESPONSE_BLOCK_SIZE,
     )
 }
 
-fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<Binary, StdError> {
+fn permit_queries(deps: Deps, env: Env, permit: Permit, query: QueryWithPermit) -> Result<Binary, StdError> {
     // Validate permit content
     let token_address = CONFIG.load(deps.storage)?.contract_address;
 
@@ -445,10 +460,17 @@ fn permit_queries(deps: Deps, permit: Permit, query: QueryWithPermit) -> Result<
             }
             query_allowances_received(deps, account, page.unwrap_or(0), page_size)
         }
+        QueryWithPermit::ChannelInfo { channels, txhash } => query_channel_info(
+            deps,
+            env,
+            channels,
+            txhash,
+            deps.api.addr_canonicalize(account.as_str())?,
+        )
     }
 }
 
-pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
+pub fn viewing_keys_queries(deps: Deps, env: Env,  msg: QueryMsg) -> StdResult<Binary> {
     let (addresses, key) = msg.get_validation_params(deps.api)?;
 
     for address in addresses {
@@ -479,6 +501,17 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
                     page_size,
                     ..
                 } => query_allowances_received(deps, spender, page.unwrap_or(0), page_size),
+                QueryMsg::ChannelInfo {
+                    channels,
+                    txhash,
+                    viewer,
+                } => query_channel_info(
+                    deps,
+                    env,
+                    channels,
+                    txhash,
+                    deps.api.addr_canonicalize(viewer.address.as_str())?,
+                ),
                 _ => panic!("This query type does not require authentication"),
             };
         }
@@ -488,6 +521,8 @@ pub fn viewing_keys_queries(deps: Deps, msg: QueryMsg) -> StdResult<Binary> {
         msg: "Wrong viewing key for this address or viewing key not set".to_string(),
     })
 }
+
+// query functions
 
 fn query_exchange_rate(storage: &dyn Storage) -> StdResult<Binary> {
     let constants = CONFIG.load(storage)?;
@@ -728,6 +763,203 @@ fn query_minters(deps: Deps) -> StdResult<Binary> {
     to_binary(&response)
 }
 
+// *****************
+// SNIP-52 query functions
+// *****************
+
+///
+/// ListChannels query
+///
+///   Public query to list all notification channels.
+///
+fn query_list_channels(deps: Deps) -> StdResult<Binary> {
+    let channels: Vec<String> = CHANNELS
+        .iter(deps.storage)?
+        .map(|channel| channel.unwrap())
+        .collect();
+    to_binary(&QueryAnswer::ListChannels { channels })
+}
+
+///
+/// ChannelInfo query
+///
+///   Authenticated query allows clients to obtain the seed,
+///   and Notification ID of an event for a specific tx_hash, for a specific channel.
+///
+fn query_channel_info(
+    deps: Deps,
+    env: Env,
+    channels: Vec<String>,
+    txhash: Option<String>,
+    sender_raw: CanonicalAddr,
+) -> StdResult<Binary> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+    let seed = get_seed(&sender_raw, secret)?;
+    let mut channels_data = vec![];
+    for channel in channels {
+        let answer_id;
+        if let Some(tx_hash) = &txhash {
+            answer_id = Some(notification_id(&seed, &channel, tx_hash)?);
+        } else {
+            answer_id = None;
+        }
+        match channel.as_str() {
+            ReceivedNotificationData::CHANNEL_ID => {
+                let channel_info_data = ChannelInfoData {
+                    mode: "txhash".to_string(),
+                    channel,
+                    answer_id,
+                    parameters: None,
+                    data: None,
+                    next_id: None,
+                    counter: None,
+                    cddl: Some(ReceivedNotificationData::CDDL_SCHEMA.to_string()),
+                };
+                channels_data.push(channel_info_data);
+            }
+            SpentNotificationData::CHANNEL_ID => {
+                let channel_info_data = ChannelInfoData {
+                    mode: "txhash".to_string(),
+                    channel,
+                    answer_id,
+                    parameters: None,
+                    data: None,
+                    next_id: None,
+                    counter: None,
+                    cddl: Some(SpentNotificationData::CDDL_SCHEMA.to_string()),
+                };
+                channels_data.push(channel_info_data);
+            }
+            AllowanceNotificationData::CHANNEL_ID => {
+                let channel_info_data = ChannelInfoData {
+                    mode: "txhash".to_string(),
+                    channel,
+                    answer_id,
+                    parameters: None,
+                    data: None,
+                    next_id: None,
+                    counter: None,
+                    cddl: Some(AllowanceNotificationData::CDDL_SCHEMA.to_string()),
+                };
+                channels_data.push(channel_info_data);
+            }
+            MULTI_RECEIVED_CHANNEL_ID => {
+                let channel_info_data = ChannelInfoData {
+                    mode: "bloom".to_string(),
+                    channel,
+                    answer_id,
+                    parameters: Some(BloomParameters {
+                        m: 512,
+                        k: MULTI_RECEIVED_CHANNEL_BLOOM_K,
+                        h: "sha256".to_string(),
+                    }),
+                    data: Some(Descriptor {
+                        r#type: format!("packet[{}]", MULTI_RECEIVED_CHANNEL_BLOOM_N),
+                        version: "1".to_string(),
+                        packet_size: MULTI_RECEIVED_CHANNEL_PACKET_SIZE,
+                        data: StructDescriptor {
+                            r#type: "struct".to_string(),
+                            label: "transfer".to_string(),
+                            members: vec![
+                                FlatDescriptor {
+                                    r#type: "uint128".to_string(),
+                                    label: "amount".to_string(),
+                                    description: Some(
+                                        "The transfer amount in base denomination".to_string(),
+                                    ),
+                                },
+                                FlatDescriptor {
+                                    r#type: "bytes8".to_string(),
+                                    label: "spender".to_string(),
+                                    description: Some(
+                                        "The last 8 bytes of the sender's canonical address"
+                                            .to_string(),
+                                    ),
+                                },
+                            ],
+                        },
+                    }),
+                    counter: None,
+                    next_id: None,
+                    cddl: None,
+                };
+                channels_data.push(channel_info_data);
+            }
+            MULTI_SPENT_CHANNEL_ID => {
+                let channel_info_data = ChannelInfoData {
+                    mode: "bloom".to_string(),
+                    channel,
+                    answer_id,
+                    parameters: Some(BloomParameters {
+                        m: 512,
+                        k: MULTI_SPENT_CHANNEL_BLOOM_K,
+                        h: "sha256".to_string(),
+                    }),
+                    data: Some(Descriptor {
+                        r#type: format!("packet[{}]", MULTI_SPENT_CHANNEL_BLOOM_N),
+                        version: "1".to_string(),
+                        packet_size: MULTI_SPENT_CHANNEL_PACKET_SIZE,
+                        data: StructDescriptor {
+                            r#type: "struct".to_string(),
+                            label: "transfer".to_string(),
+                            members: vec![
+                                FlatDescriptor {
+                                    r#type: "uint128".to_string(),
+                                    label: "amount".to_string(),
+                                    description: Some(
+                                        "The transfer amount in base denomination".to_string(),
+                                    ),
+                                },
+                                FlatDescriptor {
+                                    r#type: "uint128".to_string(),
+                                    label: "balance".to_string(),
+                                    description: Some(
+                                        "Spender's new balance after the transfer".to_string(),
+                                    ),
+                                },
+                                FlatDescriptor {
+                                    r#type: "bytes8".to_string(),
+                                    label: "recipient".to_string(),
+                                    description: Some(
+                                        "The last 8 bytes of the recipient's canonical address"
+                                            .to_string(),
+                                    ),
+                                },
+                            ],
+                        },
+                    }),
+                    counter: None,
+                    next_id: None,
+                    cddl: None,
+                };
+                channels_data.push(channel_info_data);
+            }
+            _ => {
+                return Err(StdError::generic_err(format!(
+                    "`{}` channel is undefined",
+                    channel
+                )));
+            }
+        }
+    }
+
+    //Ok(Binary(vec![]))
+    //let schema = CHANNEL_SCHEMATA.get(deps.storage, &channel);
+
+    to_binary(&QueryAnswer::ChannelInfo {
+        as_of_block: Uint64::from(env.block.height),
+        channels: channels_data,
+        seed,
+    })
+}
+
+// *****************
+// End SNIP-52 query functions
+// *****************
+
+// execute functions
+
 fn change_admin(deps: DepsMut, info: MessageInfo, address: String) -> StdResult<Response> {
     let address = deps.api.addr_validate(address.as_str())?;
 
@@ -838,6 +1070,9 @@ fn try_mint(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
     let constants = CONFIG.load(deps.storage)?;
@@ -867,7 +1102,7 @@ fn try_mint(
         &mut deps,
         rng,
         info.sender,
-        recipient,
+        recipient.clone(),
         Uint128::new(minted_amount),
         constants.symbol,
         memo,
@@ -876,7 +1111,21 @@ fn try_mint(
         &mut tracker,
     )?;
 
-    let resp = Response::new().set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?);
+    let received_notification = Notification::new(
+        recipient,
+        ReceivedNotificationData {
+            amount: minted_amount,
+            sender: None,
+        },
+    )
+    .to_txhash_notification(deps.api, &env, secret, Some(NOTIFICATION_BLOCK_SIZE))?;
+
+    let resp = Response::new()
+        .set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?)
+        .add_attribute_plaintext(
+            received_notification.id_plaintext(),
+            received_notification.data_plaintext(),
+        );
 
     #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
@@ -892,6 +1141,9 @@ fn try_batch_mint(
     rng: &mut ContractPrng,
     actions: Vec<batch::MintAction>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let constants = CONFIG.load(deps.storage)?;
 
     if !constants.mint_is_enabled {
@@ -909,6 +1161,7 @@ fn try_batch_mint(
 
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
 
+    let mut notifications = vec![];
     // Quick loop to check that the total of amounts is valid
     for action in actions {
         let actual_amount = safe_add(&mut total_supply, action.amount.u128());
@@ -922,7 +1175,7 @@ fn try_batch_mint(
             &mut deps,
             rng,
             info.sender.clone(),
-            recipient,
+            recipient.clone(),
             Uint128::new(actual_amount),
             constants.symbol.clone(),
             action.memo,
@@ -930,11 +1183,37 @@ fn try_batch_mint(
             #[cfg(feature = "gas_tracking")]
             &mut tracker,
         )?;
+        notifications.push(Notification::new (
+            recipient,
+            ReceivedNotificationData {
+                amount: actual_amount,
+                sender: None,
+            },
+        ));
     }
+
+    let tx_hash = env
+        .transaction
+        .clone()
+        .ok_or(StdError::generic_err("no tx hash found"))?
+        .hash;
+    let received_data = multi_received_data(
+        deps.api,
+        notifications,
+        &tx_hash,
+        env.block.random.unwrap(),
+        secret,
+    )?;
 
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BatchMint { status: Success })?))
+    Ok(Response::new()
+        .set_data(to_binary(&ExecuteAnswer::BatchMint { status: Success })?)
+        .add_attribute_plaintext(
+            format!("snip52:#{}", MULTI_RECEIVED_CHANNEL_ID),
+            Binary::from(received_data).to_base64(),
+        )
+    )
 }
 
 pub fn try_set_key(deps: DepsMut, info: MessageInfo, key: String) -> StdResult<Response> {
@@ -1227,11 +1506,11 @@ fn try_transfer_impl(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
     #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
-) -> StdResult<()> {
+) -> StdResult<(Notification<ReceivedNotificationData>, Notification<SpentNotificationData>)> {
     let raw_sender = deps.api.addr_canonicalize(sender.as_str())?;
     let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
 
-    perform_transfer(
+    let sender_balance = perform_transfer(
         deps.storage,
         rng,
         &raw_sender,
@@ -1244,8 +1523,25 @@ fn try_transfer_impl(
         #[cfg(feature = "gas_tracking")]
         tracker,
     )?;
+    let received_notification = Notification::new(
+        recipient.clone(),
+        ReceivedNotificationData {
+            amount: amount.u128(),
+            sender: Some(sender.clone()),
+        }
+    );
 
-    Ok(())
+    let spent_notification = Notification::new (
+        sender.clone(),
+        SpentNotificationData {
+            amount: amount.u128(),
+            actions: 1,
+            recipient: Some(recipient.clone()),
+            balance: sender_balance,
+        }
+    );
+
+    Ok((received_notification, spent_notification))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1258,6 +1554,9 @@ fn try_transfer(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let recipient: Addr = deps.api.addr_validate(recipient.as_str())?;
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
@@ -1265,7 +1564,7 @@ fn try_transfer(
     #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
-    try_transfer_impl(
+    let (received_notification, spent_notification) = try_transfer_impl(
         &mut deps,
         rng,
         &info.sender,
@@ -1281,7 +1580,30 @@ fn try_transfer(
     #[cfg(feature = "gas_tracking")]
     let mut group1 = tracker.group("try_transfer.rest");
 
-    let resp = Response::new().set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
+    let received_notification = received_notification.to_txhash_notification(
+        deps.api,
+        &env,
+        secret,
+        Some(NOTIFICATION_BLOCK_SIZE),
+    )?;
+
+    let spent_notification = spent_notification.to_txhash_notification(
+        deps.api, 
+        &env, 
+        secret, 
+        Some(NOTIFICATION_BLOCK_SIZE)
+    )?;
+
+    let resp = Response::new()
+        .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?)
+        .add_attribute_plaintext(
+            received_notification.id_plaintext(),
+            received_notification.data_plaintext(),
+        )
+        .add_attribute_plaintext(
+            spent_notification.id_plaintext(),
+            spent_notification.data_plaintext(),
+        );
 
     #[cfg(feature = "gas_tracking")]
     group1.log("rest");
@@ -1300,14 +1622,25 @@ fn try_batch_transfer(
     rng: &mut ContractPrng,
     actions: Vec<batch::TransferAction>,
 ) -> StdResult<Response> {
+    let num_actions = actions.len();
+    if num_actions == 0 {
+        return Ok(Response::new()
+            .set_data(to_binary(&ExecuteAnswer::BatchTransfer { status: Success })?)
+        );
+    }
+
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
     #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
+    let mut notifications = vec![];
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
-        try_transfer_impl(
+        let (received_notification, spent_notification) = try_transfer_impl(
             &mut deps,
             rng,
             &info.sender,
@@ -1319,9 +1652,51 @@ fn try_batch_transfer(
             #[cfg(feature = "gas_tracking")]
             &mut tracker,
         )?;
+        notifications.push((received_notification, spent_notification));
     }
 
-    let resp = Response::new().set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
+    let tx_hash = env
+        .transaction
+        .clone()
+        .ok_or(StdError::generic_err("no tx hash found"))?
+        .hash;
+    let (received_notifications, spent_notifications): (
+        Vec<Notification<ReceivedNotificationData>>,
+        Vec<Notification<SpentNotificationData>>,
+    ) = notifications.into_iter().unzip();
+    let received_data = multi_received_data(
+        deps.api,
+        received_notifications,
+        &tx_hash,
+        env.block.random.clone().unwrap(),
+        secret,
+    )?;
+
+    let total_amount_spent = spent_notifications
+        .iter()
+        .fold(0u128, |acc, notification| acc.saturating_add(notification.data.amount));
+
+    let spent_notification = Notification::new (
+        info.sender,
+        SpentNotificationData {
+            amount: total_amount_spent,
+            actions: num_actions as u32,
+            recipient: spent_notifications[0].data.recipient.clone(),
+            balance: spent_notifications.last().unwrap().data.balance,
+        }
+    )
+    .to_txhash_notification(deps.api, &env, secret, Some(NOTIFICATION_BLOCK_SIZE))?;
+
+    let resp = Response::new()
+        .set_data(to_binary(&ExecuteAnswer::BatchTransfer { status: Success })?)
+        .add_attribute_plaintext(
+            format!("snip52:#{}", MULTI_RECEIVED_CHANNEL_ID),
+            Binary::from(received_data).to_base64(),
+        )
+        .add_attribute_plaintext(
+            spent_notification.id_plaintext(),
+            spent_notification.data_plaintext(),
+        );
 
     #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
@@ -1374,8 +1749,8 @@ fn try_send_impl(
     msg: Option<Binary>,
     block: &cosmwasm_std::BlockInfo,
     #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
-) -> StdResult<()> {
-    try_transfer_impl(
+) -> StdResult<(Notification<ReceivedNotificationData>, Notification<SpentNotificationData>)> {
+    let (received_notification, spent_notification) = try_transfer_impl(
         deps,
         rng,
         &sender,
@@ -1400,7 +1775,7 @@ fn try_send_impl(
         memo,
     )?;
 
-    Ok(())
+    Ok((received_notification, spent_notification))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1415,6 +1790,9 @@ fn try_send(
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let recipient = deps.api.addr_validate(recipient.as_str())?;
 
     let mut messages = vec![];
@@ -1423,7 +1801,7 @@ fn try_send(
     #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
-    try_send_impl(
+    let (received_notification, spent_notification) = try_send_impl(
         &mut deps,
         rng,
         &mut messages,
@@ -1439,9 +1817,26 @@ fn try_send(
         &mut tracker,
     )?;
 
+    let received_notification = received_notification.to_txhash_notification(
+        deps.api,
+        &env,
+        secret,
+        Some(NOTIFICATION_BLOCK_SIZE)
+    )?;
+    let spent_notification =
+        spent_notification.to_txhash_notification(deps.api, &env, secret, Some(NOTIFICATION_BLOCK_SIZE))?;
+
     let resp = Response::new()
         .add_messages(messages)
-        .set_data(to_binary(&ExecuteAnswer::Send { status: Success })?);
+        .set_data(to_binary(&ExecuteAnswer::Send { status: Success })?)
+        .add_attribute_plaintext(
+            received_notification.id_plaintext(),
+            received_notification.data_plaintext(),
+        )
+        .add_attribute_plaintext(
+            spent_notification.id_plaintext(),
+            spent_notification.data_plaintext(),
+        );
 
     #[cfg(feature = "gas_tracking")]
     return Ok(resp.add_gas_tracker(tracker));
@@ -1457,7 +1852,21 @@ fn try_batch_send(
     rng: &mut ContractPrng,
     actions: Vec<batch::SendAction>,
 ) -> StdResult<Response> {
+    let num_actions = actions.len();
+    if num_actions == 0 {
+        return Ok(Response::new()
+            .set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?)
+        );
+    }
+
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let mut messages = vec![];
+
+    let mut notifications = vec![];
+    let num_actions: usize = actions.len();
+
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
     #[cfg(feature = "gas_tracking")]
@@ -1465,7 +1874,7 @@ fn try_batch_send(
 
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
-        try_send_impl(
+        let (received_notification, spent_notification) = try_send_impl(
             &mut deps,
             rng,
             &mut messages,
@@ -1480,11 +1889,54 @@ fn try_batch_send(
             #[cfg(feature = "gas_tracking")]
             &mut tracker,
         )?;
+        notifications.push((received_notification, spent_notification));
     }
+
+    let tx_hash = env
+        .transaction
+        .clone()
+        .ok_or(StdError::generic_err("no tx hash found"))?
+        .hash;
+
+    let (received_notifications, spent_notifications): (
+        Vec<Notification<ReceivedNotificationData>>,
+        Vec<Notification<SpentNotificationData>>,
+    ) = notifications.into_iter().unzip();
+    let received_data = multi_received_data(
+        deps.api,
+        received_notifications,
+        &tx_hash,
+        env.block.random.clone().unwrap(),
+        secret,
+    )?;
+
+    let total_amount_spent = spent_notifications
+        .iter()
+        .fold(0u128, |acc, notification| acc + notification.data.amount);
+
+    let spent_notification = Notification::new (
+        info.sender,
+        SpentNotificationData {
+            amount: total_amount_spent,
+            actions: num_actions as u32,
+            recipient: spent_notifications[0].data.recipient.clone(),
+            balance: spent_notifications.last().unwrap().data.balance,
+        }
+    )
+    .to_txhash_notification(deps.api, &env, secret, Some(NOTIFICATION_BLOCK_SIZE))?;
 
     Ok(Response::new()
         .add_messages(messages)
-        .set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?))
+        .set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?)
+        .add_attribute_plaintext(
+            format!("snip52:#{}", MULTI_RECEIVED_CHANNEL_ID),
+            Binary::from(received_data).to_base64(),
+        )
+        .add_attribute_plaintext(
+            spent_notification.id_plaintext(),
+            spent_notification.data_plaintext(),
+        )
+    )
 }
 
 fn try_register_receive(
@@ -1540,7 +1992,7 @@ fn try_transfer_from_impl(
     amount: Uint128,
     denom: String,
     memo: Option<String>,
-) -> StdResult<()> {
+) -> StdResult<(Notification<ReceivedNotificationData>, Notification<SpentNotificationData>)> {
     let raw_amount = amount.u128();
     let raw_spender = deps.api.addr_canonicalize(spender.as_str())?;
     let raw_owner = deps.api.addr_canonicalize(owner.as_str())?;
@@ -1551,7 +2003,7 @@ fn try_transfer_from_impl(
     #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
-    perform_transfer(
+    let owner_balance = perform_transfer(
         deps.storage,
         rng,
         &raw_owner,
@@ -1565,7 +2017,25 @@ fn try_transfer_from_impl(
         &mut tracker,
     )?;
 
-    Ok(())
+    let received_notification = Notification::new(
+        recipient.clone(),
+        ReceivedNotificationData {
+            amount: amount.u128(),
+            sender: Some(owner.clone()),
+        }
+    );
+
+    let spent_notification = Notification::new (
+        owner.clone(),
+        SpentNotificationData {
+            amount: amount.u128(),
+            actions: 1,
+            recipient: Some(recipient.clone()),
+            balance: owner_balance,
+        }
+    );
+
+    Ok((received_notification, spent_notification))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1579,10 +2049,13 @@ fn try_transfer_from(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
     let symbol = CONFIG.load(deps.storage)?.symbol;
-    try_transfer_from_impl(
+    let (received_notification, spent_notification) = try_transfer_from_impl(
         &mut deps,
         rng,
         env,
@@ -1593,8 +2066,32 @@ fn try_transfer_from(
         symbol,
         memo,
     )?;
+    let received_notification = received_notification.to_txhash_notification(
+        deps.api,
+        &env,
+        secret,
+        Some(NOTIFICATION_BLOCK_SIZE),
+    )?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?))
+    let spent_notification = spent_notification.to_txhash_notification(
+        deps.api, 
+        &env, 
+        secret, 
+        Some(NOTIFICATION_BLOCK_SIZE)
+    )?;
+
+    Ok(
+        Response::new()
+            .set_data(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?)
+            .add_attribute_plaintext(
+                received_notification.id_plaintext(),
+                received_notification.data_plaintext(),
+            )
+            .add_attribute_plaintext(
+                spent_notification.id_plaintext(),
+                spent_notification.data_plaintext(),
+            )
+    )
 }
 
 fn try_batch_transfer_from(
@@ -1604,11 +2101,16 @@ fn try_batch_transfer_from(
     rng: &mut ContractPrng,
     actions: Vec<batch::TransferFromAction>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
+    let mut notifications = vec![];
+
     let symbol = CONFIG.load(deps.storage)?.symbol;
     for action in actions {
         let owner = deps.api.addr_validate(action.owner.as_str())?;
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
-        try_transfer_from_impl(
+        let (received_notification, spent_notification) = try_transfer_from_impl(
             &mut deps,
             rng,
             env,
@@ -1619,12 +2121,45 @@ fn try_batch_transfer_from(
             symbol.clone(),
             action.memo,
         )?;
+        notifications.push((received_notification, spent_notification));
     }
 
+    let tx_hash = env
+        .transaction
+        .clone()
+        .ok_or(StdError::generic_err("no tx hash found"))?
+        .hash;
+
+    let (received_notifications, spent_notifications): (
+        Vec<Notification<ReceivedNotificationData>>,
+        Vec<Notification<SpentNotificationData>>,
+    ) = notifications.into_iter().unzip();
+    let received_data = multi_received_data(
+        deps.api,
+        received_notifications,
+        &tx_hash,
+        env.block.random.clone().unwrap(),
+        secret,
+    )?;
+    let spent_data = multi_spent_data(
+        deps.api,
+        spent_notifications,
+        &tx_hash,
+        env.block.random.clone().unwrap(),
+        secret,
+    )?;
+
     Ok(
-        Response::new().set_data(to_binary(&ExecuteAnswer::BatchTransferFrom {
-            status: Success,
-        })?),
+        Response::new()
+            .set_data(to_binary(&ExecuteAnswer::BatchTransferFrom {status: Success})?)
+            .add_attribute_plaintext(
+                format!("snip52:#{}", MULTI_RECEIVED_CHANNEL_ID),
+                Binary::from(received_data).to_base64(),
+            )
+            .add_attribute_plaintext(
+                format!("snip52:#{}", MULTI_SPENT_CHANNEL_ID),
+                Binary::from(spent_data).to_base64(),
+            )
     )
 }
 
@@ -1641,10 +2176,10 @@ fn try_send_from_impl(
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
-) -> StdResult<()> {
+) -> StdResult<(Notification<ReceivedNotificationData>, Notification<SpentNotificationData>)> {
     let spender = info.sender.clone();
     let symbol = CONFIG.load(deps.storage)?.symbol;
-    try_transfer_from_impl(
+    let (received_notification, spent_notification) = try_transfer_from_impl(
         deps,
         rng,
         &env,
@@ -1668,7 +2203,7 @@ fn try_send_from_impl(
         memo,
     )?;
 
-    Ok(())
+    Ok((received_notification, spent_notification))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1684,12 +2219,15 @@ fn try_send_from(
     memo: Option<String>,
     msg: Option<Binary>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
     let mut messages = vec![];
-    try_send_from_impl(
+    let (received_notification, spent_notification) = try_send_from_impl(
         &mut deps,
-        env,
+        env.clone(),
         info,
         rng,
         &mut messages,
@@ -1701,9 +2239,27 @@ fn try_send_from(
         msg,
     )?;
 
+    let received_notification = received_notification.to_txhash_notification(
+        deps.api,
+        &env,
+        secret,
+        Some(NOTIFICATION_BLOCK_SIZE),
+    )?;
+    let spent_notification =
+        spent_notification.to_txhash_notification(deps.api, &env, secret, Some(NOTIFICATION_BLOCK_SIZE))?;
+
     Ok(Response::new()
         .add_messages(messages)
-        .set_data(to_binary(&ExecuteAnswer::SendFrom { status: Success })?))
+        .set_data(to_binary(&ExecuteAnswer::SendFrom { status: Success })?)
+        .add_attribute_plaintext(
+            received_notification.id_plaintext(),
+            received_notification.data_plaintext(),
+        )
+        .add_attribute_plaintext(
+            spent_notification.id_plaintext(),
+            spent_notification.data_plaintext(),
+        )
+    )
 }
 
 fn try_batch_send_from(
@@ -1713,12 +2269,16 @@ fn try_batch_send_from(
     rng: &mut ContractPrng,
     actions: Vec<batch::SendFromAction>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let mut messages = vec![];
+    let mut notifications = vec![];
 
     for action in actions {
         let owner = deps.api.addr_validate(action.owner.as_str())?;
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
-        try_send_from_impl(
+        let (received_notification, spent_notification) = try_send_from_impl(
             &mut deps,
             env.clone(),
             info,
@@ -1731,13 +2291,48 @@ fn try_batch_send_from(
             action.memo,
             action.msg,
         )?;
+        notifications.push((received_notification, spent_notification));
     }
+
+    let tx_hash = env
+        .transaction
+        .clone()
+        .ok_or(StdError::generic_err("no tx hash found"))?
+        .hash;
+
+    let (received_notifications, spent_notifications): (
+        Vec<Notification<ReceivedNotificationData>>,
+        Vec<Notification<SpentNotificationData>>,
+    ) = notifications.into_iter().unzip();
+    let received_data = multi_received_data(
+        deps.api,
+        received_notifications,
+        &tx_hash,
+        env.block.random.clone().unwrap(),
+        secret,
+    )?;
+    let spent_data = multi_spent_data(
+        deps.api,
+        spent_notifications,
+        &tx_hash,
+        env.block.random.clone().unwrap(),
+        secret,
+    )?;
 
     Ok(Response::new()
         .add_messages(messages)
         .set_data(to_binary(&ExecuteAnswer::BatchSendFrom {
             status: Success,
-        })?))
+        })?)
+        .add_attribute_plaintext(
+            format!("snip52:#{}", MULTI_RECEIVED_CHANNEL_ID),
+            Binary::from(received_data).to_base64(),
+        )
+        .add_attribute_plaintext(
+            format!("snip52:#{}", MULTI_SPENT_CHANNEL_ID),
+            Binary::from(spent_data).to_base64(),
+        )
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1749,6 +2344,9 @@ fn try_burn_from(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+    
     let owner = deps.api.addr_validate(owner.as_str())?;
     let raw_owner = deps.api.addr_canonicalize(owner.as_str())?;
     let constants = CONFIG.load(deps.storage)?;
@@ -1779,7 +2377,7 @@ fn try_burn_from(
     let mut tracker = GasTracker::new(deps.api);
 
     // settle the owner's account in buffer
-    dwb.settle_sender_or_owner_account(
+    let owner_balance = dwb.settle_sender_or_owner_account(
         deps.storage,
         &raw_owner,
         tx_id,
@@ -1815,7 +2413,25 @@ fn try_burn_from(
     }
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::BurnFrom { status: Success })?))
+    let spent_notification = Notification::new (
+        owner,
+        SpentNotificationData {
+            amount: raw_amount,
+            actions: 1,
+            recipient: None,
+            balance: owner_balance,
+        }
+    )
+    .to_txhash_notification(deps.api, &env, secret, Some(NOTIFICATION_BLOCK_SIZE))?;
+
+    Ok(
+        Response::new()
+            .set_data(to_binary(&ExecuteAnswer::BurnFrom { status: Success })?)
+            .add_attribute_plaintext(
+                spent_notification.id_plaintext(),
+                spent_notification.data_plaintext(),
+            )
+    )
 }
 
 fn try_batch_burn_from(
@@ -1824,6 +2440,9 @@ fn try_batch_burn_from(
     info: MessageInfo,
     actions: Vec<batch::BurnFromAction>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
@@ -1833,6 +2452,7 @@ fn try_batch_burn_from(
 
     let raw_spender = deps.api.addr_canonicalize(info.sender.as_str())?;
     let mut total_supply = TOTAL_SUPPLY.load(deps.storage)?;
+    let mut spent_notifications = vec![];
 
     for action in actions {
         let owner = deps.api.addr_validate(action.owner.as_str())?;
@@ -1857,7 +2477,7 @@ fn try_batch_burn_from(
         let mut tracker = GasTracker::new(deps.api);
 
         // settle the owner's account in buffer
-        dwb.settle_sender_or_owner_account(
+        let owner_balance = dwb.settle_sender_or_owner_account(
             deps.storage,
             &raw_owner,
             tx_id,
@@ -1888,14 +2508,40 @@ fn try_batch_burn_from(
                 "You're trying to burn more than is available in the total supply: {action:?}",
             )));
         }
+
+        spent_notifications.push(Notification::new (
+            info.sender.clone(),
+            SpentNotificationData {
+                amount,
+                actions: 1,
+                recipient: None,
+                balance: owner_balance,
+            }
+        ));
     }
 
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
+    let tx_hash = env
+        .transaction
+        .clone()
+        .ok_or(StdError::generic_err("no tx hash found"))?
+        .hash;
+    let spent_data = multi_spent_data(
+        deps.api,
+        spent_notifications,
+        &tx_hash,
+        env.block.random.clone().unwrap(),
+        secret,
+    )?;
+
     Ok(
-        Response::new().set_data(to_binary(&ExecuteAnswer::BatchBurnFrom {
-            status: Success,
-        })?),
+        Response::new()
+            .set_data(to_binary(&ExecuteAnswer::BatchBurnFrom {status: Success,})?)
+            .add_attribute_plaintext(
+                format!("snip52:#{}", MULTI_SPENT_CHANNEL_ID),
+                Binary::from(spent_data).to_base64(),
+            )
     )
 }
 
@@ -1907,6 +2553,9 @@ fn try_increase_allowance(
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let spender = deps.api.addr_validate(spender.as_str())?;
     let mut allowance = AllowancesStore::load(deps.storage, &info.sender, &spender);
 
@@ -1926,12 +2575,27 @@ fn try_increase_allowance(
     let new_amount = allowance.amount;
     AllowancesStore::save(deps.storage, &info.sender, &spender, &allowance)?;
 
+    let notification = Notification::new (
+        spender.clone(),
+        AllowanceNotificationData {
+            amount: new_amount,
+            allower: info.sender.clone(),
+            expiration,
+        }
+    )
+    .to_txhash_notification(deps.api, &env, secret, Some(NOTIFICATION_BLOCK_SIZE))?;
+
     Ok(
-        Response::new().set_data(to_binary(&ExecuteAnswer::IncreaseAllowance {
-            owner: info.sender,
-            spender,
-            allowance: Uint128::from(new_amount),
-        })?),
+        Response::new()
+            .set_data(to_binary(&ExecuteAnswer::IncreaseAllowance {
+                owner: info.sender,
+                spender,
+                allowance: Uint128::from(new_amount),
+            })?)
+            .add_attribute_plaintext(
+                notification.id_plaintext(),
+                notification.data_plaintext()
+            )
     )
 }
 
@@ -1943,6 +2607,9 @@ fn try_decrease_allowance(
     amount: Uint128,
     expiration: Option<u64>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let spender = deps.api.addr_validate(spender.as_str())?;
     let mut allowance = AllowancesStore::load(deps.storage, &info.sender, &spender);
 
@@ -1962,12 +2629,27 @@ fn try_decrease_allowance(
     let new_amount = allowance.amount;
     AllowancesStore::save(deps.storage, &info.sender, &spender, &allowance)?;
 
+    let notification = Notification::new (
+        spender.clone(),
+        AllowanceNotificationData {
+            amount: new_amount,
+            allower: info.sender.clone(),
+            expiration,
+        }
+    )
+    .to_txhash_notification(deps.api, &env, secret, Some(NOTIFICATION_BLOCK_SIZE))?;
+
     Ok(
-        Response::new().set_data(to_binary(&ExecuteAnswer::DecreaseAllowance {
-            owner: info.sender,
-            spender,
-            allowance: Uint128::from(new_amount),
-        })?),
+        Response::new()
+            .set_data(to_binary(&ExecuteAnswer::DecreaseAllowance {
+                owner: info.sender,
+                spender,
+                allowance: Uint128::from(new_amount),
+            })?)
+            .add_attribute_plaintext(
+                notification.id_plaintext(),
+                notification.data_plaintext()
+            )
     )
 }
 
@@ -2056,6 +2738,9 @@ fn try_burn(
     amount: Uint128,
     memo: Option<String>,
 ) -> StdResult<Response> {
+    let secret = INTERNAL_SECRET.load(deps.storage)?;
+    let secret = secret.as_slice();
+
     let constants = CONFIG.load(deps.storage)?;
     if !constants.burn_is_enabled {
         return Err(StdError::generic_err(
@@ -2083,7 +2768,7 @@ fn try_burn(
     let mut tracker = GasTracker::new(deps.api);
 
     // settle the signer's account in buffer
-    dwb.settle_sender_or_owner_account(
+    let owner_balance = dwb.settle_sender_or_owner_account(
         deps.storage,
         &raw_burn_address,
         tx_id,
@@ -2105,7 +2790,25 @@ fn try_burn(
     }
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?))
+    let spent_notification = Notification::new (
+        info.sender,
+        SpentNotificationData {
+            amount: raw_amount,
+            actions: 1,
+            recipient: None,
+            balance: owner_balance,
+        }
+    )
+    .to_txhash_notification(deps.api, &env, secret, Some(NOTIFICATION_BLOCK_SIZE))?;
+
+    Ok(
+        Response::new()
+            .set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?)
+            .add_attribute_plaintext(
+                spent_notification.id_plaintext(),
+                spent_notification.data_plaintext(),
+            )
+    )
 }
 
 fn perform_transfer(
@@ -2119,7 +2822,7 @@ fn perform_transfer(
     memo: Option<String>,
     block: &BlockInfo,
     #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
-) -> StdResult<()> {
+) -> StdResult<u128> {
     #[cfg(feature = "gas_tracking")]
     let mut group1 = tracker.group("perform_transfer.1");
 
@@ -2138,7 +2841,7 @@ fn perform_transfer(
     let transfer_str = "transfer";
 
     // settle the owner's account
-    dwb.settle_sender_or_owner_account(
+    let owner_balance = dwb.settle_sender_or_owner_account(
         store,
         from,
         tx_id,
@@ -2180,7 +2883,7 @@ fn perform_transfer(
     #[cfg(feature = "gas_tracking")]
     group2.log("DWB.save");
 
-    Ok(())
+    Ok(owner_balance)
 }
 
 fn perform_mint(

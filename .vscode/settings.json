@@ -14,7 +14,7 @@
 		"**/node_modules": true
 	},
 	"editor.insertSpaces": false,
-	"editor.tabSize": 3,
+	"editor.tabSize": 4,
 	"typescript.tsdk": "node_modules/typescript/lib",
 	"typescript.preferences.quoteStyle": "single",
 	"javascript.format.insertSpaceAfterOpeningAndBeforeClosingEmptyBraces": false,

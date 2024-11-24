@@ -11,3 +11,4 @@ pub mod receiver;
 pub mod state;
 mod strings;
 mod transaction_history;
+mod notifications;
