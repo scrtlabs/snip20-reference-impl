@@ -38,7 +38,7 @@ use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{
     safe_add, AllowancesStore, Config, MintersStore, ReceiverHashStore, CHANNELS, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET_RELAXED, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED, TOTAL_SUPPLY
 };
-use crate::strings::{SEND_TO_SSCRT_CONTRACT_MSG, TRANSFER_HISTORY_UNSUPPORTED_MSG};
+use crate::strings::{SEND_TO_CONTRACT_ERR_MSG, TRANSFER_HISTORY_UNSUPPORTED_MSG};
 use crate::transaction_history::{
     store_burn_action, store_deposit_action, store_mint_action, store_redeem_action, store_transfer_action, Tx
 };
@@ -1669,9 +1669,9 @@ fn try_transfer(
 
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
-    // make sure the sender is not accidentally sending tokens to the sscrt contract address
+    // make sure the sender is not accidentally sending tokens to the contract address
     if recipient == env.contract.address {
-        return Err(StdError::generic_err(SEND_TO_SSCRT_CONTRACT_MSG));
+        return Err(StdError::generic_err(SEND_TO_CONTRACT_ERR_MSG));
     }
 
     #[cfg(feature = "gas_tracking")]
@@ -1765,9 +1765,9 @@ fn try_batch_transfer(
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
       
-        // make sure the sender is not accidentally sending tokens to the sscrt contract address
+        // make sure the sender is not accidentally sending tokens to the contract address
         if recipient == env.contract.address {
-            return Err(StdError::generic_err(SEND_TO_SSCRT_CONTRACT_MSG));
+            return Err(StdError::generic_err(SEND_TO_CONTRACT_ERR_MSG));
         }
 
         total_memo_len += action.memo.as_ref().map(|s| s.len()).unwrap_or_default();
@@ -1937,9 +1937,9 @@ fn try_send(
     let mut messages = vec![];
     let symbol = CONFIG.load(deps.storage)?.symbol;
 
-    // make sure the sender is not accidentally sending tokens to the sscrt contract address
+    // make sure the sender is not accidentally sending tokens to the contract address
     if recipient == env.contract.address {
-        return Err(StdError::generic_err(SEND_TO_SSCRT_CONTRACT_MSG));
+        return Err(StdError::generic_err(SEND_TO_CONTRACT_ERR_MSG));
     }
 
     #[cfg(feature = "gas_tracking")]
@@ -2021,9 +2021,9 @@ fn try_batch_send(
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
 
-        // make sure the sender is not accidentally sending tokens to the sscrt contract address
+        // make sure the sender is not accidentally sending tokens to the contract address
         if recipient == env.contract.address {
-            return Err(StdError::generic_err(SEND_TO_SSCRT_CONTRACT_MSG));
+            return Err(StdError::generic_err(SEND_TO_CONTRACT_ERR_MSG));
         }
 
         total_memo_len += action.memo.as_ref().map(|s| s.len()).unwrap_or_default();
@@ -2155,9 +2155,9 @@ fn try_transfer_from_impl(
 
     use_allowance(deps.storage, env, owner, spender, raw_amount)?;
 
-    // make sure the sender is not accidentally sending tokens to the sscrt contract address
+    // make sure the sender is not accidentally sending tokens to the contract address
     if *recipient == env.contract.address {
-        return Err(StdError::generic_err(SEND_TO_SSCRT_CONTRACT_MSG));
+        return Err(StdError::generic_err(SEND_TO_CONTRACT_ERR_MSG));
     }
 
     #[cfg(feature = "gas_tracking")]
