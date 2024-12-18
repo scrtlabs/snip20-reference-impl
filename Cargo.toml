@@ -37,19 +37,22 @@ gas_evaporation = []
 cosmwasm-std = { package = "secret-cosmwasm-std", version = "1.1.11"  }
 cosmwasm-storage = { package = "secret-cosmwasm-storage", version = "1.1.11"  }
 rand = { version = "0.8.5", default-features = false }
-# secret-toolkit = { version = "0.10.0", default-features = false, features = ["permit", "storage", "viewing-key"] }
-secret-toolkit = { git = "https://github.com/SolarRepublic/secret-toolkit.git", default-features = false, features = ["permit", "storage", "viewing-key", "notification"], rev = "8aed92d589dc119f69d20f8538d5a6eea8003d95" }
-# secret-toolkit-crypto = { version = "0.10.0", default-features = false, features = ["hash"] }
-secret-toolkit-crypto = { git = "https://github.com/SolarRepublic/secret-toolkit.git", default-features = false, features = ["hash"], rev = "8aed92d589dc119f69d20f8538d5a6eea8003d95" }
+# secret-toolkit = { version = "0.10.2", default-features = false, features = ["permit", "storage", "viewing-key", "notification"] }
+secret-toolkit = { git = "https://github.com/SolarRepublic/secret-toolkit.git", default-features = false, features = ["permit", "storage", "viewing-key", "notification"], rev = "be621610d342416b9e3591cc4a61a05853673c13" }
+# secret-toolkit-crypto = { version = "0.10.2", default-features = false, features = ["hash", "hkdf", "rand"] }
+secret-toolkit-crypto = { git = "https://github.com/SolarRepublic/secret-toolkit.git", default-features = false, features = ["hash", "hkdf", "rand"], rev = "be621610d342416b9e3591cc4a61a05853673c13" }
 static_assertions = "1.1.0"
 
+rand_core = { version = "0.6.4", default-features = false }
+rand_chacha = { version = "0.3.1", default-features = false }
 schemars = "0.8.12"
 serde = { version = "1.0.158", default-features = false, features = ["derive"] }
 serde-big-array = "0.5.1"
 base64 = "0.21.0"
 constant_time_eq = "0.3.0"
-primitive-types = { version = "0.12.2", default-features = false }
-minicbor-ser = "0.2.0"
+primitive-types = { version = "0.13.1", default-features = false }
+minicbor = "0.25.1"
+hex = "0.4.3"
 
 [dev-dependencies]
 cosmwasm-schema = { version = "1.1.8" }
