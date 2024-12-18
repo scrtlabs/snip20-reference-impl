@@ -6,7 +6,7 @@ use secret_toolkit_crypto::ContractPrng;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::btbe::{merge_dwb_entry, stored_balance};
+use crate::btbe::{settle_dwb_entry, stored_balance};
 use crate::state::{safe_add, safe_add_u64};
 use crate::transaction_history::{Tx, TRANSACTIONS};
 #[cfg(feature = "gas_tracking")]
@@ -87,6 +87,7 @@ impl DelayedWriteBuffer {
         tx_id: u64,
         amount_spent: u128,
         op_name: &str,
+        is_from_self: bool,
         #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
     ) -> StdResult<u128> {
         #[cfg(feature = "gas_tracking")]
@@ -98,6 +99,7 @@ impl DelayedWriteBuffer {
         #[cfg(feature = "gas_tracking")]
         group1.log("release_dwb_recipient");
 
+        // check that the owner has sufficient funds to perform the transfer
         let checked_balance = balance.checked_sub(amount_spent);
         if checked_balance.is_none() {
             return Err(StdError::generic_err(format!(
@@ -105,24 +107,29 @@ impl DelayedWriteBuffer {
             )));
         };
 
+        // record the event in the dwb entry
         dwb_entry.add_tx_node(store, tx_id)?;
+
+        // *_from action where sender is the owner, repeat the event in history
+        if is_from_self {
+            dwb_entry.add_tx_node(store, tx_id)?;
+        }
 
         #[cfg(feature = "gas_tracking")]
         group1.log("add_tx_node");
 
-        let mut entry = dwb_entry.clone();
-        entry.set_recipient(address)?;
+        dwb_entry.set_recipient(address)?;
 
         #[cfg(feature = "gas_tracking")]
         group1.logf(format!(
             "@entry=address:{}, amount:{}",
-            entry.recipient()?,
-            entry.amount()?
+            dwb_entry.recipient()?,
+            dwb_entry.amount()?
         ));
 
-        merge_dwb_entry(
+        settle_dwb_entry(
             store,
-            &entry,
+            &mut dwb_entry,
             Some(amount_spent),
             #[cfg(feature = "gas_tracking")]
             tracker,
@@ -266,10 +273,10 @@ impl DelayedWriteBuffer {
         group1.logf(format!("@write_index: {}", write_index));
 
         // settle the entry
-        let dwb_entry = self.entries[actual_settle_index];
-        merge_dwb_entry(
+        let mut dwb_entry = self.entries[actual_settle_index];
+        settle_dwb_entry(
             store,
-            &dwb_entry,
+            &mut dwb_entry,
             None,
             #[cfg(feature = "gas_tracking")]
             tracker,
@@ -516,8 +523,13 @@ fn constant_time_is_not_zero(value: i32) -> u32 {
 }
 
 #[inline]
-fn constant_time_if_else(condition: u32, then: usize, els: usize) -> usize {
+pub fn constant_time_if_else(condition: u32, then: usize, els: usize) -> usize {
     (then * condition as usize) | (els * (1 - condition as usize))
+}
+
+#[inline]
+pub fn constant_time_if_else_u32(condition: u32, then: u32, els: u32) -> u32 {
+    (then * condition) | (els * (1 - condition))
 }
 
 #[cfg(feature = "gas_tracking")]

@@ -222,8 +222,14 @@ impl ReceiverHashStore {
     }
 }
 
-pub static INTERNAL_SECRET: Item<Vec<u8>> = Item::new(b"internal-secret");
+/// internal secret used for sensitive data such as address hashes in the btbe and notifications
+pub static INTERNAL_SECRET_SENSITIVE: Item<Vec<u8>> = Item::new(b"internal-secret-secure");
 
-// SNIP-52 channels
+/// internal secret used for less sensitive data such as obfuscating tx IDs
+pub static INTERNAL_SECRET_RELAXED: Item<Vec<u8>> = Item::new(b"internal-secret-prng");
+
+/// SNIP-52 channels
 pub static CHANNELS: Keyset<String> = Keyset::new(b"channel-ids");
 
+/// SNIP-52 status
+pub static NOTIFICATIONS_ENABLED: Item<bool> = Item::new(b"notify-status");
