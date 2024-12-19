@@ -1,402 +1,426 @@
 use std::collections::HashMap;
 
-use cosmwasm_std::{Addr, Api, Binary, CanonicalAddr, StdError, StdResult};
+use cosmwasm_std::{Addr, Api, Binary, CanonicalAddr, Response, StdResult};
 use primitive_types::{U256, U512};
-use secret_toolkit::notification::{get_seed, notification_id, xor_bytes, Notification, NotificationData};
-use minicbor_ser as cbor;
+use secret_toolkit::notification::{get_seed, notification_id, xor_bytes, EncoderExt, CBL_ADDRESS, CBL_ARRAY_SHORT, CBL_BIGNUM_U64, CBL_TIMESTAMP, CBL_U8, Notification, DirectChannel, GroupChannel};
+use minicbor::Encoder;
 use secret_toolkit_crypto::{hkdf_sha_512, sha_256};
 use serde::{Deserialize, Serialize};
 
+
 const ZERO_ADDR: [u8; 20] = [0u8; 20];
 
-//  recvd = [
-//      amount: biguint,   ; transfer amount in base denomination
-//      sender: bstr,      ; byte sequence of sender's canonical address
-//      balance: biguint   ; recipient's new balance after the transfer
-//  ]
+// maximum value that can be stored in 62 bits
+const U62_MAX: u128 = (1 << 62) - 1;
+
+// maximum value that can be stored in 63 bits
+const U63_MAX: u128 = (1 << 63) - 1;
+
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
-pub struct ReceivedNotificationData {
+pub struct RecvdNotification {
     pub amount: u128,
     pub sender: Option<Addr>,
+    pub memo_len: usize,
+    pub sender_is_owner: bool,
 }
 
-impl NotificationData for ReceivedNotificationData {
-	const CHANNEL_ID: &'static str = "recvd";
-	const CDDL_SCHEMA: &'static str = "recvd=[amount:biguint,sender:bstr]";
+/// ```cddl
+///  recvd = [
+///     amount: biguint .size 8,  ; transfer amount in base denomination
+///     sender: bstr .size 20,    ; number of actions the execution performed
+///     memo_len: uint .size 1,   ; byte sequence of first recipient's canonical address
+/// ]
+/// ```
+impl DirectChannel for RecvdNotification {
+    const CHANNEL_ID: &'static str = "recvd";
+    const CDDL_SCHEMA: &'static str = "recvd=[amount:biguint .size 8,sender:bstr .size 20,memo_len:uint .size 1]";
+    const ELEMENTS: u64 = 3;
+    const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + CBL_ADDRESS + CBL_U8;
 
-    fn to_cbor(&self, api: &dyn Api) -> StdResult<Vec<u8>> {
-        let received_data;
+    fn encode_cbor(&self, api: &dyn Api, encoder: &mut Encoder<&mut [u8]>) -> StdResult<()> {
+        // amount:biguint (8-byte uint)
+        encoder.ext_u64_from_u128(self.amount)?;
+
+        // sender:bstr (20-byte address)
         if let Some(sender) = &self.sender {
             let sender_raw = api.addr_canonicalize(sender.as_str())?;
-            received_data = cbor::to_vec(&(self.amount.to_be_bytes(), sender_raw.as_slice()))
-                .map_err(|e| StdError::generic_err(format!("{:?}", e)))?;
+            encoder.ext_address(sender_raw)?;
         } else {
-            received_data = cbor::to_vec(&(self.amount.to_be_bytes(), ZERO_ADDR))
-                .map_err(|e| StdError::generic_err(format!("{:?}", e)))?;
+            encoder.ext_bytes(&ZERO_ADDR)?;
         }
-        Ok(received_data)
+
+        // memo_len:uint (1-byte uint)
+        encoder.ext_u8(self.memo_len.clamp(0, u8::MAX.into()) as u8)?;
+
+        Ok(())
     }
 }
 
-// spent = [
-//     amount: biguint,   ; transfer amount in base denomination
-//     actions: uint      ; number of actions the execution performed
-//     recipient: bstr,   ; byte sequence of first recipient's canonical address
-//     balance: biguint   ; sender's new balance aactions: uint      ; number of actions the execution performedfter the transfer
-// ]
-
+/// ```cddl
+///  spent = [
+///     amount: biguint .size 8,   ; transfer amount in base denomination
+///     actions: uint .size 1,     ; number of actions the execution performed
+///     recipient: bstr .size 20,  ; byte sequence of first recipient's canonical address
+///     balance: biguint .size 8,  ; sender's new balance aactions
+/// ]
+/// ```
 #[derive(Serialize, Debug, Deserialize, Clone)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
-pub struct SpentNotificationData {
+pub struct SpentNotification {
     pub amount: u128,
     pub actions: u32,
     pub recipient: Option<Addr>,
     pub balance: u128,
+    pub memo_len: usize,
 }
 
-impl NotificationData for SpentNotificationData {
+
+impl DirectChannel for SpentNotification {
     const CHANNEL_ID: &'static str = "spent";
-	const CDDL_SCHEMA: &'static str = "spent=[amount:biguint,actions:uint,recipient:bstr,balance:biguint]";
-    fn to_cbor(&self, api: &dyn Api) -> StdResult<Vec<u8>> {
-        let spent_data;
+    const CDDL_SCHEMA: &'static str = "spent=[amount:biguint .size 8,actions:uint .size 1,recipient:bstr .size 20,balance:biguint .size 8]";
+    const ELEMENTS: u64 = 4;
+    const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + CBL_U8 + CBL_ADDRESS + CBL_BIGNUM_U64;
+
+    fn encode_cbor(&self, api: &dyn Api, encoder: &mut Encoder<&mut [u8]>) -> StdResult<()> {
+        // amount:biguint (8-byte uint), actions:uint (1-byte uint)
+        let mut spent_data = encoder
+            .ext_u64_from_u128(self.amount)?
+            .ext_u8(self.actions.clamp(0, u8::MAX.into()) as u8)?;
+
+        // recipient:bstr (20-byte address)
         if let Some(recipient) = &self.recipient {
             let recipient_raw = api.addr_canonicalize(recipient.as_str())?;
-            spent_data = cbor::to_vec(&(
-                self.amount.to_be_bytes(),
-                self.actions.to_be_bytes(),
-                recipient_raw.as_slice(),
-                self.balance.to_be_bytes(),
-            ))
-            .map_err(|e| StdError::generic_err(format!("{:?}", e)))?;
+            spent_data = spent_data.ext_address(recipient_raw)?;
         } else {
-            spent_data = cbor::to_vec(&(
-                self.amount.to_be_bytes(),
-                self.actions.to_be_bytes(),
-                ZERO_ADDR,
-                self.balance.to_be_bytes(),
-            ))
-            .map_err(|e| StdError::generic_err(format!("{:?}", e)))?;
+            spent_data = spent_data.ext_bytes(&ZERO_ADDR)?
         }
-        Ok(spent_data)
+
+        // balance:biguint (8-byte uint)
+        spent_data.ext_u64_from_u128(self.balance)?;
+        
+        Ok(())
     }
 }
 
-//allowance = [
-//    amount: biguint,   ; allowance amount in base denomination
-//    allower: bstr,     ; byte sequence of allower's canonical address
-//    expiration: uint,  ; epoch seconds of allowance expiration
-//]
 
+///```cddl
+/// allowance = [
+///    amount: biguint .size 8,   ; allowance amount in base denomination
+///    allower: bstr .size 20,    ; byte sequence of allower's canonical address
+///    expiration: uint .size 8,  ; epoch seconds of allowance expiration
+///]
+/// ```
 #[derive(Serialize, Debug, Deserialize, Clone)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
-pub struct AllowanceNotificationData {
+pub struct AllowanceNotification {
     pub amount: u128,
     pub allower: Addr,
     pub expiration: Option<u64>,
 }
 
-impl NotificationData for AllowanceNotificationData {
+impl DirectChannel for AllowanceNotification {
     const CHANNEL_ID: &'static str = "allowance";
-    const CDDL_SCHEMA: &'static str = "allowance=[amount:biguint,allower:bstr,expiration:uint]";
-    fn to_cbor(&self, api: &dyn Api) -> StdResult<Vec<u8>> {
+    const CDDL_SCHEMA: &'static str = "allowance=[amount:biguint .size 8,allower:bstr .size 20,expiration:uint .size 8]";
+    const ELEMENTS: u64 = 3;
+    const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + CBL_ADDRESS + CBL_TIMESTAMP;
+
+    fn encode_cbor(&self, api: &dyn Api, encoder: &mut Encoder<&mut [u8]>) -> StdResult<()> {
         let allower_raw = api.addr_canonicalize(self.allower.as_str())?;
 
-        // use CBOR to encode data
-        let updated_allowance_data = cbor::to_vec(&(
-            self.amount.to_be_bytes(),
-            allower_raw.as_slice(),
-            self.expiration.unwrap_or(0u64), // expiration == 0 means no expiration
-        ))
-        .map_err(|e| StdError::generic_err(format!("{:?}", e)))?;
-        Ok(updated_allowance_data)
+        // amount:biguint (8-byte uint), allower:bstr (20-byte address), expiration:uint (8-byte timestamp)
+        encoder
+            .ext_u64_from_u128(self.amount)?
+            .ext_bytes(allower_raw.as_slice())?
+            .ext_timestamp(self.expiration.unwrap_or_default())?;
+
+        Ok(())
     }
 }
 
-// multi recipient push notifications
+pub struct MultiRecvdNotification(pub Vec<Notification<RecvdNotification>>);
 
-// id for the `multirecvd` channel
-pub const MULTI_RECEIVED_CHANNEL_ID: &str = "multirecvd";
-pub const MULTI_RECEIVED_CHANNEL_BLOOM_K: u32 = 15;
-pub const MULTI_RECEIVED_CHANNEL_BLOOM_N: u32 = 16;
-pub const MULTI_RECEIVED_CHANNEL_PACKET_SIZE: u32 = 24;
+impl GroupChannel<RecvdNotification> for MultiRecvdNotification {
+    const CHANNEL_ID: &'static str = "multirecvd";
 
-// id for the `multispent` channel
-pub const MULTI_SPENT_CHANNEL_ID: &str = "multispent";
-pub const MULTI_SPENT_CHANNEL_BLOOM_K: u32 = 5;
-pub const MULTI_SPENT_CHANNEL_BLOOM_N: u32 = 4;
-pub const MULTI_SPENT_CHANNEL_PACKET_SIZE: u32 = 40;
+    // bloom parameters for the `multirecvd` channel: <https://hur.st/bloomfilter/?n=16&p=&m=512&k=22>
+    const BLOOM_N: usize = 16;
+    const BLOOM_M: u32 = 512;
+    const BLOOM_K: u32 = 22;
 
-pub fn multi_received_data(
+    // flagsAndAmount:8 + ownerId:8 == 16 bytes
+    const PACKET_SIZE: usize = 16;
+
+    fn notifications(&self) -> &Vec<Notification<RecvdNotification>> {
+        &self.0
+    }
+
+    fn build_packet(&self, api: &dyn Api, data: &RecvdNotification) -> StdResult<Vec<u8>> {
+        // make the received packet
+        let mut packet_plaintext = [0u8; Self::PACKET_SIZE];
+
+        // encode flags and amount into 8 bytes (leftmost 2 bits reserved)
+        let amount_bytes = &(data.amount.clamp(0, U62_MAX)
+            | (((data.memo_len != 0) as u128) << 63)
+            | ((data.sender_is_owner as u128) << 62)
+        ).to_be_bytes()[8..];
+
+        // packet flag bits and amount bytes (u64 == 8 bytes)
+        packet_plaintext[0..8].copy_from_slice(amount_bytes);
+
+        // determine owner address
+        let owner_addr: CanonicalAddr;
+        let owner_bytes: &[u8];
+        if let Some(owner) = &data.sender {
+            owner_addr = api.addr_canonicalize(owner.as_str())?;
+            owner_bytes = &owner_addr.as_slice()
+        } else {
+            owner_bytes = &ZERO_ADDR;
+        }
+
+        // packet owner address terminal 8 bytes (8 bytes)
+        packet_plaintext[8..16].copy_from_slice(&owner_bytes[12..]);
+
+        // 16 bytes total
+        Ok(packet_plaintext.to_vec())
+    }
+}
+
+// maximum supported filter size is currently 512 bits
+const_assert!(MultiRecvdNotification::BLOOM_M <= 512);
+
+// ensure m is a power of 2
+const_assert!(MultiRecvdNotification::BLOOM_M.trailing_zeros() == MultiRecvdNotification::BLOOM_M_LOG2);
+
+// ensure there are enough bits in the 32-byte source hash to provide entropy for the hashes
+const_assert!(MultiRecvdNotification::BLOOM_K * MultiRecvdNotification::BLOOM_M_LOG2 <= 256);
+
+// this implementation is optimized to not check for packet sizes larger than 24 bytes
+const_assert!(MultiRecvdNotification::PACKET_SIZE <= 24);
+
+
+pub struct MultiSpentNotification(pub Vec<Notification<SpentNotification>>);
+
+
+impl GroupChannel<SpentNotification> for MultiSpentNotification {
+    const CHANNEL_ID: &str = "multispent";
+
+    // bloom parameters for the `multispent` channel: <https://hur.st/bloomfilter/?n=4&p=&m=128&k=22>
+    const BLOOM_N: usize = 4;
+    const BLOOM_M: u32 = 128;
+    const BLOOM_K: u32 = 22;
+
+    // flagsAndAmount:8 + recipientId:8 + balance:8 == 24 bytes
+    const PACKET_SIZE: usize = 24;
+
+    fn notifications(&self) -> &Vec<Notification<SpentNotification>> {
+        &self.0
+    }
+
+    fn build_packet(&self, api: &dyn Api, data: &SpentNotification) -> StdResult<Vec<u8>> {
+        // prep the packet plaintext
+        let mut packet_plaintext = [0u8; Self::PACKET_SIZE];
+
+        // encode flags and amount into 8 bytes (leftmost 2 bits reserved)
+        let amount_bytes = &(data.amount.clamp(0, U62_MAX)
+            | (((data.memo_len != 0) as u128) << 63)
+        ).to_be_bytes()[8..];
+
+        // packet flags and amount bytes (u64 == 8 bytes)
+        packet_plaintext[0..8].copy_from_slice(amount_bytes);
+
+        // determine recipient address
+        let recipient_addr: CanonicalAddr;
+        let recipient_bytes: &[u8];
+        if let Some(recipient) = &data.recipient {
+            recipient_addr = api.addr_canonicalize(recipient.as_str())?;
+            recipient_bytes = recipient_addr.as_slice();
+        } else {
+            recipient_bytes = &ZERO_ADDR;
+        }
+
+        // packet recipient address terminal 8 bytes (8 bytes)
+        packet_plaintext[8..16].copy_from_slice(&recipient_bytes[12..]);
+
+        // balance bytes (u64 == 8 bytes)
+        packet_plaintext[16..24].copy_from_slice(
+            &data.balance
+                .clamp(0, u64::MAX.into())
+                .to_be_bytes()[8..]
+        );
+
+        // 24 bytes total
+        Ok(packet_plaintext.to_vec())
+    }
+}
+
+// maximum supported filter size is currently 512 bits
+const_assert!(MultiSpentNotification::BLOOM_M <= 512);
+
+// ensure m is a power of 2
+const_assert!(MultiSpentNotification::BLOOM_M.trailing_zeros() == MultiSpentNotification::BLOOM_M_LOG2);
+
+// ensure there are enough bits in the 32-byte source hash to provide entropy for the hashes
+const_assert!(MultiSpentNotification::BLOOM_K * MultiSpentNotification::BLOOM_M_LOG2 <= 256);
+
+// this implementation is optimized to not check for packet sizes larger than 24 bytes
+const_assert!(MultiSpentNotification::PACKET_SIZE <= 24);
+
+
+struct BloomFilter {
+    filter: U512,
+    tx_hash: String,
+    secret: Vec<u8>,
+}
+
+impl BloomFilter {
+    fn add<D: DirectChannel, G: GroupChannel<D>>(
+        &mut self,
+        recipient: &CanonicalAddr,
+        packet_plaintext: &Vec<u8>,
+    ) -> StdResult<Vec<u8>> {
+        // contribute to received bloom filter
+        let seed = get_seed(&recipient, &self.secret)?;
+        let id = notification_id(&seed, G::CHANNEL_ID, &self.tx_hash)?;
+        let hash_bytes = U256::from_big_endian(&sha_256(id.0.as_slice()));
+        let bloom_mask: U256 = U256::from(G::BLOOM_M - 1);
+
+        // each hash section for up to k times
+        for i in 0..G::BLOOM_K {
+            let bit_index = ((hash_bytes >> (256 - G::BLOOM_M_LOG2 - (i * G::BLOOM_M_LOG2))) & bloom_mask).as_usize();
+            self.filter |= U512::from(1) << bit_index;
+        }
+        
+        // use top 64 bits of notification ID for packet ID
+        let packet_id = &id.0.as_slice()[0..8];
+
+        // take the bottom bits from the notification ID for key material
+        let packet_ikm = &id.0.as_slice()[8..32];
+
+        // create ciphertext by XOR'ing the plaintext with the notification ID
+        let packet_ciphertext = xor_bytes(
+            &packet_plaintext[..],
+            &packet_ikm[0..G::PACKET_SIZE]
+        );
+
+        // construct the packet bytes
+        let packet_bytes: Vec<u8> = [
+            packet_id.to_vec(),
+            packet_ciphertext,
+        ].concat();
+
+        Ok(packet_bytes)
+    }
+}
+
+
+pub fn render_group_notification<D: DirectChannel, G: GroupChannel<D>>(
     api: &dyn Api,
-    notifications: Vec<Notification<ReceivedNotificationData>>,
+    group: G,
     tx_hash: &String,
     env_random: Binary,
     secret: &[u8],
-) -> StdResult<Vec<u8>> {
-    let mut received_bloom_filter: U512 = U512::from(0);
-    let mut received_packets: Vec<(Addr, Vec<u8>)> = vec![];
+    resp: Response,
+) -> StdResult<Response> {
+    // bloom filter
+    let mut bloom_filter = BloomFilter {
+        filter: U512::from(0),
+        tx_hash: tx_hash.to_string(),
+        secret: secret.to_vec(),
+    };
 
-    // keep track of how often addresses might show up in packet data.
-    // we need to remove any address that might show up more than once.
-    let mut recipient_counts: HashMap<Addr, u16> = HashMap::new();
+    // packet structs
+    let mut packets: Vec<(CanonicalAddr, Vec<u8>)> = vec![];
 
-    for notification in &notifications {
+    // keep track of how many times an address shows up in packet data
+    let mut recipient_counts: HashMap<CanonicalAddr, u16> = HashMap::new();
+
+    // each notification
+    for notification in group.notifications() {
+        // who notification is intended for
+        let notification_for = api.addr_canonicalize(notification.notification_for.as_str())?;
+        let notifyee = notification_for.clone();
+
+        // increment count of recipient occurrence
         recipient_counts.insert(
-            notification.notification_for.clone(),
+            notification_for,
             recipient_counts
-                .get(&notification.notification_for)
-                .unwrap_or(&0u16)
-                + 1,
+                .get(&notifyee)
+                .unwrap_or(&0u16) + 1,
         );
 
-        // we can short circuit this if recipient count > 1, since we will throw out this packet
-        // anyway, and address has already been added to bloom filter
-        if *recipient_counts
-            .get(&notification.notification_for)
-            .unwrap()
-            > 1
-        {
+        // skip adding this packet if recipient was already seen
+        if *recipient_counts.get(&notifyee).unwrap() > 1 {
             continue;
         }
 
-        // contribute to received bloom filter
-        let recipient_addr_raw = api.addr_canonicalize(notification.notification_for.as_str())?;
-        let seed = get_seed(&recipient_addr_raw, secret)?;
-        let id = notification_id(&seed, &MULTI_RECEIVED_CHANNEL_ID.to_string(), &tx_hash)?;
-        let mut hash_bytes = U256::from_big_endian(&sha_256(id.0.as_slice()));
-        for _ in 0..MULTI_RECEIVED_CHANNEL_BLOOM_K {
-            let bit_index = (hash_bytes & U256::from(0x01ff)).as_usize();
-            received_bloom_filter = received_bloom_filter | (U512::from(1) << bit_index);
-            hash_bytes = hash_bytes >> 9;
-        }
+        // build packet
+        let packet_plaintext = &group.build_packet(api, &notification.data)?;
 
-        // make the received packet
-        let mut received_packet_plaintext: Vec<u8> = vec![];
-        // amount bytes (u128 == 16 bytes)
-        received_packet_plaintext.extend_from_slice(&notification.data.amount.to_be_bytes());
-        // sender account last 8 bytes
-        let sender_bytes: &[u8];
-        let sender_raw;
-        if let Some(sender) = &notification.data.sender {
-            sender_raw = api.addr_canonicalize(sender.as_str())?;
-            sender_bytes = &sender_raw.as_slice()[sender_raw.0.len() - 8..];
-        } else {
-            sender_bytes = &ZERO_ADDR[ZERO_ADDR.len() - 8..];
-        }
-        // 24 bytes total
-        received_packet_plaintext.extend_from_slice(sender_bytes);
+        // add to bloom filter
+        let packet_bytes = bloom_filter.add::<D, G>(
+            &notifyee,
+            packet_plaintext,
+        )?;
 
-        let received_packet_id = &id.0.as_slice()[0..8];
-        let received_packet_ikm = &id.0.as_slice()[8..32];
-        let received_packet_ciphertext =
-            xor_bytes(received_packet_plaintext.as_slice(), received_packet_ikm);
-        let received_packet_bytes: Vec<u8> =
-            [received_packet_id.to_vec(), received_packet_ciphertext].concat();
-
-        received_packets.push((notification.notification_for.clone(), received_packet_bytes));
+        // add to packets data
+        packets.push((notifyee, packet_bytes));
     }
 
     // filter out any notifications for recipients showing up more than once
-    let mut received_packets: Vec<Vec<u8>> = received_packets
+    let mut packets: Vec<Vec<u8>> = packets
         .into_iter()
         .filter(|(addr, _)| *recipient_counts.get(addr).unwrap_or(&0u16) <= 1)
         .map(|(_, packet)| packet)
         .collect();
-    if received_packets.len() > MULTI_RECEIVED_CHANNEL_BLOOM_N as usize {
-        // still too many packets
-        received_packets = received_packets[0..MULTI_RECEIVED_CHANNEL_BLOOM_N as usize].to_vec();
+
+    // still too many packets; trim down to size
+    if packets.len() > G::BLOOM_N {
+        packets = packets[0..G::BLOOM_N].to_vec();
     }
 
     // now add extra packets, if needed, to hide number of packets
-    let padding_size =
-        MULTI_RECEIVED_CHANNEL_BLOOM_N.saturating_sub(received_packets.len() as u32) as usize;
+    let padding_size = G::BLOOM_N.saturating_sub(packets.len());
     if padding_size > 0 {
-        let padding_addresses = hkdf_sha_512(
+        // fill buffer with secure random bytes
+        let decoy_addresses = hkdf_sha_512(
             &Some(vec![0u8; 64]),
             &env_random,
-            format!("{}:decoys", MULTI_RECEIVED_CHANNEL_ID).as_bytes(),
-            padding_size * 20, // 20 bytes per random addr
+            format!("{}:decoys", G::CHANNEL_ID).as_bytes(),
+            padding_size * 20,  // 20 bytes per random addr
         )?;
 
         // handle each padding package
         for i in 0..padding_size {
-            let padding_address = &padding_addresses[i * 20..(i + 1) * 20];
+            // generate address
+            let address = CanonicalAddr::from(&decoy_addresses[i * 20..(i + 1) * 20]);
+            
+            // nil plaintext
+            let packet_plaintext = vec![0u8; G::PACKET_SIZE];
 
-            // contribute padding packet to bloom filter
-            let seed = get_seed(&CanonicalAddr::from(padding_address), secret)?;
-            let id = notification_id(&seed, &MULTI_RECEIVED_CHANNEL_ID.to_string(), &tx_hash)?;
-            let mut hash_bytes = U256::from_big_endian(&sha_256(id.0.as_slice()));
-            for _ in 0..MULTI_RECEIVED_CHANNEL_BLOOM_K {
-                let bit_index = (hash_bytes & U256::from(0x01ff)).as_usize();
-                received_bloom_filter = received_bloom_filter | (U512::from(1) << bit_index);
-                hash_bytes = hash_bytes >> 9;
-            }
+            // produce bytes
+            let packet_bytes = bloom_filter.add::<D, G>(&address, &packet_plaintext)?;
 
-            // padding packet plaintext
-            let padding_packet_plaintext = [0u8; MULTI_RECEIVED_CHANNEL_PACKET_SIZE as usize];
-            let padding_packet_id = &id.0.as_slice()[0..8];
-            let padding_packet_ikm = &id.0.as_slice()[8..32];
-            let padding_packet_ciphertext =
-                xor_bytes(padding_packet_plaintext.as_slice(), padding_packet_ikm);
-            let padding_packet_bytes: Vec<u8> =
-                [padding_packet_id.to_vec(), padding_packet_ciphertext].concat();
-            received_packets.push(padding_packet_bytes);
+            // add to packets list
+            packets.push(packet_bytes);
         }
     }
 
-    let mut received_bloom_filter_bytes: Vec<u8> = vec![];
-    for biguint in received_bloom_filter.0 {
-        received_bloom_filter_bytes.extend_from_slice(&biguint.to_be_bytes());
-    }
-    for packet in received_packets {
-        received_bloom_filter_bytes.extend(packet.iter());
-    }
+    // prep output bytes
+    let mut output_bytes: Vec<u8> = vec![];
 
-    Ok(received_bloom_filter_bytes)
-}
+    // append bloom filter (taking m bottom bits of 512-bit filter)
+    output_bytes.extend_from_slice(
+        &bloom_filter.filter.to_big_endian()[((512 - G::BLOOM_M as usize) >> 3)..]);
 
-pub fn multi_spent_data(
-    api: &dyn Api,
-    notifications: Vec<Notification<SpentNotificationData>>,
-    tx_hash: &String,
-    env_random: Binary,
-    secret: &[u8],
-) -> StdResult<Vec<u8>> {
-    let mut spent_bloom_filter: U512 = U512::from(0);
-    let mut spent_packets: Vec<(Addr, Vec<u8>)> = vec![];
-
-    // keep track of how often addresses might show up in packet data.
-    // we need to remove any address that might show up more than once.
-    let mut spent_counts: HashMap<Addr, u16> = HashMap::new();
-
-    for notification in &notifications {
-        spent_counts.insert(
-            notification.notification_for.clone(),
-            spent_counts
-                .get(&notification.notification_for)
-                .unwrap_or(&0u16)
-                + 1,
-        );
-
-        // we can short circuit this if recipient count > 1, since we will throw out this packet
-        // anyway, and address has already been added to bloom filter
-        if *spent_counts.get(&notification.notification_for).unwrap() > 1 {
-            continue;
-        }
-
-        let spender_addr_raw = api.addr_canonicalize(notification.notification_for.as_str())?;
-        let seed = get_seed(&spender_addr_raw, secret)?;
-        let id = notification_id(&seed, &MULTI_SPENT_CHANNEL_ID.to_string(), &tx_hash)?;
-        let mut hash_bytes = U256::from_big_endian(&sha_256(id.0.as_slice()));
-        for _ in 0..MULTI_SPENT_CHANNEL_BLOOM_K {
-            let bit_index = (hash_bytes & U256::from(0x01ff)).as_usize();
-            spent_bloom_filter = spent_bloom_filter | (U512::from(1) << bit_index);
-            hash_bytes = hash_bytes >> 9;
-        }
-
-        // make the spent packet
-        let mut spent_packet_plaintext: Vec<u8> = vec![];
-        // amount bytes (u128 == 16 bytes)
-        spent_packet_plaintext.extend_from_slice(&notification.data.amount.to_be_bytes());
-        // balance bytes (u128 == 16 bytes)
-        spent_packet_plaintext.extend_from_slice(&notification.data.balance.to_be_bytes());
-        // recipient account last 8 bytes
-        let recipient_bytes: &[u8];
-        let recipient_raw;
-        if let Some(recipient) = &notification.data.recipient {
-            recipient_raw = api.addr_canonicalize(recipient.as_str())?;
-            recipient_bytes = &recipient_raw.as_slice()[recipient_raw.0.len() - 8..];
-        } else {
-            recipient_bytes = &ZERO_ADDR[ZERO_ADDR.len() - 8..];
-        }
-        // 40 bytes total
-        spent_packet_plaintext.extend_from_slice(recipient_bytes);
-
-        let spent_packet_size = spent_packet_plaintext.len();
-        let spent_packet_id = &id.0.as_slice()[0..8];
-        let spent_packet_ikm = &id.0.as_slice()[8..32];
-        let spent_packet_key = hkdf_sha_512(
-            &Some(vec![0u8; 64]),
-            spent_packet_ikm,
-            "".as_bytes(),
-            spent_packet_size,
-        )?;
-        let spent_packet_ciphertext = xor_bytes(
-            spent_packet_plaintext.as_slice(),
-            spent_packet_key.as_slice(),
-        );
-        let spent_packet_bytes: Vec<u8> =
-            [spent_packet_id.to_vec(), spent_packet_ciphertext].concat();
-
-        spent_packets.push((notification.notification_for.clone(), spent_packet_bytes));
+    // append packets
+    for packet in packets {
+        output_bytes.extend(packet.iter());
     }
 
-    // filter out any notifications for senders showing up more than once
-    let mut spent_packets: Vec<Vec<u8>> = spent_packets
-        .into_iter()
-        .filter(|(addr, _)| *spent_counts.get(addr).unwrap_or(&0u16) <= 1)
-        .map(|(_, packet)| packet)
-        .collect();
-    if spent_packets.len() > MULTI_SPENT_CHANNEL_BLOOM_N as usize {
-        // still too many packets
-        spent_packets = spent_packets[0..MULTI_SPENT_CHANNEL_BLOOM_N as usize].to_vec();
-    }
-
-    // now add extra packets, if needed, to hide number of packets
-    let padding_size =
-        MULTI_SPENT_CHANNEL_BLOOM_N.saturating_sub(spent_packets.len() as u32) as usize;
-    if padding_size > 0 {
-        let padding_addresses = hkdf_sha_512(
-            &Some(vec![0u8; 64]),
-            &env_random,
-            format!("{}:decoys", MULTI_SPENT_CHANNEL_ID).as_bytes(),
-            padding_size * 20, // 20 bytes per random addr
-        )?;
-
-        // handle each padding package
-        for i in 0..padding_size {
-            let padding_address = &padding_addresses[i * 20..(i + 1) * 20];
-
-            // contribute padding packet to bloom filter
-            let seed = get_seed(&CanonicalAddr::from(padding_address), secret)?;
-            let id = notification_id(&seed, &MULTI_SPENT_CHANNEL_ID.to_string(), &tx_hash)?;
-            let mut hash_bytes = U256::from_big_endian(&sha_256(id.0.as_slice()));
-            for _ in 0..MULTI_SPENT_CHANNEL_BLOOM_K {
-                let bit_index = (hash_bytes & U256::from(0x01ff)).as_usize();
-                spent_bloom_filter = spent_bloom_filter | (U512::from(1) << bit_index);
-                hash_bytes = hash_bytes >> 9;
-            }
-
-            // padding packet plaintext
-            let padding_packet_plaintext = [0u8; MULTI_SPENT_CHANNEL_PACKET_SIZE as usize];
-            let padding_plaintext_size = MULTI_SPENT_CHANNEL_PACKET_SIZE as usize;
-            let padding_packet_id = &id.0.as_slice()[0..8];
-            let padding_packet_ikm = &id.0.as_slice()[8..32];
-            let padding_packet_key = hkdf_sha_512(
-                &Some(vec![0u8; 64]),
-                padding_packet_ikm,
-                "".as_bytes(),
-                padding_plaintext_size,
-            )?;
-            let padding_packet_ciphertext = xor_bytes(
-                padding_packet_plaintext.as_slice(),
-                padding_packet_key.as_slice(),
-            );
-            let padding_packet_bytes: Vec<u8> =
-                [padding_packet_id.to_vec(), padding_packet_ciphertext].concat();
-            spent_packets.push(padding_packet_bytes);
-        }
-    }
-
-    let mut spent_bloom_filter_bytes: Vec<u8> = vec![];
-    for biguint in spent_bloom_filter.0 {
-        spent_bloom_filter_bytes.extend_from_slice(&biguint.to_be_bytes());
-    }
-    for packet in spent_packets {
-        spent_bloom_filter_bytes.extend(packet.iter());
-    }
-
-    Ok(spent_bloom_filter_bytes)
+    // Ok(output_bytes)
+    Ok(resp.add_attribute_plaintext(
+        format!("snip52:#{}", G::CHANNEL_ID),
+        Binary::from(output_bytes).to_base64()))
 }
