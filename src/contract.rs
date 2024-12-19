@@ -31,7 +31,7 @@ use crate::notifications::{
     AllowanceNotification, MultiRecvdNotification, MultiSpentNotification, RecvdNotification, SpentNotification
 };
 use crate::state::{
-    Config, MintersStore, CHANNELS, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET_RELAXED, INTERNAL_SECRET_SENSITIVE, TOTAL_SUPPLY
+    Config, MintersStore, CHANNELS, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET_RELAXED, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED, TOTAL_SUPPLY
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 
@@ -119,6 +119,8 @@ pub fn instantiate(
     for channel in channels {
         CHANNELS.insert(deps.storage, &channel)?;
     }
+
+    NOTIFICATIONS_ENABLED.save(deps.storage, &true)?;
 
     let mut rng = ContractPrng::new(rng_seed.as_slice(), &sha_256(&msg.prng_seed.0));
     for balance in initial_balances {
