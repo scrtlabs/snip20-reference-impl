@@ -861,14 +861,14 @@ mod tests {
         let btbe_node_count = BTBE_TRIE_NODES_COUNT.load(storage).unwrap();
         assert_eq!(btbe_node_count, 1);
 
-        for i in 1..=128 {
+        for i in 1..=64 {
             let canonical = deps
                 .api
                 .addr_canonicalize(Addr::unchecked(format!("{i}zzzzzz")).as_str())
                 .unwrap();
 
             let mut entry = StoredEntry::new(&canonical).unwrap();
-            entry.save_hash_cache(storage).unwrap();
+            let _ = entry.save_hash_cache(storage).unwrap();
 
             assert_eq!(entry.address().unwrap(), canonical);
             assert_eq!(entry.balance().unwrap(), 0_u64);
@@ -893,13 +893,13 @@ mod tests {
             assert_eq!(bit_pos, 0);
         }
 
-        // btbe trie should split nodes when get to 129th entry
+        // btbe trie should split nodes when get to 65th entry
         let canonical = deps
             .api
             .addr_canonicalize(Addr::unchecked(format!("bob")).as_str())
             .unwrap();
         let mut entry = StoredEntry::new(&canonical).unwrap();
-        entry.save_hash_cache(storage);
+        let _ = entry.save_hash_cache(storage);
         assert_eq!(entry.address().unwrap(), canonical);
         assert_eq!(entry.balance().unwrap(), 0_u64);
 
@@ -948,10 +948,10 @@ mod tests {
             BitwiseTrieNode {
                 left: 0,
                 right: 0,
-                bucket: 3,
+                bucket: 2,
             }
         );
-        assert_eq!(node_id, 3);
+        assert_eq!(node_id, 2);
         assert_eq!(bit_pos, 1);
 
         let canonical_entry = stored_entry(&deps.storage, &canonical).unwrap().unwrap();
