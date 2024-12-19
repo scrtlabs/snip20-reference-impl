@@ -1330,7 +1330,7 @@ mod tests {
         //println!("transfers: {transfers:?}");
         let expected_transfers = vec![
             Tx {
-                id: 168,
+                id: 8845804139732984,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1345,7 +1345,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 167,
+                id: 3692043167097969,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1360,7 +1360,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 166,
+                id: 3808363917805648,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1396,7 +1396,7 @@ mod tests {
         //println!("transfers: {transfers:?}");
         let expected_transfers = vec![
             Tx {
-                id: 120,
+                id: 7611337451915155,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1411,7 +1411,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 119,
+                id: 7288023700190802,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1426,7 +1426,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 118,
+                id: 6449330804541894,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("alice"),
                     sender: Addr::unchecked("alice"),
@@ -1441,7 +1441,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 117,
+                id: 1600285134972748,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1456,7 +1456,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 116,
+                id: 7899356969158249,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1471,7 +1471,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 115,
+                id: 5178919937687208,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1510,7 +1510,7 @@ mod tests {
         //println!("transfers: {transfers:?}");
         let expected_transfers = vec![
             Tx {
-                id: 69,
+                id: 7879504399954008,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1525,7 +1525,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 68,
+                id: 7625837293820843,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1540,7 +1540,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 6,
+                id: 2105964828411645,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("alice"),
                     sender: Addr::unchecked("alice"),
@@ -1555,7 +1555,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 4,
+                id: 5298675660782133,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1570,7 +1570,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 2,
+                id: 3942814133456943,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob"),
                     sender: Addr::unchecked("bob"),
@@ -1585,14 +1585,11 @@ mod tests {
                 block_height: 12345,
             },
         ];
+
         //let transfers_len = transfers.len();
         //println!("transfers.len(): {transfers_len}");
-        assert_eq!(transfers, expected_transfers);
 
-        //
-        //
-        //
-        //
+        assert_eq!(transfers, expected_transfers);
 
         // now try invalid transfer
         let handle_msg = ExecuteMsg::Transfer {
@@ -4801,7 +4798,7 @@ mod tests {
         use crate::transaction_history::TxAction;
         let expected_transfers = [
             Tx {
-                id: 8,
+                id: 8735437960206903,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
                     sender: Addr::unchecked("bob".to_string()),
@@ -4816,7 +4813,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 7,
+                id: 6519057655056815,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
                     sender: Addr::unchecked("bob".to_string()),
@@ -4831,7 +4828,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 6,
+                id: 2105964828411645,
                 action: TxAction::Transfer {
                     from: Addr::unchecked("bob".to_string()),
                     sender: Addr::unchecked("bob".to_string()),
@@ -4846,7 +4843,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 5,
+                id: 7517649082682890,
                 action: TxAction::Deposit {},
                 coins: Coin {
                     denom: "uscrt".to_string(),
@@ -4857,7 +4854,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 4,
+                id: 5298675660782133,
                 action: TxAction::Mint {
                     minter: Addr::unchecked("admin".to_string()),
                     recipient: Addr::unchecked("bob".to_string()),
@@ -4871,7 +4868,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 3,
+                id: 3863562430182029,
                 action: TxAction::Redeem {},
                 coins: Coin {
                     denom: "SECSEC".to_string(),
@@ -4882,7 +4879,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 2,
+                id: 3942814133456943,
                 action: TxAction::Burn {
                     burner: Addr::unchecked("bob".to_string()),
                     owner: Addr::unchecked("bob".to_string()),
@@ -4896,7 +4893,7 @@ mod tests {
                 block_height: 12345,
             },
             Tx {
-                id: 1,
+                id: 5746099005188254,
                 action: TxAction::Mint {
                     minter: Addr::unchecked("admin".to_string()),
                     recipient: Addr::unchecked("bob".to_string()),

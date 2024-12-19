@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cosmwasm_std::{Addr, Api, Binary, CanonicalAddr, Response, StdResult};
+use cosmwasm_std::{Addr, Api, Binary, CanonicalAddr, Response, StdError, StdResult};
 use primitive_types::{U256, U512};
 use secret_toolkit::notification::{get_seed, notification_id, xor_bytes, EncoderExt, CBL_ADDRESS, CBL_ARRAY_SHORT, CBL_BIGNUM_U64, CBL_TIMESTAMP, CBL_U8, Notification, DirectChannel, GroupChannel};
 use minicbor::Encoder;
@@ -35,8 +35,14 @@ pub struct RecvdNotification {
 /// ```
 impl DirectChannel for RecvdNotification {
     const CHANNEL_ID: &'static str = "recvd";
+    #[cfg(test)]
+    const CDDL_SCHEMA: &'static str = "recvd=[amount:biguint .size 8,sender:bstr .size 54,memo_len:uint .size 1]";
+    #[cfg(not(test))]
     const CDDL_SCHEMA: &'static str = "recvd=[amount:biguint .size 8,sender:bstr .size 20,memo_len:uint .size 1]";
     const ELEMENTS: u64 = 3;
+    #[cfg(test)]
+    const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + 55 + CBL_U8;
+    #[cfg(not(test))]
     const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + CBL_ADDRESS + CBL_U8;
 
     fn encode_cbor(&self, api: &dyn Api, encoder: &mut Encoder<&mut [u8]>) -> StdResult<()> {
@@ -79,8 +85,14 @@ pub struct SpentNotification {
 
 impl DirectChannel for SpentNotification {
     const CHANNEL_ID: &'static str = "spent";
+    #[cfg(test)]
+    const CDDL_SCHEMA: &'static str = "spent=[amount:biguint .size 8,actions:uint .size 1,recipient:bstr .size 54,balance:biguint .size 8]";
+    #[cfg(not(test))]
     const CDDL_SCHEMA: &'static str = "spent=[amount:biguint .size 8,actions:uint .size 1,recipient:bstr .size 20,balance:biguint .size 8]";
     const ELEMENTS: u64 = 4;
+    #[cfg(test)]
+    const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + CBL_U8 + 55 + CBL_BIGNUM_U64;
+    #[cfg(not(test))]
     const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + CBL_U8 + CBL_ADDRESS + CBL_BIGNUM_U64;
 
     fn encode_cbor(&self, api: &dyn Api, encoder: &mut Encoder<&mut [u8]>) -> StdResult<()> {
@@ -122,8 +134,14 @@ pub struct AllowanceNotification {
 
 impl DirectChannel for AllowanceNotification {
     const CHANNEL_ID: &'static str = "allowance";
+    #[cfg(test)]
+    const CDDL_SCHEMA: &'static str = "allowance=[amount:biguint .size 8,allower:bstr .size 54,expiration:uint .size 8]";
+    #[cfg(not(test))]
     const CDDL_SCHEMA: &'static str = "allowance=[amount:biguint .size 8,allower:bstr .size 20,expiration:uint .size 8]";
     const ELEMENTS: u64 = 3;
+    #[cfg(test)]
+    const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + 55 + CBL_TIMESTAMP;
+    #[cfg(not(test))]
     const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + CBL_ADDRESS + CBL_TIMESTAMP;
 
     fn encode_cbor(&self, api: &dyn Api, encoder: &mut Encoder<&mut [u8]>) -> StdResult<()> {
