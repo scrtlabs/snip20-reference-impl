@@ -31,7 +31,8 @@ use crate::notifications::{
     AllowanceNotification, MultiRecvdNotification, MultiSpentNotification, RecvdNotification, SpentNotification
 };
 use crate::state::{
-    Config, MintersStore, CHANNELS, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET_RELAXED, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED, TOTAL_SUPPLY
+    Config, MintersStore, CHANNELS, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET_RELAXED, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED, 
+    TOTAL_SUPPLY,
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 

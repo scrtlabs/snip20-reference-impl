@@ -12,8 +12,9 @@ use secret_toolkit_crypto::hkdf_sha_256;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::{constants::{ADDRESS_BYTES_LEN, IMPOSSIBLE_ADDR}, dwb::constant_time_if_else_u32, state::{safe_add, safe_add_u64, INTERNAL_SECRET_SENSITIVE}};
-use crate::dwb::{amount_u64, DelayedWriteBufferEntry, TxBundle};
+use crate::constants::{ADDRESS_BYTES_LEN, IMPOSSIBLE_ADDR};
+use crate::dwb::{amount_u64, constant_time_if_else_u32, DelayedWriteBufferEntry, TxBundle};
+use crate::state::{safe_add, safe_add_u64, INTERNAL_SECRET_SENSITIVE};
 #[cfg(feature = "gas_tracking")]
 use crate::gas_tracker::GasTracker;
 
@@ -816,9 +817,6 @@ mod tests {
             "Init failed: {}",
             init_result.err().unwrap()
         );
-        let _env = mock_env();
-        let _info = mock_info("bob", &[]);
-        let storage = &mut deps.storage;
 
         let canonical = deps
             .api
@@ -852,8 +850,6 @@ mod tests {
             "Init failed: {}",
             init_result.err().unwrap()
         );
-        let env = mock_env();
-        let _info = mock_info("bob", &[]);
         let storage = &mut deps.storage;
 
         let _ = initialize_btbe(storage).unwrap();

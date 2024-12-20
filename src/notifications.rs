@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
-use cosmwasm_std::{Addr, Api, Binary, CanonicalAddr, Response, StdError, StdResult};
+use cosmwasm_std::{Addr, Api, Binary, CanonicalAddr, Response, StdResult};
 use primitive_types::{U256, U512};
-use secret_toolkit::notification::{get_seed, notification_id, xor_bytes, EncoderExt, CBL_ADDRESS, CBL_ARRAY_SHORT, CBL_BIGNUM_U64, CBL_TIMESTAMP, CBL_U8, Notification, DirectChannel, GroupChannel};
+use secret_toolkit::notification::{
+    get_seed, notification_id, xor_bytes, EncoderExt, CBL_ADDRESS, CBL_ARRAY_SHORT, CBL_BIGNUM_U64, CBL_TIMESTAMP, CBL_U8, Notification, 
+    DirectChannel, GroupChannel,
+};
 use minicbor::Encoder;
 use secret_toolkit_crypto::{hkdf_sha_512, sha_256};
 use serde::{Deserialize, Serialize};

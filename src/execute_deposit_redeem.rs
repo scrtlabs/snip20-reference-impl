@@ -1,4 +1,7 @@
-use cosmwasm_std::{to_binary, BankMsg, BlockInfo, CanonicalAddr, Coin, CosmosMsg, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128};
+use cosmwasm_std::{
+    to_binary, BankMsg, BlockInfo, CanonicalAddr, Coin, CosmosMsg, DepsMut, Env, MessageInfo, Response, StdError, 
+    StdResult, Storage, Uint128,
+};
 use secret_toolkit_crypto::ContractPrng;
 
 use crate::dwb::DWB;

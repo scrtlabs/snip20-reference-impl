@@ -1,4 +1,7 @@
-use cosmwasm_std::{to_binary, Addr, Binary, BlockInfo, CanonicalAddr, CosmosMsg, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128};
+use cosmwasm_std::{
+    to_binary, Addr, Binary, BlockInfo, CanonicalAddr, CosmosMsg, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, 
+    Uint128
+};
 use secret_toolkit::notification::Notification;
 use secret_toolkit_crypto::ContractPrng;
 

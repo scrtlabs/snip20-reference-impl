@@ -121,8 +121,6 @@ pub fn try_increase_allowance(
             spender: spender.clone(),
             allowance: Uint128::from(new_amount),
         })?);
-
-    println!("Got 1 {:?}", resp);
     
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
         let notification = Notification::new (
@@ -139,9 +137,6 @@ pub fn try_increase_allowance(
             notification.id_plaintext(),
             notification.data_plaintext()
         );
-
-        println!("Got 2 {:?}", resp);
-
     }
 
     Ok(resp)  
