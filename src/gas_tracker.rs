@@ -73,12 +73,7 @@ impl<'a, 'b> GasGroup<'a, 'b> {
         let gas = self.tracker.api.check_gas();
         let log_entry = (
             format!("gas.{}", self.name,),
-            format!(
-                "{}:{}:{}",
-                self.index,
-                gas.unwrap_or(0u64),
-                comment
-            ),
+            format!("{}:{}:{}", self.index, gas.unwrap_or(0u64), comment),
         );
         self.tracker.logs.push(log_entry);
         self.index += 1;

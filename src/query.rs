@@ -217,8 +217,7 @@ pub fn query_transactions(
                     let mut bundle_idx = bundle_idx - 1;
                     if let Some(entry) = account_stored_entry {
                         loop {
-                            let tx_bundle =
-                                entry.get_tx_bundle_at(deps.storage, bundle_idx)?;
+                            let tx_bundle = entry.get_tx_bundle_at(deps.storage, bundle_idx)?;
                             // only look if head node is not null
                             if tx_bundle.head_node > 0 {
                                 let head_node = TX_NODES

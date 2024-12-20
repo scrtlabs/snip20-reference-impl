@@ -227,7 +227,9 @@ impl StoredEntry {
         // peek at the last tx bundle added (read the dummy one if its void)
         let last_tx_bundle_result = self.get_tx_bundle_at_unchecked(storage, bundle_pos);
         if last_tx_bundle_result.is_err() {
-            return Err(StdError::generic_err("missing tx bundle while merging dwb entry!"));
+            return Err(StdError::generic_err(
+                "missing tx bundle while merging dwb entry!",
+            ));
         }
 
         // unwrap
