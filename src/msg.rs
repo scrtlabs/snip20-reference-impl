@@ -4,10 +4,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{batch, transaction_history::Tx};
-use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128, Uint64,};
 #[cfg(feature = "gas_evaporation")]
 use cosmwasm_std::Uint64;
-use secret_toolkit::{notification::ChannelInfoData, permit::{AllRevocation, AllRevokedInterval, Permit}};
+use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128, Uint64};
+use secret_toolkit::{
+    notification::ChannelInfoData,
+    permit::{AllRevocation, AllRevokedInterval, Permit},
+};
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Serialize, Deserialize, Clone, JsonSchema)]
@@ -299,12 +302,11 @@ pub enum ExecuteMsg {
     },
 
     // SNIP 24.1 Blanket Permits
-
     /// Revokes all permits. Client can supply a datetime for created_after, created_before, both, or neither.
     /// * created_before – makes it so any permits using a created value less than this datetime will be rejected
     /// * created_after – makes it so any permits using a created value greater than this datetime will be rejected
     /// * both created_before and created_after – makes it so any permits using a created value between these two datetimes will be rejected
-    /// * neither – makes it so ANY permit will be rejected. 
+    /// * neither – makes it so ANY permit will be rejected.
     ///   in this case, the contract MUST return a revocation ID of "REVOKED_ALL". this action is idempotent
     RevokeAllPermits {
         interval: AllRevokedInterval,
@@ -435,7 +437,6 @@ pub enum ExecuteAnswer {
     DeletePermitRevocation {
         status: ResponseStatus,
     },
-
 }
 
 #[cfg(feature = "gas_evaporation")]
@@ -483,7 +484,7 @@ impl Evaporator for ExecuteMsg {
                     if gas_used < gas_target.u64() {
                         let evaporate_amount = gas_target.u64() - gas_used;
                         api.gas_evaporate(evaporate_amount as u32)?;
-                        return Ok(evaporate_amount)
+                        return Ok(evaporate_amount);
                     }
                     Ok(0)
                 }
@@ -655,7 +656,7 @@ pub enum QueryWithPermit {
         txhash: Option<String>,
     },
     // SNIP 24.1
-    ListPermitRevocations { 
+    ListPermitRevocations {
         // `page` and `page_size` do nothing here because max revocations is only 10 but included
         // to satisfy the SNIP24.1 spec
         page: Option<u32>,
@@ -716,7 +717,7 @@ pub enum QueryAnswer {
     Minters {
         minters: Vec<Addr>,
     },
-    
+
     // SNIP-52 Private Push Notifications
     ListChannels {
         channels: Vec<String>,

@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 use crate::btbe::{settle_dwb_entry, stored_balance};
-use crate::state::{safe_add, safe_add_u64};
-use crate::transaction_history::{Tx, TRANSACTIONS};
 #[cfg(feature = "gas_tracking")]
 use crate::gas_tracker::GasTracker;
 #[cfg(feature = "gas_tracking")]
-use cosmwasm_std::{Binary, to_binary};
-#[cfg(feature = "gas_tracking")]
 use crate::msg::QueryAnswer;
+use crate::state::{safe_add, safe_add_u64};
+use crate::transaction_history::{Tx, TRANSACTIONS};
+#[cfg(feature = "gas_tracking")]
+use cosmwasm_std::{to_binary, Binary};
 
 include!(concat!(env!("OUT_DIR"), "/config.rs"));
 

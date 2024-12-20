@@ -14,9 +14,9 @@ use serde_big_array::BigArray;
 
 use crate::constants::{ADDRESS_BYTES_LEN, IMPOSSIBLE_ADDR};
 use crate::dwb::{amount_u64, constant_time_if_else_u32, DelayedWriteBufferEntry, TxBundle};
-use crate::state::{safe_add, safe_add_u64, INTERNAL_SECRET_SENSITIVE};
 #[cfg(feature = "gas_tracking")]
 use crate::gas_tracker::GasTracker;
+use crate::state::{safe_add, safe_add_u64, INTERNAL_SECRET_SENSITIVE};
 
 pub const KEY_BTBE_ENTRY_HISTORY: &[u8] = b"btbe-entry-hist";
 pub const KEY_BTBE_BUCKETS_COUNT: &[u8] = b"btbe-buckets-cnt";
@@ -37,10 +37,10 @@ const BTBE_BUCKET_CACHE_BYTES: usize = 0;
 const_assert!(BTBE_BUCKET_BALANCE_BYTES <= U128_BYTES);
 const_assert!(BTBE_BUCKET_HISTORY_BYTES <= U32_BYTES);
 
-const BTBE_BUCKET_ENTRY_BYTES: usize =
-    BTBE_BUCKET_ADDRESS_BYTES + BTBE_BUCKET_BALANCE_BYTES + BTBE_BUCKET_HISTORY_BYTES
+const BTBE_BUCKET_ENTRY_BYTES: usize = BTBE_BUCKET_ADDRESS_BYTES
+    + BTBE_BUCKET_BALANCE_BYTES
+    + BTBE_BUCKET_HISTORY_BYTES
     + BTBE_BUCKET_CACHE_BYTES;
-
 
 /// A `StoredEntry` consists of the address, balance, and tx bundle history length in a byte array representation.
 /// The methods of the struct implementation also handle pushing and getting the tx bundle history in a simplified
@@ -150,7 +150,8 @@ impl StoredEntry {
             32,
         )?;
 
-        let start = BTBE_BUCKET_ADDRESS_BYTES + BTBE_BUCKET_BALANCE_BYTES + BTBE_BUCKET_HISTORY_BYTES;
+        let start =
+            BTBE_BUCKET_ADDRESS_BYTES + BTBE_BUCKET_BALANCE_BYTES + BTBE_BUCKET_HISTORY_BYTES;
         let end = start + BTBE_BUCKET_CACHE_BYTES;
         self.0[start..end].copy_from_slice(&hash_bytes.as_slice()[0..BTBE_BUCKET_CACHE_BYTES]);
         Ok(())
@@ -163,7 +164,10 @@ impl StoredEntry {
         // bit pos is cached
         if bit_pos < (BTBE_BUCKET_CACHE_BYTES << 3) {
             // select the byte from cache corresponding to this bit position
-            byte = self.0[BTBE_BUCKET_ADDRESS_BYTES + BTBE_BUCKET_BALANCE_BYTES + BTBE_BUCKET_HISTORY_BYTES + (bit_pos >> 3)];
+            byte = self.0[BTBE_BUCKET_ADDRESS_BYTES
+                + BTBE_BUCKET_BALANCE_BYTES
+                + BTBE_BUCKET_HISTORY_BYTES
+                + (bit_pos >> 3)];
         }
         // not cached; calculate on the fly
         else {
@@ -181,7 +185,6 @@ impl StoredEntry {
 
         // extract value at bit position and turn into bool
         return Ok(((byte >> (7 - (bit_pos % 8))) & 1) != 0);
-
     }
 
     pub fn merge_dwb_entry(
@@ -218,9 +221,9 @@ impl StoredEntry {
 
         // position of last tx bundle to read
         let bundle_pos = constant_time_if_else_u32(
-             empty_history,
-             0u32,
-             history_len.wrapping_sub(1)  // constant-time subtraction with underflow
+            empty_history,
+            0u32,
+            history_len.wrapping_sub(1), // constant-time subtraction with underflow
         );
 
         // peek at the last tx bundle added (read the dummy one if its void)
@@ -238,7 +241,7 @@ impl StoredEntry {
         let bundle_offset = constant_time_if_else_u32(
             empty_history,
             0u32,
-            last_tx_bundle.offset + (last_tx_bundle.list_len as u32)
+            last_tx_bundle.offset + (last_tx_bundle.list_len as u32),
         );
 
         // create new tx bundle
@@ -305,7 +308,7 @@ impl StoredEntry {
     fn push_tx_bundle(&mut self, storage: &mut dyn Storage, bundle: &TxBundle) -> StdResult<()> {
         let len = self.history_len()?;
         self.set_tx_bundle_at_unchecked(storage, len, bundle)?;
-        // if the head node is null, then add this as a ghost bundle that does not contribute to len of list, 
+        // if the head node is null, then add this as a ghost bundle that does not contribute to len of list,
         // and will be overwritten next time
         let len_add = constant_time_if_else_u32((bundle.head_node == 0) as u32, 0, 1);
         self.set_history_len(len.saturating_add(len_add))?;
@@ -578,8 +581,7 @@ pub fn settle_dwb_entry(
     let mut bucket_id = node.bucket;
 
     // search for an existing entry
-    if let Some((idx, mut found_entry)) = bucket.constant_time_find_address(address)
-    {
+    if let Some((idx, mut found_entry)) = bucket.constant_time_find_address(address) {
         // found existing entry
         // merge amount and history from dwb entry
         found_entry.merge_dwb_entry(storage, &dwb_entry, amount_spent)?;
@@ -588,16 +590,13 @@ pub fn settle_dwb_entry(
         #[cfg(feature = "gas_tracking")]
         group1.logf(format!(
             "merged {} into node #{}, bucket #{} at position {} ",
-            address,
-            node_id,
-            bucket_id,
-            idx
+            address, node_id, bucket_id, idx
         ));
 
         // save updated bucket to storage
         node.set_and_save_bucket(storage, bucket)?;
     }
-    // nothing was stored yet 
+    // nothing was stored yet
     else {
         // need to insert new entry
         // create new stored balance entry

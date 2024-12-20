@@ -1,4 +1,4 @@
-use cosmwasm_std::{to_binary, Addr, DepsMut, Response, StdError, StdResult,};
+use cosmwasm_std::{to_binary, Addr, DepsMut, Response, StdError, StdResult};
 
 use crate::msg::ContractStatusLevel;
 use crate::msg::{ExecuteAnswer, ResponseStatus::Success};
@@ -144,12 +144,9 @@ pub fn set_minters(
 
 // SNIP-52 functions
 
-pub fn set_notification_status(
-    deps: DepsMut,
-    enabled: bool,
-) -> StdResult<Response> {
+pub fn set_notification_status(deps: DepsMut, enabled: bool) -> StdResult<Response> {
     NOTIFICATIONS_ENABLED.save(deps.storage, &enabled)?;
-    
+
     Ok(
         Response::new().set_data(to_binary(&ExecuteAnswer::SetNotificationStatus {
             status: Success,

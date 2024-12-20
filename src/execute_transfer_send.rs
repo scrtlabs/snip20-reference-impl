@@ -1,6 +1,6 @@
 use cosmwasm_std::{
-    to_binary, Addr, Binary, BlockInfo, CanonicalAddr, CosmosMsg, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, 
-    Uint128
+    to_binary, Addr, Binary, BlockInfo, CanonicalAddr, CosmosMsg, DepsMut, Env, MessageInfo,
+    Response, StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit::notification::Notification;
 use secret_toolkit_crypto::ContractPrng;
@@ -9,7 +9,10 @@ use crate::batch;
 use crate::dwb::DWB;
 use crate::execute::use_allowance;
 use crate::msg::{ExecuteAnswer, ResponseStatus::Success};
-use crate::notifications::{render_group_notification, MultiRecvdNotification, MultiSpentNotification, RecvdNotification, SpentNotification};
+use crate::notifications::{
+    render_group_notification, MultiRecvdNotification, MultiSpentNotification, RecvdNotification,
+    SpentNotification,
+};
 use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{ReceiverHashStore, CONFIG, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED};
 use crate::strings::SEND_TO_CONTRACT_ERR_MSG;
@@ -43,10 +46,7 @@ pub fn try_transfer(
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
     // perform the transfer
-    let (
-        received_notification,
-        spent_notification
-    ) = try_transfer_impl(
+    let (received_notification, spent_notification) = try_transfer_impl(
         &mut deps,
         rng,
         &info.sender,
@@ -62,34 +62,27 @@ pub fn try_transfer(
     #[cfg(feature = "gas_tracking")]
     let mut group1 = tracker.group("try_transfer.rest");
 
-    let mut resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
+    let mut resp =
+        Response::new().set_data(to_binary(&ExecuteAnswer::Transfer { status: Success })?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
         // render the tokens received notification
-        let received_notification = received_notification.to_txhash_notification(
-            deps.api,
-            &env,
-            secret,
-            None,
-        )?;
+        let received_notification =
+            received_notification.to_txhash_notification(deps.api, &env, secret, None)?;
 
         // render the tokens spent notification
-        let spent_notification = spent_notification.to_txhash_notification(
-            deps.api, 
-            &env, 
-            secret,
-            None,
-        )?;
-        
-        resp = resp.add_attribute_plaintext(
-            received_notification.id_plaintext(),
-            received_notification.data_plaintext(),
-        )
-        .add_attribute_plaintext(
-            spent_notification.id_plaintext(),
-            spent_notification.data_plaintext(),
-        );
+        let spent_notification =
+            spent_notification.to_txhash_notification(deps.api, &env, secret, None)?;
+
+        resp = resp
+            .add_attribute_plaintext(
+                received_notification.id_plaintext(),
+                received_notification.data_plaintext(),
+            )
+            .add_attribute_plaintext(
+                spent_notification.id_plaintext(),
+                spent_notification.data_plaintext(),
+            );
     }
 
     #[cfg(feature = "gas_tracking")]
@@ -111,8 +104,10 @@ pub fn try_batch_transfer(
 ) -> StdResult<Response> {
     let num_actions = actions.len();
     if num_actions == 0 {
-        return Ok(Response::new()
-            .set_data(to_binary(&ExecuteAnswer::BatchTransfer { status: Success })?)
+        return Ok(
+            Response::new().set_data(to_binary(&ExecuteAnswer::BatchTransfer {
+                status: Success,
+            })?),
         );
     }
 
@@ -129,7 +124,7 @@ pub fn try_batch_transfer(
     let mut notifications = vec![];
     for action in actions {
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
-      
+
         // make sure the sender is not accidentally sending tokens to the contract address
         if recipient == env.contract.address {
             return Err(StdError::generic_err(SEND_TO_CONTRACT_ERR_MSG));
@@ -137,10 +132,7 @@ pub fn try_batch_transfer(
 
         total_memo_len += action.memo.as_ref().map(|s| s.len()).unwrap_or_default();
 
-        let (
-            received_notification,
-            spent_notification
-        ) = try_transfer_impl(
+        let (received_notification, spent_notification) = try_transfer_impl(
             &mut deps,
             rng,
             &info.sender,
@@ -156,16 +148,14 @@ pub fn try_batch_transfer(
         notifications.push((received_notification, spent_notification));
     }
 
-    let (
-        received_notifications,
-        spent_notifications
-    ): (
+    let (received_notifications, spent_notifications): (
         Vec<Notification<RecvdNotification>>,
         Vec<Notification<SpentNotification>>,
     ) = notifications.into_iter().unzip();
 
-    let mut resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::BatchTransfer { status: Success })?);
+    let mut resp = Response::new().set_data(to_binary(&ExecuteAnswer::BatchTransfer {
+        status: Success,
+    })?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
         resp = render_group_notification(
@@ -177,11 +167,11 @@ pub fn try_batch_transfer(
             resp,
         )?;
 
-        let total_amount_spent = spent_notifications
-            .iter()
-            .fold(0u128, |acc, notification| acc.saturating_add(notification.data.amount));
+        let total_amount_spent = spent_notifications.iter().fold(0u128, |acc, notification| {
+            acc.saturating_add(notification.data.amount)
+        });
 
-        let spent_notification = Notification::new (
+        let spent_notification = Notification::new(
             info.sender,
             SpentNotification {
                 amount: total_amount_spent,
@@ -189,7 +179,7 @@ pub fn try_batch_transfer(
                 recipient: spent_notifications[0].data.recipient.clone(),
                 balance: spent_notifications.last().unwrap().data.balance,
                 memo_len: total_memo_len,
-            }
+            },
         )
         .to_txhash_notification(deps.api, &env, secret, None)?;
 
@@ -223,10 +213,7 @@ pub fn try_transfer_from(
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
     let symbol = CONFIG.load(deps.storage)?.symbol;
-    let (
-        received_notification,
-        spent_notification
-    ) = try_transfer_from_impl(
+    let (received_notification, spent_notification) = try_transfer_from_impl(
         &mut deps,
         rng,
         env,
@@ -238,32 +225,25 @@ pub fn try_transfer_from(
         memo,
     )?;
 
-    let mut resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?);
+    let mut resp =
+        Response::new().set_data(to_binary(&ExecuteAnswer::TransferFrom { status: Success })?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
-        let received_notification = received_notification.to_txhash_notification(
-            deps.api,
-            &env,
-            secret,
-            None,
-        )?;
+        let received_notification =
+            received_notification.to_txhash_notification(deps.api, &env, secret, None)?;
 
-        let spent_notification = spent_notification.to_txhash_notification(
-            deps.api, 
-            &env, 
-            secret, 
-            None
-        )?;
+        let spent_notification =
+            spent_notification.to_txhash_notification(deps.api, &env, secret, None)?;
 
-        resp = resp.add_attribute_plaintext(
-            received_notification.id_plaintext(),
-            received_notification.data_plaintext(),
-        )
-        .add_attribute_plaintext(
-            spent_notification.id_plaintext(),
-            spent_notification.data_plaintext(),
-        );
+        resp = resp
+            .add_attribute_plaintext(
+                received_notification.id_plaintext(),
+                received_notification.data_plaintext(),
+            )
+            .add_attribute_plaintext(
+                spent_notification.id_plaintext(),
+                spent_notification.data_plaintext(),
+            );
     }
 
     Ok(resp)
@@ -286,10 +266,7 @@ pub fn try_batch_transfer_from(
         let owner = deps.api.addr_validate(action.owner.as_str())?;
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
 
-        let (
-            received_notification,
-            spent_notification
-        ) = try_transfer_from_impl(
+        let (received_notification, spent_notification) = try_transfer_from_impl(
             &mut deps,
             rng,
             env,
@@ -304,8 +281,9 @@ pub fn try_batch_transfer_from(
         notifications.push((received_notification, spent_notification));
     }
 
-    let mut resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::BatchTransferFrom {status: Success})?);
+    let mut resp = Response::new().set_data(to_binary(&ExecuteAnswer::BatchTransferFrom {
+        status: Success,
+    })?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
         let (received_notifications, spent_notifications): (
@@ -323,7 +301,7 @@ pub fn try_batch_transfer_from(
             secret,
             resp,
         )?;
-    
+
         resp = render_group_notification(
             deps.api,
             MultiSpentNotification(spent_notifications),
@@ -367,10 +345,7 @@ pub fn try_send(
     #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
-    let (
-        received_notification,
-        spent_notification
-    ) = try_send_impl(
+    let (received_notification, spent_notification) = try_send_impl(
         &mut deps,
         rng,
         &mut messages,
@@ -391,17 +366,20 @@ pub fn try_send(
         .set_data(to_binary(&ExecuteAnswer::Send { status: Success })?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
-        let received_notification = received_notification.to_txhash_notification(deps.api, &env, secret, None)?;
-        let spent_notification = spent_notification.to_txhash_notification(deps.api, &env, secret, None)?;
-            
-        resp = resp.add_attribute_plaintext(
-            received_notification.id_plaintext(),
-            received_notification.data_plaintext(),
-        )
-        .add_attribute_plaintext(
-            spent_notification.id_plaintext(),
-            spent_notification.data_plaintext(),
-        );
+        let received_notification =
+            received_notification.to_txhash_notification(deps.api, &env, secret, None)?;
+        let spent_notification =
+            spent_notification.to_txhash_notification(deps.api, &env, secret, None)?;
+
+        resp = resp
+            .add_attribute_plaintext(
+                received_notification.id_plaintext(),
+                received_notification.data_plaintext(),
+            )
+            .add_attribute_plaintext(
+                spent_notification.id_plaintext(),
+                spent_notification.data_plaintext(),
+            );
     }
 
     #[cfg(feature = "gas_tracking")]
@@ -420,8 +398,8 @@ pub fn try_batch_send(
 ) -> StdResult<Response> {
     let num_actions = actions.len();
     if num_actions == 0 {
-        return Ok(Response::new()
-            .set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?)
+        return Ok(
+            Response::new().set_data(to_binary(&ExecuteAnswer::BatchSend { status: Success })?)
         );
     }
 
@@ -450,10 +428,7 @@ pub fn try_batch_send(
 
         total_memo_len += action.memo.as_ref().map(|s| s.len()).unwrap_or_default();
 
-        let (
-            received_notification,
-            spent_notification
-        ) = try_send_impl(
+        let (received_notification, spent_notification) = try_send_impl(
             &mut deps,
             rng,
             &mut messages,
@@ -495,7 +470,7 @@ pub fn try_batch_send(
             .iter()
             .fold(0u128, |acc, notification| acc + notification.data.amount);
 
-        let spent_notification = Notification::new (
+        let spent_notification = Notification::new(
             info.sender,
             SpentNotification {
                 amount: total_amount_spent,
@@ -503,7 +478,7 @@ pub fn try_batch_send(
                 recipient: spent_notifications[0].data.recipient.clone(),
                 balance: spent_notifications.last().unwrap().data.balance,
                 memo_len: total_memo_len,
-            }
+            },
         )
         .to_txhash_notification(deps.api, &env, secret, None)?;
 
@@ -535,10 +510,7 @@ pub fn try_send_from(
     let owner = deps.api.addr_validate(owner.as_str())?;
     let recipient = deps.api.addr_validate(recipient.as_str())?;
     let mut messages = vec![];
-    let (
-        received_notification,
-        spent_notification
-    ) = try_send_from_impl(
+    let (received_notification, spent_notification) = try_send_from_impl(
         &mut deps,
         env.clone(),
         info,
@@ -557,17 +529,20 @@ pub fn try_send_from(
         .set_data(to_binary(&ExecuteAnswer::SendFrom { status: Success })?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
-        let received_notification = received_notification.to_txhash_notification(deps.api, &env, secret, None,)?;
-        let spent_notification = spent_notification.to_txhash_notification(deps.api, &env, secret, None)?;
-    
-        resp = resp.add_attribute_plaintext(
-            received_notification.id_plaintext(),
-            received_notification.data_plaintext(),
-        )
-        .add_attribute_plaintext(
-            spent_notification.id_plaintext(),
-            spent_notification.data_plaintext(),
-        )
+        let received_notification =
+            received_notification.to_txhash_notification(deps.api, &env, secret, None)?;
+        let spent_notification =
+            spent_notification.to_txhash_notification(deps.api, &env, secret, None)?;
+
+        resp = resp
+            .add_attribute_plaintext(
+                received_notification.id_plaintext(),
+                received_notification.data_plaintext(),
+            )
+            .add_attribute_plaintext(
+                spent_notification.id_plaintext(),
+                spent_notification.data_plaintext(),
+            )
     }
 
     Ok(resp)
@@ -589,10 +564,7 @@ pub fn try_batch_send_from(
     for action in actions {
         let owner = deps.api.addr_validate(action.owner.as_str())?;
         let recipient = deps.api.addr_validate(action.recipient.as_str())?;
-        let (
-            received_notification,
-            spent_notification
-        ) = try_send_from_impl(
+        let (received_notification, spent_notification) = try_send_from_impl(
             &mut deps,
             env.clone(),
             info,
@@ -608,11 +580,9 @@ pub fn try_batch_send_from(
         notifications.push((received_notification, spent_notification));
     }
 
-    let mut resp = Response::new()
-        .add_messages(messages)
-        .set_data(to_binary(&ExecuteAnswer::BatchSendFrom {
-            status: Success,
-        })?);
+    let mut resp = Response::new().add_messages(messages).set_data(to_binary(
+        &ExecuteAnswer::BatchSendFrom { status: Success },
+    )?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
         let (received_notifications, spent_notifications): (
@@ -657,7 +627,10 @@ fn try_transfer_impl(
     memo: Option<String>,
     block: &cosmwasm_std::BlockInfo,
     #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
-) -> StdResult<(Notification<RecvdNotification>, Notification<SpentNotification>)> {
+) -> StdResult<(
+    Notification<RecvdNotification>,
+    Notification<SpentNotification>,
+)> {
     // canonicalize owner and recipient addresses
     let raw_owner = deps.api.addr_canonicalize(owner.as_str())?;
     let raw_recipient = deps.api.addr_canonicalize(recipient.as_str())?;
@@ -673,7 +646,7 @@ fn try_transfer_impl(
             sender: Some(owner.clone()),
             memo_len,
             sender_is_owner: true,
-        }
+        },
     );
 
     // perform the transfer from owner to recipient
@@ -693,7 +666,7 @@ fn try_transfer_impl(
     )?;
 
     // create the tokens spent notification for owner
-    let spent_notification = Notification::new (
+    let spent_notification = Notification::new(
         owner.clone(),
         SpentNotification {
             amount: amount.u128(),
@@ -701,7 +674,7 @@ fn try_transfer_impl(
             recipient: Some(recipient.clone()),
             balance: owner_balance,
             memo_len,
-        }
+        },
     );
 
     Ok((received_notification, spent_notification))
@@ -718,7 +691,10 @@ fn try_transfer_from_impl(
     amount: Uint128,
     denom: String,
     memo: Option<String>,
-) -> StdResult<(Notification<RecvdNotification>, Notification<SpentNotification>)> {
+) -> StdResult<(
+    Notification<RecvdNotification>,
+    Notification<SpentNotification>,
+)> {
     let raw_amount = amount.u128();
     let raw_spender = deps.api.addr_canonicalize(spender.as_str())?;
     let raw_owner = deps.api.addr_canonicalize(owner.as_str())?;
@@ -744,9 +720,9 @@ fn try_transfer_from_impl(
             sender: Some(owner.clone()),
             memo_len,
             sender_is_owner: spender == owner,
-        }
+        },
     );
-    
+
     // perform the transfer from owner to recipient
     let owner_balance = perform_transfer(
         deps.storage,
@@ -764,7 +740,7 @@ fn try_transfer_from_impl(
     )?;
 
     // create tokens spent notification for owner
-    let spent_notification = Notification::new (
+    let spent_notification = Notification::new(
         owner.clone(),
         SpentNotification {
             amount: amount.u128(),
@@ -772,7 +748,7 @@ fn try_transfer_from_impl(
             recipient: Some(recipient.clone()),
             balance: owner_balance,
             memo_len,
-        }
+        },
     );
 
     Ok((received_notification, spent_notification))
@@ -792,11 +768,11 @@ fn try_send_impl(
     msg: Option<Binary>,
     block: &cosmwasm_std::BlockInfo,
     #[cfg(feature = "gas_tracking")] tracker: &mut GasTracker,
-) -> StdResult<(Notification<RecvdNotification>, Notification<SpentNotification>)> {
-    let (
-        received_notification,
-        spent_notification
-    ) = try_transfer_impl(
+) -> StdResult<(
+    Notification<RecvdNotification>,
+    Notification<SpentNotification>,
+)> {
+    let (received_notification, spent_notification) = try_transfer_impl(
         deps,
         rng,
         &sender,
@@ -837,13 +813,13 @@ fn try_send_from_impl(
     amount: Uint128,
     memo: Option<String>,
     msg: Option<Binary>,
-) -> StdResult<(Notification<RecvdNotification>, Notification<SpentNotification>)> {
+) -> StdResult<(
+    Notification<RecvdNotification>,
+    Notification<SpentNotification>,
+)> {
     let spender = info.sender.clone();
     let symbol = CONFIG.load(deps.storage)?.symbol;
-    let (
-        received_notification,
-        spent_notification
-    ) = try_transfer_from_impl(
+    let (received_notification, spent_notification) = try_transfer_from_impl(
         deps,
         rng,
         &env,

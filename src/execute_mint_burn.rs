@@ -1,4 +1,7 @@
-use cosmwasm_std::{to_binary, Addr, BlockInfo, CanonicalAddr, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128};
+use cosmwasm_std::{
+    to_binary, Addr, BlockInfo, CanonicalAddr, DepsMut, Env, MessageInfo, Response, StdError,
+    StdResult, Storage, Uint128,
+};
 use secret_toolkit::notification::Notification;
 use secret_toolkit_crypto::ContractPrng;
 
@@ -6,8 +9,13 @@ use crate::batch;
 use crate::dwb::DWB;
 use crate::execute::use_allowance;
 use crate::msg::{ExecuteAnswer, ResponseStatus::Success};
-use crate::notifications::{render_group_notification, MultiRecvdNotification, MultiSpentNotification, RecvdNotification, SpentNotification};
-use crate::state::{safe_add, MintersStore, CONFIG, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED, TOTAL_SUPPLY};
+use crate::notifications::{
+    render_group_notification, MultiRecvdNotification, MultiSpentNotification, RecvdNotification,
+    SpentNotification,
+};
+use crate::state::{
+    safe_add, MintersStore, CONFIG, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED, TOTAL_SUPPLY,
+};
 use crate::transaction_history::{store_burn_action, store_mint_action};
 
 // mint functions
@@ -65,8 +73,7 @@ pub fn try_mint(
         &mut tracker,
     )?;
 
-    let mut resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?);
+    let mut resp = Response::new().set_data(to_binary(&ExecuteAnswer::Mint { status: Success })?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
         let received_notification = Notification::new(
@@ -130,7 +137,7 @@ pub fn try_batch_mint(
         #[cfg(feature = "gas_tracking")]
         let mut tracker: GasTracker = GasTracker::new(deps.api);
 
-        notifications.push(Notification::new (
+        notifications.push(Notification::new(
             recipient.clone(),
             RecvdNotification {
                 amount: actual_amount,
@@ -156,9 +163,9 @@ pub fn try_batch_mint(
 
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
-    let mut resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::BatchMint { status: Success })?);
-    
+    let mut resp =
+        Response::new().set_data(to_binary(&ExecuteAnswer::BatchMint { status: Success })?);
+
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
         resp = render_group_notification(
             deps.api,
@@ -322,11 +329,10 @@ pub fn try_burn(
     }
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
-    let mut resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?);
+    let mut resp = Response::new().set_data(to_binary(&ExecuteAnswer::Burn { status: Success })?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
-        let spent_notification = Notification::new (
+        let spent_notification = Notification::new(
             info.sender,
             SpentNotification {
                 amount: raw_amount,
@@ -334,7 +340,7 @@ pub fn try_burn(
                 recipient: None,
                 balance: owner_balance,
                 memo_len,
-            }
+            },
         )
         .to_txhash_notification(deps.api, &env, secret, None)?;
 
@@ -358,7 +364,7 @@ pub fn try_burn_from(
 ) -> StdResult<Response> {
     let secret = INTERNAL_SECRET_SENSITIVE.load(deps.storage)?;
     let secret = secret.as_slice();
-    
+
     let owner = deps.api.addr_validate(owner.as_str())?;
     let raw_owner = deps.api.addr_canonicalize(owner.as_str())?;
     let constants = CONFIG.load(deps.storage)?;
@@ -433,11 +439,11 @@ pub fn try_burn_from(
 
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
-    let mut resp =  Response::new()
-        .set_data(to_binary(&ExecuteAnswer::BurnFrom { status: Success })?);
+    let mut resp =
+        Response::new().set_data(to_binary(&ExecuteAnswer::BurnFrom { status: Success })?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
-        let spent_notification = Notification::new (
+        let spent_notification = Notification::new(
             owner,
             SpentNotification {
                 amount: raw_amount,
@@ -445,7 +451,7 @@ pub fn try_burn_from(
                 recipient: None,
                 balance: owner_balance,
                 memo_len,
-            }
+            },
         )
         .to_txhash_notification(deps.api, &env, secret, None)?;
 
@@ -538,22 +544,23 @@ pub fn try_batch_burn_from(
             )));
         }
 
-        spent_notifications.push(Notification::new (
+        spent_notifications.push(Notification::new(
             info.sender.clone(),
             SpentNotification {
                 amount,
                 actions: 1,
                 recipient: None,
                 balance: owner_balance,
-                memo_len: action.memo.as_ref().map(|s| s.len()).unwrap_or_default()
-            }
+                memo_len: action.memo.as_ref().map(|s| s.len()).unwrap_or_default(),
+            },
         ));
     }
 
     TOTAL_SUPPLY.save(deps.storage, &total_supply)?;
 
-    let mut resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::BatchBurnFrom {status: Success,})?);
+    let mut resp = Response::new().set_data(to_binary(&ExecuteAnswer::BatchBurnFrom {
+        status: Success,
+    })?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
         resp = render_group_notification(

@@ -1,18 +1,19 @@
+#[cfg(feature = "gas_evaporation")]
+use cosmwasm_std::Api;
 /// This contract implements SNIP-20 standard:
 /// https://github.com/SecretFoundation/SNIPs/blob/master/SNIP-20.md
 use cosmwasm_std::{
-    entry_point, to_binary, Binary, 
-    Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, 
+    entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult,
 };
-#[cfg(feature = "gas_evaporation")]
-use cosmwasm_std::Api;
-use secret_toolkit::notification::{GroupChannel, DirectChannel,};
+use secret_toolkit::notification::{DirectChannel, GroupChannel};
 use secret_toolkit::permit::{Permit, TokenPermissions};
 use secret_toolkit::utils::{pad_handle_result, pad_query_result};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
 use secret_toolkit_crypto::{hkdf_sha_256, sha_256, ContractPrng};
 
-use crate::{execute, execute_admin, execute_deposit_redeem, execute_mint_burn, execute_transfer_send, query};
+use crate::{
+    execute, execute_admin, execute_deposit_redeem, execute_mint_burn, execute_transfer_send, query,
+};
 
 #[cfg(feature = "gas_tracking")]
 use crate::dwb::log_dwb;
@@ -28,11 +29,12 @@ use crate::msg::{
     ContractStatusLevel, ExecuteMsg, InstantiateMsg, QueryAnswer, QueryMsg, QueryWithPermit,
 };
 use crate::notifications::{
-    AllowanceNotification, MultiRecvdNotification, MultiSpentNotification, RecvdNotification, SpentNotification
+    AllowanceNotification, MultiRecvdNotification, MultiSpentNotification, RecvdNotification,
+    SpentNotification,
 };
 use crate::state::{
-    Config, MintersStore, CHANNELS, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET_RELAXED, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED, 
-    TOTAL_SUPPLY,
+    Config, MintersStore, CHANNELS, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET_RELAXED,
+    INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED, TOTAL_SUPPLY,
 };
 use crate::strings::TRANSFER_HISTORY_UNSUPPORTED_MSG;
 
@@ -233,8 +235,12 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
 
     let response = match msg.clone() {
         // Native
-        ExecuteMsg::Deposit { .. } => execute_deposit_redeem::try_deposit(deps, env, info, &mut rng),
-        ExecuteMsg::Redeem { amount, denom, .. } => execute_deposit_redeem::try_redeem(deps, env, info, amount, denom),
+        ExecuteMsg::Deposit { .. } => {
+            execute_deposit_redeem::try_deposit(deps, env, info, &mut rng)
+        }
+        ExecuteMsg::Redeem { amount, denom, .. } => {
+            execute_deposit_redeem::try_redeem(deps, env, info, amount, denom)
+        }
 
         // Base
         ExecuteMsg::Transfer {
@@ -242,7 +248,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => execute_transfer_send::try_transfer(deps, env, info, &mut rng, recipient, amount, memo),
+        } => {
+            execute_transfer_send::try_transfer(deps, env, info, &mut rng, recipient, amount, memo)
+        }
         ExecuteMsg::Send {
             recipient,
             recipient_code_hash,
@@ -264,12 +272,18 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ExecuteMsg::BatchTransfer { actions, .. } => {
             execute_transfer_send::try_batch_transfer(deps, env, info, &mut rng, actions)
         }
-        ExecuteMsg::BatchSend { actions, .. } => execute_transfer_send::try_batch_send(deps, env, info, &mut rng, actions),
-        ExecuteMsg::Burn { amount, memo, .. } => execute_mint_burn::try_burn(deps, env, info, amount, memo),
+        ExecuteMsg::BatchSend { actions, .. } => {
+            execute_transfer_send::try_batch_send(deps, env, info, &mut rng, actions)
+        }
+        ExecuteMsg::Burn { amount, memo, .. } => {
+            execute_mint_burn::try_burn(deps, env, info, amount, memo)
+        }
         ExecuteMsg::RegisterReceive { code_hash, .. } => {
             execute::try_register_receive(deps, info, code_hash)
         }
-        ExecuteMsg::CreateViewingKey { entropy, .. } => execute::try_create_key(deps, env, info, entropy, &mut rng),
+        ExecuteMsg::CreateViewingKey { entropy, .. } => {
+            execute::try_create_key(deps, env, info, entropy, &mut rng)
+        }
         ExecuteMsg::SetViewingKey { key, .. } => execute::try_set_key(deps, info, key),
 
         // Allowance
@@ -291,7 +305,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             amount,
             memo,
             ..
-        } => execute_transfer_send::try_transfer_from(deps, &env, info, &mut rng, owner, recipient, amount, memo),
+        } => execute_transfer_send::try_transfer_from(
+            deps, &env, info, &mut rng, owner, recipient, amount, memo,
+        ),
         ExecuteMsg::SendFrom {
             owner,
             recipient,
@@ -324,7 +340,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             memo,
             ..
         } => execute_mint_burn::try_burn_from(deps, &env, info, owner, amount, memo),
-        ExecuteMsg::BatchBurnFrom { actions, .. } => execute_mint_burn::try_batch_burn_from(deps, &env, info, actions),
+        ExecuteMsg::BatchBurnFrom { actions, .. } => {
+            execute_mint_burn::try_batch_burn_from(deps, &env, info, actions)
+        }
 
         // Mint
         ExecuteMsg::Mint {
@@ -333,17 +351,25 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             memo,
             ..
         } => execute_mint_burn::try_mint(deps, env, info, &mut rng, recipient, amount, memo),
-        ExecuteMsg::BatchMint { actions, .. } => execute_mint_burn::try_batch_mint(deps, env, info, &mut rng, actions),
+        ExecuteMsg::BatchMint { actions, .. } => {
+            execute_mint_burn::try_batch_mint(deps, env, info, &mut rng, actions)
+        }
 
         // SNIP-24
-        ExecuteMsg::RevokePermit { permit_name, .. } => execute::revoke_permit(deps, info, permit_name),
+        ExecuteMsg::RevokePermit { permit_name, .. } => {
+            execute::revoke_permit(deps, info, permit_name)
+        }
 
         // SNIP-24.1
-        ExecuteMsg::RevokeAllPermits { interval, .. } => execute::revoke_all_permits(deps, info, interval),
-        ExecuteMsg::DeletePermitRevocation { revocation_id, .. } => execute::delete_permit_revocation(deps, info, revocation_id),
+        ExecuteMsg::RevokeAllPermits { interval, .. } => {
+            execute::revoke_all_permits(deps, info, interval)
+        }
+        ExecuteMsg::DeletePermitRevocation { revocation_id, .. } => {
+            execute::delete_permit_revocation(deps, info, revocation_id)
+        }
 
         // Admin functions
-        _ => admin_execute(deps, info, msg)
+        _ => admin_execute(deps, info, msg),
     };
 
     let padded_result = pad_handle_result(response, RESPONSE_BLOCK_SIZE);
@@ -366,20 +392,32 @@ pub fn admin_execute(deps: DepsMut, info: MessageInfo, msg: ExecuteMsg) -> StdRe
     }
 
     match msg {
-        ExecuteMsg::ChangeAdmin { address, .. } => execute_admin::change_admin(deps, &mut config, address),
-        ExecuteMsg::SetContractStatus { level, .. } => execute_admin::set_contract_status(deps, level),
-        ExecuteMsg::AddMinters { minters, .. } => execute_admin::add_minters(deps, &config, minters),
-        ExecuteMsg::RemoveMinters { minters, .. } => execute_admin::remove_minters(deps, &config, minters),
-        ExecuteMsg::SetMinters { minters, .. } => execute_admin::set_minters(deps, &config, minters),
-        ExecuteMsg::AddSupportedDenoms { denoms, .. } => execute_admin::add_supported_denoms(deps, &mut config, denoms),
+        ExecuteMsg::ChangeAdmin { address, .. } => {
+            execute_admin::change_admin(deps, &mut config, address)
+        }
+        ExecuteMsg::SetContractStatus { level, .. } => {
+            execute_admin::set_contract_status(deps, level)
+        }
+        ExecuteMsg::AddMinters { minters, .. } => {
+            execute_admin::add_minters(deps, &config, minters)
+        }
+        ExecuteMsg::RemoveMinters { minters, .. } => {
+            execute_admin::remove_minters(deps, &config, minters)
+        }
+        ExecuteMsg::SetMinters { minters, .. } => {
+            execute_admin::set_minters(deps, &config, minters)
+        }
+        ExecuteMsg::AddSupportedDenoms { denoms, .. } => {
+            execute_admin::add_supported_denoms(deps, &mut config, denoms)
+        }
         ExecuteMsg::RemoveSupportedDenoms { denoms, .. } => {
             execute_admin::remove_supported_denoms(deps, &mut config, denoms)
-        },
+        }
 
         // SNIP-52
         ExecuteMsg::SetNotificationStatus { enabled, .. } => {
             execute_admin::set_notification_status(deps, enabled)
-        },
+        }
         _ => panic!("This execute type is not an admin function"),
     }
 }
@@ -405,17 +443,17 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     )
 }
 
-fn permit_queries(deps: Deps, env: Env, permit: Permit, query: QueryWithPermit) -> Result<Binary, StdError> {
+fn permit_queries(
+    deps: Deps,
+    env: Env,
+    permit: Permit,
+    query: QueryWithPermit,
+) -> Result<Binary, StdError> {
     // Validate permit content
     let token_address = CONFIG.load(deps.storage)?.contract_address;
 
-    let account = secret_toolkit::permit::validate(
-        deps,
-        &env,
-        &permit,
-        token_address.into_string(),
-        None,
-    )?;
+    let account =
+        secret_toolkit::permit::validate(deps, &env, &permit, token_address.into_string(), None)?;
 
     // Permit validated! We can now execute the query.
     match query {
@@ -516,9 +554,9 @@ fn permit_queries(deps: Deps, env: Env, permit: Permit, query: QueryWithPermit) 
                     "No permission to query list permit revocations, got permissions {:?}",
                     permit.params.permissions
                 )));
-            } 
-            query::query_list_permit_revocations(deps, account.as_str()) 
-        },
+            }
+            query::query_list_permit_revocations(deps, account.as_str())
+        }
     }
 }
 
@@ -540,7 +578,9 @@ pub fn viewing_keys_queries(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Bi
                     page_size,
                     ..
                 } => query::query_transactions(deps, address, page.unwrap_or(0), page_size),
-                QueryMsg::Allowance { owner, spender, .. } => query::query_allowance(deps, owner, spender),
+                QueryMsg::Allowance { owner, spender, .. } => {
+                    query::query_allowance(deps, owner, spender)
+                }
                 QueryMsg::AllowancesGiven {
                     owner,
                     page,
@@ -564,7 +604,9 @@ pub fn viewing_keys_queries(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Bi
                     txhash,
                     deps.api.addr_canonicalize(viewer.address.as_str())?,
                 ),
-                QueryMsg::ListPermitRevocations{viewer, .. } => query::query_list_permit_revocations(deps, viewer.address.as_str()),
+                QueryMsg::ListPermitRevocations { viewer, .. } => {
+                    query::query_list_permit_revocations(deps, viewer.address.as_str())
+                }
                 _ => panic!("This query type does not require authentication"),
             };
         }
@@ -603,14 +645,17 @@ mod tests {
     use std::any::Any;
 
     use cosmwasm_std::{
-        from_binary, testing::*, Addr, Api, BlockInfo, Coin, ContractInfo, CosmosMsg, MessageInfo, OwnedDeps, QueryResponse, ReplyOn, SubMsg, Timestamp, TransactionInfo, Uint128, WasmMsg
+        from_binary, testing::*, Addr, Api, BlockInfo, Coin, ContractInfo, CosmosMsg, MessageInfo,
+        OwnedDeps, QueryResponse, ReplyOn, SubMsg, Timestamp, TransactionInfo, Uint128, WasmMsg,
     };
     use secret_toolkit::permit::{PermitParams, PermitSignature, PubKey};
 
     use crate::batch;
     use crate::btbe::stored_balance;
     use crate::dwb::{TX_NODES, TX_NODES_COUNT};
-    use crate::msg::{ExecuteAnswer, InitConfig, InitialBalance, ResponseStatus, ResponseStatus::Success};
+    use crate::msg::{
+        ExecuteAnswer, InitConfig, InitialBalance, ResponseStatus, ResponseStatus::Success,
+    };
     use crate::receiver::Snip20ReceiveMsg;
     use crate::state::{AllowancesStore, ReceiverHashStore, TX_COUNT};
     use crate::transaction_history::{Tx, TxAction};

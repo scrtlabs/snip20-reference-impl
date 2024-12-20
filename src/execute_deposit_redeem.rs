@@ -1,13 +1,13 @@
 use cosmwasm_std::{
-    to_binary, BankMsg, BlockInfo, CanonicalAddr, Coin, CosmosMsg, DepsMut, Env, MessageInfo, Response, StdError, 
-    StdResult, Storage, Uint128,
+    to_binary, BankMsg, BlockInfo, CanonicalAddr, Coin, CosmosMsg, DepsMut, Env, MessageInfo,
+    Response, StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit_crypto::ContractPrng;
 
 use crate::dwb::DWB;
 use crate::msg::{ExecuteAnswer, ResponseStatus::Success};
 use crate::state::{safe_add, CONFIG, TOTAL_SUPPLY};
-use crate::transaction_history::{store_deposit_action, store_redeem_action,};
+use crate::transaction_history::{store_deposit_action, store_redeem_action};
 
 // deposit functions
 

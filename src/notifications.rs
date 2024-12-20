@@ -1,15 +1,14 @@
 use std::collections::HashMap;
 
 use cosmwasm_std::{Addr, Api, Binary, CanonicalAddr, Response, StdResult};
+use minicbor::Encoder;
 use primitive_types::{U256, U512};
 use secret_toolkit::notification::{
-    get_seed, notification_id, xor_bytes, EncoderExt, CBL_ADDRESS, CBL_ARRAY_SHORT, CBL_BIGNUM_U64, CBL_TIMESTAMP, CBL_U8, Notification, 
-    DirectChannel, GroupChannel,
+    get_seed, notification_id, xor_bytes, DirectChannel, EncoderExt, GroupChannel, Notification,
+    CBL_ADDRESS, CBL_ARRAY_SHORT, CBL_BIGNUM_U64, CBL_TIMESTAMP, CBL_U8,
 };
-use minicbor::Encoder;
 use secret_toolkit_crypto::{hkdf_sha_512, sha_256};
 use serde::{Deserialize, Serialize};
-
 
 const ZERO_ADDR: [u8; 20] = [0u8; 20];
 
@@ -18,7 +17,6 @@ const U62_MAX: u128 = (1 << 62) - 1;
 
 // maximum value that can be stored in 63 bits
 const U63_MAX: u128 = (1 << 63) - 1;
-
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
@@ -39,9 +37,11 @@ pub struct RecvdNotification {
 impl DirectChannel for RecvdNotification {
     const CHANNEL_ID: &'static str = "recvd";
     #[cfg(test)]
-    const CDDL_SCHEMA: &'static str = "recvd=[amount:biguint .size 8,sender:bstr .size 54,memo_len:uint .size 1]";
+    const CDDL_SCHEMA: &'static str =
+        "recvd=[amount:biguint .size 8,sender:bstr .size 54,memo_len:uint .size 1]";
     #[cfg(not(test))]
-    const CDDL_SCHEMA: &'static str = "recvd=[amount:biguint .size 8,sender:bstr .size 20,memo_len:uint .size 1]";
+    const CDDL_SCHEMA: &'static str =
+        "recvd=[amount:biguint .size 8,sender:bstr .size 20,memo_len:uint .size 1]";
     const ELEMENTS: u64 = 3;
     #[cfg(test)]
     const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + 55 + CBL_U8;
@@ -85,7 +85,6 @@ pub struct SpentNotification {
     pub memo_len: usize,
 }
 
-
 impl DirectChannel for SpentNotification {
     const CHANNEL_ID: &'static str = "spent";
     #[cfg(test)]
@@ -96,7 +95,8 @@ impl DirectChannel for SpentNotification {
     #[cfg(test)]
     const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + CBL_U8 + 55 + CBL_BIGNUM_U64;
     #[cfg(not(test))]
-    const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + CBL_U8 + CBL_ADDRESS + CBL_BIGNUM_U64;
+    const PAYLOAD_SIZE: usize =
+        CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + CBL_U8 + CBL_ADDRESS + CBL_BIGNUM_U64;
 
     fn encode_cbor(&self, api: &dyn Api, encoder: &mut Encoder<&mut [u8]>) -> StdResult<()> {
         // amount:biguint (8-byte uint), actions:uint (1-byte uint)
@@ -114,11 +114,10 @@ impl DirectChannel for SpentNotification {
 
         // balance:biguint (8-byte uint)
         spent_data.ext_u64_from_u128(self.balance)?;
-        
+
         Ok(())
     }
 }
-
 
 ///```cddl
 /// allowance = [
@@ -138,9 +137,11 @@ pub struct AllowanceNotification {
 impl DirectChannel for AllowanceNotification {
     const CHANNEL_ID: &'static str = "allowance";
     #[cfg(test)]
-    const CDDL_SCHEMA: &'static str = "allowance=[amount:biguint .size 8,allower:bstr .size 54,expiration:uint .size 8]";
+    const CDDL_SCHEMA: &'static str =
+        "allowance=[amount:biguint .size 8,allower:bstr .size 54,expiration:uint .size 8]";
     #[cfg(not(test))]
-    const CDDL_SCHEMA: &'static str = "allowance=[amount:biguint .size 8,allower:bstr .size 20,expiration:uint .size 8]";
+    const CDDL_SCHEMA: &'static str =
+        "allowance=[amount:biguint .size 8,allower:bstr .size 20,expiration:uint .size 8]";
     const ELEMENTS: u64 = 3;
     #[cfg(test)]
     const PAYLOAD_SIZE: usize = CBL_ARRAY_SHORT + CBL_BIGNUM_U64 + 55 + CBL_TIMESTAMP;
@@ -184,8 +185,8 @@ impl GroupChannel<RecvdNotification> for MultiRecvdNotification {
         // encode flags and amount into 8 bytes (leftmost 2 bits reserved)
         let amount_bytes = &(data.amount.clamp(0, U62_MAX)
             | (((data.memo_len != 0) as u128) << 63)
-            | ((data.sender_is_owner as u128) << 62)
-        ).to_be_bytes()[8..];
+            | ((data.sender_is_owner as u128) << 62))
+            .to_be_bytes()[8..];
 
         // packet flag bits and amount bytes (u64 == 8 bytes)
         packet_plaintext[0..8].copy_from_slice(amount_bytes);
@@ -212,7 +213,9 @@ impl GroupChannel<RecvdNotification> for MultiRecvdNotification {
 const_assert!(MultiRecvdNotification::BLOOM_M <= 512);
 
 // ensure m is a power of 2
-const_assert!(MultiRecvdNotification::BLOOM_M.trailing_zeros() == MultiRecvdNotification::BLOOM_M_LOG2);
+const_assert!(
+    MultiRecvdNotification::BLOOM_M.trailing_zeros() == MultiRecvdNotification::BLOOM_M_LOG2
+);
 
 // ensure there are enough bits in the 32-byte source hash to provide entropy for the hashes
 const_assert!(MultiRecvdNotification::BLOOM_K * MultiRecvdNotification::BLOOM_M_LOG2 <= 256);
@@ -220,9 +223,7 @@ const_assert!(MultiRecvdNotification::BLOOM_K * MultiRecvdNotification::BLOOM_M_
 // this implementation is optimized to not check for packet sizes larger than 24 bytes
 const_assert!(MultiRecvdNotification::PACKET_SIZE <= 24);
 
-
 pub struct MultiSpentNotification(pub Vec<Notification<SpentNotification>>);
-
 
 impl GroupChannel<SpentNotification> for MultiSpentNotification {
     const CHANNEL_ID: &str = "multispent";
@@ -245,8 +246,8 @@ impl GroupChannel<SpentNotification> for MultiSpentNotification {
 
         // encode flags and amount into 8 bytes (leftmost 2 bits reserved)
         let amount_bytes = &(data.amount.clamp(0, U62_MAX)
-            | (((data.memo_len != 0) as u128) << 63)
-        ).to_be_bytes()[8..];
+            | (((data.memo_len != 0) as u128) << 63))
+            .to_be_bytes()[8..];
 
         // packet flags and amount bytes (u64 == 8 bytes)
         packet_plaintext[0..8].copy_from_slice(amount_bytes);
@@ -265,11 +266,8 @@ impl GroupChannel<SpentNotification> for MultiSpentNotification {
         packet_plaintext[8..16].copy_from_slice(&recipient_bytes[12..]);
 
         // balance bytes (u64 == 8 bytes)
-        packet_plaintext[16..24].copy_from_slice(
-            &data.balance
-                .clamp(0, u64::MAX.into())
-                .to_be_bytes()[8..]
-        );
+        packet_plaintext[16..24]
+            .copy_from_slice(&data.balance.clamp(0, u64::MAX.into()).to_be_bytes()[8..]);
 
         // 24 bytes total
         Ok(packet_plaintext.to_vec())
@@ -280,14 +278,15 @@ impl GroupChannel<SpentNotification> for MultiSpentNotification {
 const_assert!(MultiSpentNotification::BLOOM_M <= 512);
 
 // ensure m is a power of 2
-const_assert!(MultiSpentNotification::BLOOM_M.trailing_zeros() == MultiSpentNotification::BLOOM_M_LOG2);
+const_assert!(
+    MultiSpentNotification::BLOOM_M.trailing_zeros() == MultiSpentNotification::BLOOM_M_LOG2
+);
 
 // ensure there are enough bits in the 32-byte source hash to provide entropy for the hashes
 const_assert!(MultiSpentNotification::BLOOM_K * MultiSpentNotification::BLOOM_M_LOG2 <= 256);
 
 // this implementation is optimized to not check for packet sizes larger than 24 bytes
 const_assert!(MultiSpentNotification::PACKET_SIZE <= 24);
-
 
 struct BloomFilter {
     filter: U512,
@@ -309,10 +308,12 @@ impl BloomFilter {
 
         // each hash section for up to k times
         for i in 0..G::BLOOM_K {
-            let bit_index = ((hash_bytes >> (256 - G::BLOOM_M_LOG2 - (i * G::BLOOM_M_LOG2))) & bloom_mask).as_usize();
+            let bit_index = ((hash_bytes >> (256 - G::BLOOM_M_LOG2 - (i * G::BLOOM_M_LOG2)))
+                & bloom_mask)
+                .as_usize();
             self.filter |= U512::from(1) << bit_index;
         }
-        
+
         // use top 64 bits of notification ID for packet ID
         let packet_id = &id.0.as_slice()[0..8];
 
@@ -320,21 +321,14 @@ impl BloomFilter {
         let packet_ikm = &id.0.as_slice()[8..32];
 
         // create ciphertext by XOR'ing the plaintext with the notification ID
-        let packet_ciphertext = xor_bytes(
-            &packet_plaintext[..],
-            &packet_ikm[0..G::PACKET_SIZE]
-        );
+        let packet_ciphertext = xor_bytes(&packet_plaintext[..], &packet_ikm[0..G::PACKET_SIZE]);
 
         // construct the packet bytes
-        let packet_bytes: Vec<u8> = [
-            packet_id.to_vec(),
-            packet_ciphertext,
-        ].concat();
+        let packet_bytes: Vec<u8> = [packet_id.to_vec(), packet_ciphertext].concat();
 
         Ok(packet_bytes)
     }
 }
-
 
 pub fn render_group_notification<D: DirectChannel, G: GroupChannel<D>>(
     api: &dyn Api,
@@ -366,9 +360,7 @@ pub fn render_group_notification<D: DirectChannel, G: GroupChannel<D>>(
         // increment count of recipient occurrence
         recipient_counts.insert(
             notification_for,
-            recipient_counts
-                .get(&notifyee)
-                .unwrap_or(&0u16) + 1,
+            recipient_counts.get(&notifyee).unwrap_or(&0u16) + 1,
         );
 
         // skip adding this packet if recipient was already seen
@@ -380,10 +372,7 @@ pub fn render_group_notification<D: DirectChannel, G: GroupChannel<D>>(
         let packet_plaintext = &group.build_packet(api, &notification.data)?;
 
         // add to bloom filter
-        let packet_bytes = bloom_filter.add::<D, G>(
-            &notifyee,
-            packet_plaintext,
-        )?;
+        let packet_bytes = bloom_filter.add::<D, G>(&notifyee, packet_plaintext)?;
 
         // add to packets data
         packets.push((notifyee, packet_bytes));
@@ -409,14 +398,14 @@ pub fn render_group_notification<D: DirectChannel, G: GroupChannel<D>>(
             &Some(vec![0u8; 64]),
             &env_random,
             format!("{}:decoys", G::CHANNEL_ID).as_bytes(),
-            padding_size * 20,  // 20 bytes per random addr
+            padding_size * 20, // 20 bytes per random addr
         )?;
 
         // handle each padding package
         for i in 0..padding_size {
             // generate address
             let address = CanonicalAddr::from(&decoy_addresses[i * 20..(i + 1) * 20]);
-            
+
             // nil plaintext
             let packet_plaintext = vec![0u8; G::PACKET_SIZE];
 
@@ -433,7 +422,8 @@ pub fn render_group_notification<D: DirectChannel, G: GroupChannel<D>>(
 
     // append bloom filter (taking m bottom bits of 512-bit filter)
     output_bytes.extend_from_slice(
-        &bloom_filter.filter.to_big_endian()[((512 - G::BLOOM_M as usize) >> 3)..]);
+        &bloom_filter.filter.to_big_endian()[((512 - G::BLOOM_M as usize) >> 3)..],
+    );
 
     // append packets
     for packet in packets {
@@ -443,5 +433,6 @@ pub fn render_group_notification<D: DirectChannel, G: GroupChannel<D>>(
     // Ok(output_bytes)
     Ok(resp.add_attribute_plaintext(
         format!("snip52:#{}", G::CHANNEL_ID),
-        Binary::from(output_bytes).to_base64()))
+        Binary::from(output_bytes).to_base64(),
+    ))
 }

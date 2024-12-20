@@ -1,17 +1,25 @@
-use cosmwasm_std::{to_binary, Addr, Binary, CanonicalAddr, Deps, Env, StdError, StdResult, Storage, Uint128, Uint64};
+use cosmwasm_std::{
+    to_binary, Addr, Binary, CanonicalAddr, Deps, Env, StdError, StdResult, Storage, Uint128,
+    Uint64,
+};
 use rand_chacha::ChaChaRng;
 use rand_core::{RngCore, SeedableRng};
 use secret_toolkit::notification::{
-    get_seed, notification_id, BloomParameters, ChannelInfoData, Descriptor, DirectChannel, FlatDescriptor, GroupChannel, StructDescriptor,
+    get_seed, notification_id, BloomParameters, ChannelInfoData, Descriptor, DirectChannel,
+    FlatDescriptor, GroupChannel, StructDescriptor,
 };
 use secret_toolkit::permit::{RevokedPermits, RevokedPermitsStore};
 
 use crate::btbe::{find_start_bundle, stored_balance, stored_entry, stored_tx_count};
 use crate::dwb::{DWB, TX_NODES};
 use crate::msg::{AllowanceGivenResult, AllowanceReceivedResult, QueryAnswer};
-use crate::notifications::{AllowanceNotification, MultiRecvdNotification, MultiSpentNotification, RecvdNotification, SpentNotification};
+use crate::notifications::{
+    AllowanceNotification, MultiRecvdNotification, MultiSpentNotification, RecvdNotification,
+    SpentNotification,
+};
 use crate::state::{
-    AllowancesStore, MintersStore, CHANNELS, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET_RELAXED, INTERNAL_SECRET_SENSITIVE, TOTAL_SUPPLY
+    AllowancesStore, MintersStore, CHANNELS, CONFIG, CONTRACT_STATUS, INTERNAL_SECRET_RELAXED,
+    INTERNAL_SECRET_SENSITIVE, TOTAL_SUPPLY,
 };
 use crate::transaction_history::Tx;
 
@@ -383,10 +391,7 @@ pub fn query_allowances_received(
 // *****************
 
 pub fn query_list_permit_revocations(deps: Deps, account: &str) -> StdResult<Binary> {
-    let revocations = RevokedPermits::list_revocations(
-        deps.storage, 
-        account
-    )?;
+    let revocations = RevokedPermits::list_revocations(deps.storage, account)?;
 
     to_binary(&QueryAnswer::ListPermitRevocations { revocations })
 }

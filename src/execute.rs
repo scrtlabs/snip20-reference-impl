@@ -1,4 +1,6 @@
-use cosmwasm_std::{to_binary, Addr, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128};
+use cosmwasm_std::{
+    to_binary, Addr, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128,
+};
 use secret_toolkit::notification::Notification;
 use secret_toolkit::permit::{AllRevokedInterval, RevokedPermits, RevokedPermitsStore};
 use secret_toolkit::viewing_key::{ViewingKey, ViewingKeyStore};
@@ -6,7 +8,9 @@ use secret_toolkit_crypto::ContractPrng;
 
 use crate::msg::{ExecuteAnswer, ResponseStatus::Success};
 use crate::notifications::AllowanceNotification;
-use crate::state::{AllowancesStore, ReceiverHashStore, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED};
+use crate::state::{
+    AllowancesStore, ReceiverHashStore, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED,
+};
 
 // viewing key functions
 
@@ -28,13 +32,7 @@ pub fn try_create_key(
 ) -> StdResult<Response> {
     let entropy = [entropy.unwrap_or_default().as_bytes(), &rng.rand_bytes()].concat();
 
-    let key = ViewingKey::create(
-        deps.storage,
-        &info,
-        &env,
-        info.sender.as_str(),
-        &entropy,
-    );
+    let key = ViewingKey::create(deps.storage, &info, &env, info.sender.as_str(), &entropy);
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::CreateViewingKey { key })?))
 }
@@ -115,31 +113,28 @@ pub fn try_increase_allowance(
     let new_amount = allowance.amount;
     AllowancesStore::save(deps.storage, &info.sender, &spender, &allowance)?;
 
-    let mut resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::IncreaseAllowance {
-            owner: info.sender.clone(),
-            spender: spender.clone(),
-            allowance: Uint128::from(new_amount),
-        })?);
-    
+    let mut resp = Response::new().set_data(to_binary(&ExecuteAnswer::IncreaseAllowance {
+        owner: info.sender.clone(),
+        spender: spender.clone(),
+        allowance: Uint128::from(new_amount),
+    })?);
+
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
-        let notification = Notification::new (
+        let notification = Notification::new(
             spender,
             AllowanceNotification {
                 amount: new_amount,
                 allower: info.sender,
                 expiration,
-            }
+            },
         )
         .to_txhash_notification(deps.api, &env, secret, None)?;
 
-        resp = resp.add_attribute_plaintext(
-            notification.id_plaintext(),
-            notification.data_plaintext()
-        );
+        resp = resp
+            .add_attribute_plaintext(notification.id_plaintext(), notification.data_plaintext());
     }
 
-    Ok(resp)  
+    Ok(resp)
 }
 
 pub fn try_decrease_allowance(
@@ -172,28 +167,25 @@ pub fn try_decrease_allowance(
     let new_amount = allowance.amount;
     AllowancesStore::save(deps.storage, &info.sender, &spender, &allowance)?;
 
-    let mut resp = Response::new()
-        .set_data(to_binary(&ExecuteAnswer::DecreaseAllowance {
-            owner: info.sender.clone(),
-            spender: spender.clone(),
-            allowance: Uint128::from(new_amount),
-        })?);
+    let mut resp = Response::new().set_data(to_binary(&ExecuteAnswer::DecreaseAllowance {
+        owner: info.sender.clone(),
+        spender: spender.clone(),
+        allowance: Uint128::from(new_amount),
+    })?);
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
-        let notification = Notification::new (
+        let notification = Notification::new(
             spender,
             AllowanceNotification {
                 amount: new_amount,
                 allower: info.sender,
                 expiration,
-            }
+            },
         )
         .to_txhash_notification(deps.api, &env, secret, None)?;
 
-        resp = resp.add_attribute_plaintext(
-            notification.id_plaintext(),
-            notification.data_plaintext()
-        );
+        resp = resp
+            .add_attribute_plaintext(notification.id_plaintext(), notification.data_plaintext());
     }
 
     Ok(resp)
@@ -202,41 +194,37 @@ pub fn try_decrease_allowance(
 // SNIP 24, 24.1 permit functions
 
 pub fn revoke_permit(deps: DepsMut, info: MessageInfo, permit_name: String) -> StdResult<Response> {
-    RevokedPermits::revoke_permit(
-        deps.storage,
-        info.sender.as_str(),
-        &permit_name,
-    );
+    RevokedPermits::revoke_permit(deps.storage, info.sender.as_str(), &permit_name);
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::RevokePermit { status: Success })?))
 }
 
-pub fn revoke_all_permits(deps: DepsMut, info: MessageInfo, interval: AllRevokedInterval) -> StdResult<Response> {
-    let revocation_id = RevokedPermits::revoke_all_permits(
-        deps.storage,
-        info.sender.as_str(),
-        &interval,
-    )?;
+pub fn revoke_all_permits(
+    deps: DepsMut,
+    info: MessageInfo,
+    interval: AllRevokedInterval,
+) -> StdResult<Response> {
+    let revocation_id =
+        RevokedPermits::revoke_all_permits(deps.storage, info.sender.as_str(), &interval)?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::RevokeAllPermits { 
-        status: Success,
-        revocation_id: Some(revocation_id.to_string()),
-    })?))
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::RevokeAllPermits {
+            status: Success,
+            revocation_id: Some(revocation_id.to_string()),
+        })?),
+    )
 }
 
-pub fn delete_permit_revocation(deps: DepsMut, info: MessageInfo, revocation_id: String) -> StdResult<Response> {
-    RevokedPermits::delete_revocation(
-        deps.storage,
-        info.sender.as_str(),
-        revocation_id.as_str(),
-    )?;
+pub fn delete_permit_revocation(
+    deps: DepsMut,
+    info: MessageInfo,
+    revocation_id: String,
+) -> StdResult<Response> {
+    RevokedPermits::delete_revocation(deps.storage, info.sender.as_str(), revocation_id.as_str())?;
 
-    Ok(Response::new().set_data(to_binary(&ExecuteAnswer::DeletePermitRevocation { 
-        status: Success,
-    })?))
+    Ok(
+        Response::new().set_data(to_binary(&ExecuteAnswer::DeletePermitRevocation {
+            status: Success,
+        })?),
+    )
 }
-
-
-
-
-
