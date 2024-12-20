@@ -118,7 +118,7 @@ pub fn query_transactions(
             let head_node = TX_NODES
                 .add_suffix(&head_node_index.to_be_bytes())
                 .load(deps.storage)?;
-            txs_in_dwb = head_node.to_vec(deps.storage, deps.api)?;
+            txs_in_dwb = head_node.as_vec(deps.storage, deps.api)?;
         }
     }
 
@@ -148,7 +148,7 @@ pub fn query_transactions(
             if tx_bundles_idx_len > 0 {
                 let mut bundle_idx = tx_bundles_idx_len - 1;
                 loop {
-                    let tx_bundle = entry.get_tx_bundle_at(deps.storage, bundle_idx.clone())?;
+                    let tx_bundle = entry.get_tx_bundle_at(deps.storage, bundle_idx)?;
 
                     // only look if head node is not null
                     if tx_bundle.head_node > 0 {
@@ -159,11 +159,11 @@ pub fn query_transactions(
                         let list_len = tx_bundle.list_len as u32;
                         if txs_left <= list_len {
                             txs.extend_from_slice(
-                                &head_node.to_vec(deps.storage, deps.api)?[0..txs_left as usize],
+                                &head_node.as_vec(deps.storage, deps.api)?[0..txs_left as usize],
                             );
                             break;
                         }
-                        txs.extend(head_node.to_vec(deps.storage, deps.api)?);
+                        txs.extend(head_node.as_vec(deps.storage, deps.api)?);
                         txs_left = txs_left.saturating_sub(list_len);
                     }
                     if bundle_idx > 0 {
@@ -197,7 +197,7 @@ pub fn query_transactions(
                         .add_suffix(&tx_bundle.head_node.to_be_bytes())
                         .load(deps.storage)?;
                     // this first bundle has all the txs we need
-                    txs = head_node.to_vec(deps.storage, deps.api)?
+                    txs = head_node.as_vec(deps.storage, deps.api)?
                         [start_at as usize..(start_at + txs_left) as usize]
                         .to_vec();
                 }
@@ -208,7 +208,7 @@ pub fn query_transactions(
                         .add_suffix(&tx_bundle.head_node.to_be_bytes())
                         .load(deps.storage)?;
                     // get the rest of the txs in this bundle and then go back through history
-                    txs = head_node.to_vec(deps.storage, deps.api)?[start_at as usize..].to_vec();
+                    txs = head_node.as_vec(deps.storage, deps.api)?[start_at as usize..].to_vec();
                     txs_left = txs_left.saturating_sub(list_len - start_at);
                 }
 
@@ -218,7 +218,7 @@ pub fn query_transactions(
                     if let Some(entry) = account_stored_entry {
                         loop {
                             let tx_bundle =
-                                entry.get_tx_bundle_at(deps.storage, bundle_idx.clone())?;
+                                entry.get_tx_bundle_at(deps.storage, bundle_idx)?;
                             // only look if head node is not null
                             if tx_bundle.head_node > 0 {
                                 let head_node = TX_NODES
@@ -227,12 +227,12 @@ pub fn query_transactions(
                                 let list_len = tx_bundle.list_len as u32;
                                 if txs_left <= list_len {
                                     txs.extend_from_slice(
-                                        &head_node.to_vec(deps.storage, deps.api)?
+                                        &head_node.as_vec(deps.storage, deps.api)?
                                             [0..txs_left as usize],
                                     );
                                     break;
                                 }
-                                txs.extend(head_node.to_vec(deps.storage, deps.api)?);
+                                txs.extend(head_node.as_vec(deps.storage, deps.api)?);
                                 txs_left = txs_left.saturating_sub(list_len);
                             }
                             if bundle_idx > 0 {
@@ -335,7 +335,7 @@ pub fn query_allowances_given(
     let owner = Addr::unchecked(owner);
 
     let all_allowances =
-        AllowancesStore::all_allowances(deps.storage, &owner, page, page_size).unwrap_or(vec![]);
+        AllowancesStore::all_allowances(deps.storage, &owner, page, page_size).unwrap_or_default();
 
     let allowances_result = all_allowances
         .into_iter()
@@ -367,7 +367,7 @@ pub fn query_allowances_received(
     let spender = Addr::unchecked(spender);
 
     let all_allowed =
-        AllowancesStore::all_allowed(deps.storage, &spender, page, page_size).unwrap_or(vec![]);
+        AllowancesStore::all_allowed(deps.storage, &spender, page, page_size).unwrap_or_default();
 
     let allowances = all_allowed
         .into_iter()

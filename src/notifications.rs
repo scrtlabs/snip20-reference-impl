@@ -196,7 +196,7 @@ impl GroupChannel<RecvdNotification> for MultiRecvdNotification {
         let owner_bytes: &[u8];
         if let Some(owner) = &data.sender {
             owner_addr = api.addr_canonicalize(owner.as_str())?;
-            owner_bytes = &owner_addr.as_slice()
+            owner_bytes = owner_addr.as_slice()
         } else {
             owner_bytes = &ZERO_ADDR;
         }
@@ -298,10 +298,10 @@ impl BloomFilter {
     fn add<D: DirectChannel, G: GroupChannel<D>>(
         &mut self,
         recipient: &CanonicalAddr,
-        packet_plaintext: &Vec<u8>,
+        packet_plaintext: &[u8],
     ) -> StdResult<Vec<u8>> {
         // contribute to received bloom filter
-        let seed = get_seed(&recipient, &self.secret)?;
+        let seed = get_seed(recipient, &self.secret)?;
         let id = notification_id(&seed, G::CHANNEL_ID, &self.tx_hash)?;
         let hash_bytes = U256::from_big_endian(&sha_256(id.0.as_slice()));
         let bloom_mask: U256 = U256::from(G::BLOOM_M - 1);

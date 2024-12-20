@@ -212,6 +212,7 @@ fn try_mint_impl(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn perform_mint(
     store: &mut dyn Storage,
     rng: &mut ContractPrng,
@@ -453,7 +454,7 @@ pub fn try_burn_from(
                 memo_len,
             },
         )
-        .to_txhash_notification(deps.api, &env, secret, None)?;
+        .to_txhash_notification(deps.api, env, secret, None)?;
 
         resp = resp.add_attribute_plaintext(
             spent_notification.id_plaintext(),

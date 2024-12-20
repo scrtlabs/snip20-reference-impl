@@ -153,10 +153,7 @@ pub fn instantiate(
         }
     }
 
-    let supported_denoms = match msg.supported_denoms {
-        None => vec![],
-        Some(x) => x,
-    };
+    let supported_denoms = msg.supported_denoms.unwrap_or_default();
 
     CONFIG.save(
         deps.storage,
@@ -468,7 +465,7 @@ fn permit_queries(
             query::query_balance(deps, account)
         }
         QueryWithPermit::TransferHistory { .. } => {
-            return Err(StdError::generic_err(TRANSFER_HISTORY_UNSUPPORTED_MSG));
+            Err(StdError::generic_err(TRANSFER_HISTORY_UNSUPPORTED_MSG))
         }
         QueryWithPermit::TransactionHistory { page, page_size } => {
             if !permit.check_permission(&TokenPermissions::History) {
@@ -1048,7 +1045,7 @@ mod tests {
             .add_suffix(&alice_entry.head_node().unwrap().to_be_bytes())
             .load(&deps.storage)
             .unwrap()
-            .to_vec(&deps.storage, &deps.api)
+            .as_vec(&deps.storage, &deps.api)
             .unwrap();
 
         let expected_alice_nodes: Vec<Tx> = vec![

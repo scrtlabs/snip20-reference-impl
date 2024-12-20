@@ -59,7 +59,7 @@ impl StoredEntry {
 
         let mut result = [0u8; BTBE_BUCKET_ENTRY_BYTES];
         result[..BTBE_BUCKET_ADDRESS_BYTES].copy_from_slice(address);
-        Ok(Self { 0: result })
+        Ok(Self(result))
     }
 
     fn from(
@@ -159,15 +159,13 @@ impl StoredEntry {
 
     pub fn routes_to_right_node(&self, bit_pos: usize, secret: &[u8]) -> StdResult<bool> {
         // target byte value
-        let byte;
-
         // bit pos is cached
-        if bit_pos < (BTBE_BUCKET_CACHE_BYTES << 3) {
+        let byte = if bit_pos < (BTBE_BUCKET_CACHE_BYTES << 3) {
             // select the byte from cache corresponding to this bit position
-            byte = self.0[BTBE_BUCKET_ADDRESS_BYTES
+            self.0[BTBE_BUCKET_ADDRESS_BYTES
                 + BTBE_BUCKET_BALANCE_BYTES
                 + BTBE_BUCKET_HISTORY_BYTES
-                + (bit_pos >> 3)];
+                + (bit_pos >> 3)]
         }
         // not cached; calculate on the fly
         else {
@@ -180,11 +178,11 @@ impl StoredEntry {
             )?;
 
             // select the byte containing the target bit
-            byte = key_bytes[bit_pos >> 3];
-        }
+            key_bytes[bit_pos >> 3]
+        };
 
         // extract value at bit position and turn into bool
-        return Ok(((byte >> (7 - (bit_pos % 8))) & 1) != 0);
+        Ok(((byte >> (7 - (bit_pos % 8))) & 1) != 0)
     }
 
     pub fn merge_dwb_entry(
@@ -229,9 +227,7 @@ impl StoredEntry {
         // peek at the last tx bundle added (read the dummy one if its void)
         let last_tx_bundle_result = self.get_tx_bundle_at_unchecked(storage, bundle_pos);
         if last_tx_bundle_result.is_err() {
-            return Err(StdError::generic_err(format!(
-                "missing tx bundle while merging dwb entry!",
-            )));
+            return Err(StdError::generic_err("missing tx bundle while merging dwb entry!"));
         }
 
         // unwrap
@@ -469,7 +465,7 @@ pub fn locate_btbe_node(
     // while the node has children
     while node.bucket == 0 {
         // calculate bit value at current bit position
-        let bit_value = (hash[(bit_pos / 8) as usize] >> (7 - (bit_pos % 8))) & 1;
+        let bit_value = (hash[bit_pos / 8] >> (7 - (bit_pos % 8))) & 1;
 
         // increment bit position
         bit_pos += 1;
@@ -584,7 +580,7 @@ pub fn settle_dwb_entry(
     if let Some((idx, mut found_entry)) = bucket.constant_time_find_address(address) {
         // found existing entry
         // merge amount and history from dwb entry
-        found_entry.merge_dwb_entry(storage, &dwb_entry, amount_spent)?;
+        found_entry.merge_dwb_entry(storage, dwb_entry, amount_spent)?;
         bucket.entries[idx] = found_entry;
 
         #[cfg(feature = "gas_tracking")]
@@ -600,7 +596,7 @@ pub fn settle_dwb_entry(
     else {
         // need to insert new entry
         // create new stored balance entry
-        let mut btbe_entry = StoredEntry::from(storage, &dwb_entry, amount_spent)?;
+        let mut btbe_entry = StoredEntry::from(storage, dwb_entry, amount_spent)?;
 
         // cache the address
         btbe_entry.save_hash_cache(storage)?;

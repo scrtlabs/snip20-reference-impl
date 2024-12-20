@@ -76,7 +76,7 @@ impl<'a, 'b> GasGroup<'a, 'b> {
             format!(
                 "{}:{}:{}",
                 self.index,
-                gas.unwrap_or(0u64).to_string(),
+                gas.unwrap_or(0u64),
                 comment
             ),
         );

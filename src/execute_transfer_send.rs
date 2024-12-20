@@ -230,10 +230,10 @@ pub fn try_transfer_from(
 
     if NOTIFICATIONS_ENABLED.load(deps.storage)? {
         let received_notification =
-            received_notification.to_txhash_notification(deps.api, &env, secret, None)?;
+            received_notification.to_txhash_notification(deps.api, env, secret, None)?;
 
         let spent_notification =
-            spent_notification.to_txhash_notification(deps.api, &env, secret, None)?;
+            spent_notification.to_txhash_notification(deps.api, env, secret, None)?;
 
         resp = resp
             .add_attribute_plaintext(
@@ -846,6 +846,7 @@ fn try_send_from_impl(
     Ok((received_notification, spent_notification))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn perform_transfer(
     store: &mut dyn Storage,
     rng: &mut ContractPrng,

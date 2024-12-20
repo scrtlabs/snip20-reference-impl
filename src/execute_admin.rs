@@ -10,7 +10,7 @@ pub fn change_admin(deps: DepsMut, constants: &mut Config, address: String) -> S
     let address = deps.api.addr_validate(address.as_str())?;
 
     constants.admin = address;
-    CONFIG.save(deps.storage, &constants)?;
+    CONFIG.save(deps.storage, constants)?;
 
     Ok(Response::new().set_data(to_binary(&ExecuteAnswer::ChangeAdmin { status: Success })?))
 }
@@ -32,7 +32,7 @@ pub fn add_supported_denoms(
         }
     }
 
-    CONFIG.save(deps.storage, &config)?;
+    CONFIG.save(deps.storage, config)?;
 
     Ok(
         Response::new().set_data(to_binary(&ExecuteAnswer::AddSupportedDenoms {
@@ -56,7 +56,7 @@ pub fn remove_supported_denoms(
         config.supported_denoms.retain(|x| x != denom);
     }
 
-    CONFIG.save(deps.storage, &config)?;
+    CONFIG.save(deps.storage, config)?;
 
     Ok(
         Response::new().set_data(to_binary(&ExecuteAnswer::RemoveSupportedDenoms {

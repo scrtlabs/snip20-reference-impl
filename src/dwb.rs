@@ -129,7 +129,7 @@ impl DelayedWriteBuffer {
 
         settle_dwb_entry(
             store,
-            &mut dwb_entry,
+            &dwb_entry,
             Some(amount_spent),
             #[cfg(feature = "gas_tracking")]
             tracker,
@@ -178,7 +178,7 @@ impl DelayedWriteBuffer {
         matched_index
     }
 
-    pub fn add_recipient<'a>(
+    pub fn add_recipient(
         &mut self,
         store: &mut dyn Storage,
         rng: &mut ContractPrng,
@@ -196,7 +196,7 @@ impl DelayedWriteBuffer {
         group1.log("recipient_match");
 
         // the new entry will either derive from a prior entry for the recipient or the dummy entry
-        let mut new_entry = self.entries[recipient_index].clone();
+        let mut new_entry = self.entries[recipient_index];
 
         new_entry.set_recipient(recipient)?;
         #[cfg(feature = "gas_tracking")]
@@ -273,10 +273,10 @@ impl DelayedWriteBuffer {
         group1.logf(format!("@write_index: {}", write_index));
 
         // settle the entry
-        let mut dwb_entry = self.entries[actual_settle_index];
+        let dwb_entry = self.entries[actual_settle_index];
         settle_dwb_entry(
             store,
-            &mut dwb_entry,
+            &dwb_entry,
             None,
             #[cfg(feature = "gas_tracking")]
             tracker,
@@ -355,7 +355,7 @@ impl DelayedWriteBufferEntry {
         }
         let mut result = [0u8; DWB_ENTRY_BYTES];
         result[..DWB_RECIPIENT_BYTES].copy_from_slice(recipient);
-        Ok(Self { 0: result })
+        Ok(Self(result))
     }
 
     pub fn recipient_slice(&self) -> &[u8] {
@@ -466,7 +466,7 @@ pub fn amount_u64(amount_spent: Option<u128>) -> StdResult<u64> {
     let amount_spent = amount_spent.unwrap_or_default();
     let amount_spent_u64 = amount_spent
         .try_into()
-        .or_else(|_| return Err(StdError::generic_err("se: spent overflow")))?;
+        .map_err(|_| StdError::generic_err("se: spent overflow"))?;
     Ok(amount_spent_u64)
 }
 
@@ -481,7 +481,7 @@ pub struct TxNode {
 
 impl TxNode {
     // converts this and following elements in list to a vec of Tx
-    pub fn to_vec(&self, store: &dyn Storage, api: &dyn Api) -> StdResult<Vec<Tx>> {
+    pub fn as_vec(&self, store: &dyn Storage, api: &dyn Api) -> StdResult<Vec<Tx>> {
         let mut result = vec![];
         let mut cur_node = Some(self.to_owned());
         while cur_node.is_some() {
