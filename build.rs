@@ -14,8 +14,8 @@ fn main() {
 
     // write constants
     let mut file = File::create(&dest_path).expect("Failed to write to config.rs");
-    write!(file, "pub const DWB_CAPACITY: u16 = {};\n", dwb_capacity).unwrap();
-    write!(file, "pub const BTBE_CAPACITY: u16 = {};\n", btbe_capacity).unwrap();
+    writeln!(file, "pub const DWB_CAPACITY: u16 = {};", dwb_capacity).unwrap();
+    writeln!(file, "pub const BTBE_CAPACITY: u16 = {};", btbe_capacity).unwrap();
 
     // monitor
     println!("cargo:rerun-if-env-changed=DWB_CAPACITY");
