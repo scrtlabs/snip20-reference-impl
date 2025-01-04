@@ -20,9 +20,10 @@ import {transfer, type TransferResult} from './snip';
 
 const S_CONTRACT_LABEL = 'snip2x-test_'+bytes_to_base64(crypto.getRandomValues(bytes(6)));
 
-const atu8_wasm = readFileSync('../../contract.wasm');
+const atu8_wasm = readFileSync(process.env['CONTRACT_PATH'] ?? '../../contract.wasm.gz');
 
 console.log(k_wallet_a.addr);
+
 
 console.debug(`Uploading code...`);
 const [sg_code_id] = await secret_contract_upload_code(k_wallet_a, atu8_wasm, 30_000000n);
@@ -187,7 +188,7 @@ if(B_TEST_EVAPORATION) {
 			// @ts-expect-error totally stupid
 			g_result_transfer,
 			[xc_send_gas, s_err_send_gas],
-			a_res_increase,
+			[g_res_increase,, [xc_code, s_err]=[]]=[],
 		] = await Promise.all([
 			// #ts-expect-error secret app
 			transfer(k_dwbv, i_sim % 2? 1_000000n: 2_000000n, k_app_a, k_app_sim, k_checker),
@@ -201,8 +202,8 @@ if(B_TEST_EVAPORATION) {
 		}
 
 		// increase allowance error
-		if(f_grant && a_res_increase?.[1]) {
-			throw Error(`Failed to increase allowance: ${a_res_increase[2]}`);
+		if(f_grant && xc_code) {
+			throw Error(`Failed to increase allowance: ${s_err}`);
 		}
 
 		// approve Alice as spender for future txs

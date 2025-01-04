@@ -4,7 +4,8 @@
   "scripts": {
     "build": "tsc && tsc-esm-fix --tsconfig tsconfig.tsc-esm-fix.json --target=dist",
     "make": "pushd ../../ && make compile-integration && popd",
-    "test": "bun run make && NODE_ENV=development bun run src/main.ts"
+    "simulate": "bun run --env-file=.env src/main.ts",
+    "test": "bun run make && bun run simulate"
   },
   "devDependencies": {
     "@blake.regalia/belt": "^0.52.1",

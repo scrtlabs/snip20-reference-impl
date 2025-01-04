@@ -56,7 +56,12 @@ export class DwbValidator {
 		this._a_entries_prev = this._a_entries.slice();
 
 		// dump dwb contents
-		const [g_dwb_res] = await this._k_app.query('dwb', {});
+		const [g_dwb_res, xc_code, s_err] = await this._k_app.query('dwb', {});
+
+		// error
+		if(xc_code) {
+			throw Error(s_err);
+		}
 
 		// parse
 		const {
