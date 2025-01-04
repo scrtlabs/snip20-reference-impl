@@ -40,16 +40,6 @@ impl<'a> GasTracker<'a> {
     }
 }
 
-pub trait LoggingExt {
-    fn add_gas_tracker(&self, tracker: GasTracker) -> Response;
-}
-
-impl LoggingExt for Response {
-    fn add_gas_tracker(&self, tracker: GasTracker) -> Response {
-        tracker.add_to_response(self.to_owned())
-    }
-}
-
 pub struct GasGroup<'a, 'b> {
     pub tracker: &'b mut GasTracker<'a>,
     pub name: String,
