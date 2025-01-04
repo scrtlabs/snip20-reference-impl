@@ -178,7 +178,7 @@ impl DelayedWriteBuffer {
         matched_index
     }
 
-    pub fn add_recipient(
+    pub fn add_recipient<'a>(
         &mut self,
         store: &mut dyn Storage,
         rng: &mut ContractPrng,

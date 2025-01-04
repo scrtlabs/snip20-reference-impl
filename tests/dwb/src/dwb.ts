@@ -1,12 +1,11 @@
-import type {SecretApp, WeakSecretAccAddr} from '@solar-republic/neutrino';
+import type {SecretApp} from '@solar-republic/neutrino';
+import type {WeakSecretAccAddr} from '@solar-republic/types';
 
 import {bytes, parse_json} from '@blake.regalia/belt';
-import * as chai from 'chai';
-const {expect} = chai;
-
 
 import {DwbEntry} from './dwb-entry';
 import {SX_ANSI_DIM_ON, SX_ANSI_RESET, fail} from './helper';
+
 
 export type DwbRequirements = {
 	showDelta?: boolean;
@@ -57,7 +56,12 @@ export class DwbValidator {
 		this._a_entries_prev = this._a_entries.slice();
 
 		// dump dwb contents
-		const [g_dwb_res] = await this._k_app.query('dwb', {});
+		const [g_dwb_res, xc_code, s_err] = await this._k_app.query('dwb', {});
+
+		// error
+		if(xc_code) {
+			throw Error(s_err);
+		}
 
 		// parse
 		const {
@@ -75,6 +79,7 @@ export class DwbValidator {
 		return this._a_entries;
 	}
 
+	// eslint-disable-next-line @typescript-eslint/require-await
 	async check(gc_check?: DwbRequirements) {
 		const a_prev = this._a_entries_prev;
 		const a_entries = this._a_entries;

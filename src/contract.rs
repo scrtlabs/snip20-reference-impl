@@ -22,7 +22,7 @@ use crate::dwb::{DelayedWriteBuffer, DWB};
 use crate::btbe::initialize_btbe;
 
 #[cfg(feature = "gas_tracking")]
-use crate::gas_tracker::{GasTracker, LoggingExt};
+use crate::gas_tracker::GasTracker;
 #[cfg(feature = "gas_evaporation")]
 use crate::msg::Evaporator;
 use crate::msg::{

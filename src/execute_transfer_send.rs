@@ -17,6 +17,8 @@ use crate::receiver::Snip20ReceiveMsg;
 use crate::state::{ReceiverHashStore, CONFIG, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED};
 use crate::strings::SEND_TO_CONTRACT_ERR_MSG;
 use crate::transaction_history::store_transfer_action;
+#[cfg(feature = "gas_tracking")]
+use crate::gas_tracker::GasTracker;
 
 // transfer functions
 
@@ -89,7 +91,7 @@ pub fn try_transfer(
     group1.log("rest");
 
     #[cfg(feature = "gas_tracking")]
-    return Ok(resp.add_gas_tracker(tracker));
+    return Ok(tracker.add_to_response(resp));
 
     #[cfg(not(feature = "gas_tracking"))]
     Ok(resp)
@@ -190,7 +192,7 @@ pub fn try_batch_transfer(
     }
 
     #[cfg(feature = "gas_tracking")]
-    return Ok(resp.add_gas_tracker(tracker));
+    return Ok(tracker.add_to_response(resp));
 
     #[cfg(not(feature = "gas_tracking"))]
     Ok(resp)
@@ -383,7 +385,7 @@ pub fn try_send(
     }
 
     #[cfg(feature = "gas_tracking")]
-    return Ok(resp.add_gas_tracker(tracker));
+    return Ok(tracker.add_to_response(resp));
 
     #[cfg(not(feature = "gas_tracking"))]
     Ok(resp)

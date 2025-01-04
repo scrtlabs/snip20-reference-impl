@@ -17,6 +17,8 @@ use crate::state::{
     safe_add, MintersStore, CONFIG, INTERNAL_SECRET_SENSITIVE, NOTIFICATIONS_ENABLED, TOTAL_SUPPLY,
 };
 use crate::transaction_history::{store_burn_action, store_mint_action};
+#[cfg(feature = "gas_tracking")]
+use crate::gas_tracker::GasTracker;
 
 // mint functions
 
@@ -94,7 +96,7 @@ pub fn try_mint(
     }
 
     #[cfg(feature = "gas_tracking")]
-    return Ok(resp.add_gas_tracker(tracker));
+    return Ok(tracker.add_to_response(resp));
 
     #[cfg(not(feature = "gas_tracking"))]
     Ok(resp)

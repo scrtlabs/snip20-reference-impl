@@ -8,6 +8,8 @@ use crate::dwb::DWB;
 use crate::msg::{ExecuteAnswer, ResponseStatus::Success};
 use crate::state::{safe_add, CONFIG, TOTAL_SUPPLY};
 use crate::transaction_history::{store_deposit_action, store_redeem_action};
+#[cfg(feature = "gas_tracking")]
+use crate::gas_tracker::GasTracker;
 
 // deposit functions
 
@@ -67,7 +69,7 @@ pub fn try_deposit(
     let resp = Response::new().set_data(to_binary(&ExecuteAnswer::Deposit { status: Success })?);
 
     #[cfg(feature = "gas_tracking")]
-    return Ok(resp.add_gas_tracker(tracker));
+    return Ok(tracker.add_to_response(resp));
 
     #[cfg(not(feature = "gas_tracking"))]
     Ok(resp)

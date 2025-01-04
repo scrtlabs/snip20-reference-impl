@@ -2,12 +2,12 @@ import type {DwbValidator} from './dwb';
 import type {GasChecker} from './gas-checker';
 import type {Dict, Nilable} from '@blake.regalia/belt';
 import type {SecretContractInterface} from '@solar-republic/contractor';
-import type {SecretApp, WeakSecretAccAddr} from '@solar-republic/neutrino';
-import type {CwUint128, SecretQueryPermit, WeakUintStr} from '@solar-republic/types';
+import type {SecretApp} from '@solar-republic/neutrino';
+import type {CwSecretAccAddr, CwUint128, Snip24QueryPermitMsg, WeakSecretAccAddr} from '@solar-republic/types';
 
-import {entries, is_bigint, stringify_json} from '@blake.regalia/belt';
+import {entries, stringify_json} from '@blake.regalia/belt';
 import {queryCosmosBankBalance} from '@solar-republic/cosmos-grpc/cosmos/bank/v1beta1/query';
-import {sign_secret_query_permit} from '@solar-republic/neutrino';
+import {snip24_amino_sign} from '@solar-republic/neutrino';
 import BigNumber from 'bignumber.js';
 
 import {H_ADDRS, N_DECIMALS, P_SECRET_LCD} from './constants';
@@ -41,7 +41,7 @@ type TokenBalance = SecretContractInterface<{
 						query: {
 							balance: {};
 						};
-						permit: SecretQueryPermit;
+						permit: Snip24QueryPermitMsg;
 					};
 					response: {
 						balance: {
@@ -60,7 +60,7 @@ export async function scrt_balance(sa_owner: WeakSecretAccAddr): Promise<bigint>
 }
 
 export async function snip_balance(k_app: SecretApp<TokenBalance>) {
-	const g_permit = await sign_secret_query_permit(k_app.wallet, 'snip-balance', [k_app.contract.addr], ['balance']);
+	const g_permit = await snip24_amino_sign(k_app.wallet, 'snip-balance', [k_app.contract.addr], ['balance']);
 	return await k_app.query('balance', {}, g_permit as unknown as null);
 }
 
@@ -72,11 +72,10 @@ export async function transfer(
 	k_checker?: Nilable<GasChecker>,
 	k_app_sender?: SecretApp
 ): Promise<TransferResult> {
-	const sa_owner = k_app_owner.wallet.addr;
+	const sa_owner = k_app_owner.wallet.addr as CwSecretAccAddr;
 	const sa_recipient = k_app_recipient.wallet.addr;
 
 	// scrt balance of owner before transfer
-	// @ts-expect-error canonical addr
 	const xg_scrt_balance_owner_before = await scrt_balance(sa_owner);
 
 	// query balance of owner and recipient
@@ -84,14 +83,12 @@ export async function transfer(
 		[g_balance_owner_before],
 		[g_balance_recipient_before],
 	] = await Promise.all([
-		// @ts-expect-error secret app
 		snip_balance(k_app_owner),
-		// @ts-expect-error secret app
 		snip_balance(k_app_recipient),
 	]);
 
 	// execute transfer
-	const [g_exec, xc_code, sx_res, g_meta, h_events, si_txn] = k_app_sender
+	const [g_exec,, [xc_code, sx_res,, g_meta, h_events]] = k_app_sender
 		? await k_app_sender.exec('transfer_from', {
 			owner: k_app_owner.wallet.addr,
 			amount: `${xg_amount}` as CwUint128,
@@ -110,16 +107,13 @@ export async function transfer(
 		[g_balance_owner_after],
 		[g_balance_recipient_after],
 	] = await Promise.all([
-		// @ts-expect-error secret app
 		snip_balance(k_app_owner),
-		// @ts-expect-error secret app
 		snip_balance(k_app_recipient),
 	]);
 
 	if(xc_code) {
 		console.warn('Diagnostics', {
 			scrt_balance_before: xg_scrt_balance_owner_before,
-			// @ts-expect-error canonical addr
 			scrt_balance_after: await scrt_balance(sa_owner),
 			snip_balance_before: g_balance_owner_before?.amount,
 			snip_balance_after: g_balance_owner_after?.amount,

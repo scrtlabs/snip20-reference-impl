@@ -2,7 +2,7 @@ import type {Promisable} from '@blake.regalia/belt';
 
 import {is_string, map_entries} from '@blake.regalia/belt';
 
-/* eslint-disable @typescript-eslint/naming-convention */
+
 export const SX_ANSI_RESET = '\x1b[0m';
 export const SX_ANSI_DIM_ON = '\x1b[2m';
 export const SX_ANSI_UNDERLINE = '\x1b[4m';
@@ -15,13 +15,12 @@ export const SX_ANSI_MAGENTA = '\x1b[35m';
 export const SX_ANSI_CYAN = '\x1b[36m';
 export const SX_ANSI_WHITE = '\x1b[37m';
 export const SX_ANSI_GRAY_BG = '\x1b[100m';
-/* eslint-enable */
+
 
 // polyfill crypto global for node.js env
-globalThis.crypto ||= (await import('crypto')).webcrypto;
+(globalThis as any).crypto ||= (await import('crypto')).webcrypto;
 
 export function pass(s_test: string): void {
-	// eslint-disable-next-line no-console
 	console.log(`${SX_ANSI_GREEN}✓${SX_ANSI_RESET} ${s_test}`);
 }
 
