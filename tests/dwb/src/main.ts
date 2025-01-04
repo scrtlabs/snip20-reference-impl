@@ -1,7 +1,8 @@
-import type {Dict, JsonObject} from '@blake.regalia/belt';
+import type {JsonObject} from '@blake.regalia/belt';
 
-import type {SecretContractInterface, FungibleTransferCall, SecretAccAddr, Snip24} from '@solar-republic/contractor';
+import type {SecretContractInterface, FungibleTransferCall, Snip24} from '@solar-republic/contractor';
 
+import type {TxResponseTuple} from '@solar-republic/neutrino';
 import type {CwUint128, WeakUint128Str} from '@solar-republic/types';
 
 import {readFileSync} from 'node:fs';
@@ -9,11 +10,10 @@ import {readFileSync} from 'node:fs';
 import {bytes, bytes_to_base64, entries, sha256, text_to_bytes, bigint_greater, bigint_abs} from '@blake.regalia/belt';
 import {encodeCosmosBankMsgSend, SI_MESSAGE_TYPE_COSMOS_BANK_MSG_SEND} from '@solar-republic/cosmos-grpc/cosmos/bank/v1beta1/tx';
 import {encodeGoogleProtobufAny} from '@solar-republic/cosmos-grpc/google/protobuf/any';
-import {SecretApp, SecretContract, Wallet, broadcast_result, create_and_sign_tx_direct, random_32, type TxMeta, type WeakSecretAccAddr} from '@solar-republic/neutrino';
+import {SecretApp, SecretContract, Wallet, broadcast_result, create_and_sign_tx_direct, random_32, secret_contract_instantiate, secret_contract_upload_code} from '@solar-republic/neutrino';
 import {BigNumber} from 'bignumber.js';
 
 import {B_TEST_EVAPORATION, N_DECIMALS, P_SECRET_LCD, P_SECRET_RPC, SI_SECRET_CHAIN, X_GAS_PRICE, k_wallet_a, k_wallet_b, k_wallet_c, k_wallet_d} from './constants';
-import {upload_code, instantiate_contract} from './contract';
 import {DwbValidator} from './dwb';
 import {GasChecker} from './gas-checker';
 import {transfer, type TransferResult} from './snip';
@@ -25,11 +25,11 @@ const atu8_wasm = readFileSync('../../contract.wasm');
 console.log(k_wallet_a.addr);
 
 console.debug(`Uploading code...`);
-const sg_code_id = await upload_code(k_wallet_a, atu8_wasm);
+const [sg_code_id] = await secret_contract_upload_code(k_wallet_a, atu8_wasm, 30_000000n);
 
 console.debug(`Instantiating contract...`);
 
-const sa_snip = await instantiate_contract(k_wallet_a, sg_code_id, {
+const [[sa_snip]=[]] = await secret_contract_instantiate(k_wallet_a, sg_code_id!, {
 	name: S_CONTRACT_LABEL,
 	symbol: 'TKN',
 	decimals: 6,
@@ -48,7 +48,7 @@ const sa_snip = await instantiate_contract(k_wallet_a, sg_code_id, {
 		enable_mint: true,
 		enable_burn: true,
 	},
-});
+}, 10_000_000n);
 
 console.debug(`Running tests against ${sa_snip}...`);
 
@@ -60,12 +60,12 @@ const k_contract = await SecretContract<SecretContractInterface<{
 			gas_target?: WeakUint128Str;
 		}];
 	};
-}>>(P_SECRET_LCD, sa_snip);
+}>>(P_SECRET_LCD, sa_snip!);
 
-const k_app_a = SecretApp(k_wallet_a, k_contract, X_GAS_PRICE);
-const k_app_b = SecretApp(k_wallet_b, k_contract, X_GAS_PRICE);
-const k_app_c = SecretApp(k_wallet_c, k_contract, X_GAS_PRICE);
-const k_app_d = SecretApp(k_wallet_d, k_contract, X_GAS_PRICE);
+const k_app_a = SecretApp(k_wallet_a, k_contract);
+const k_app_b = SecretApp(k_wallet_b, k_contract);
+const k_app_c = SecretApp(k_wallet_c, k_contract);
+const k_app_d = SecretApp(k_wallet_d, k_contract);
 
 const H_APPS = {
 	a: k_app_a,
@@ -104,7 +104,7 @@ if(B_TEST_EVAPORATION) {
 	const xg_gas_wanted = 150_000n;
 	const xg_gas_target = xg_gas_wanted - xg_post_evaporate_buffer;
 
-	const [g_exec, xc_code, sx_res, g_meta, h_events, si_txn] = await k_app_a.exec('transfer', {
+	const [g_exec,, [xc_code, sx_res,, g_meta, h_events]] = await k_app_a.exec('transfer', {
 		amount: `${500000n}` as CwUint128,
 		recipient: k_wallet_b.addr,
 		gas_target: `${xg_gas_target}`,
@@ -155,7 +155,7 @@ if(B_TEST_EVAPORATION) {
 	let k_checker: GasChecker | null = null;
 
 	// grant action from previous simultion
-	let f_grant: undefined | (() => Promise<[w_result: JsonObject | undefined, xc_code: number, s_response: string, g_meta: TxMeta | undefined, h_events: Dict<string[]> | undefined, si_txn: string | undefined]>);
+	let f_grant: undefined | (() => Promise<[w_result: JsonObject | undefined, w_resp: any, a6_response: TxResponseTuple]>);
 
 	// number of simulations to perform
 	const N_SIMULATIONS = 300;
@@ -167,20 +167,20 @@ if(B_TEST_EVAPORATION) {
 	for(let i_sim=0; i_sim<N_SIMULATIONS; i_sim++) {
 		const si_receiver = i_sim+'';
 
-		const k_wallet = await Wallet(await sha256(text_to_bytes(si_receiver)), SI_SECRET_CHAIN, P_SECRET_LCD, P_SECRET_RPC, 'secret');
+		const k_wallet = await Wallet(await sha256(text_to_bytes(si_receiver)), SI_SECRET_CHAIN, P_SECRET_LCD, P_SECRET_RPC, [X_GAS_PRICE, 'uscrt'], 'secret');
 
-		const k_app_sim = SecretApp(k_wallet, k_contract, X_GAS_PRICE);
+		const k_app_sim = SecretApp(k_wallet, k_contract);
 
 		// label
 		console.log(`Alice --> ${si_receiver}`);
 
 		// transfer some gas to sim account
-		const [atu8_raw,, si_txn] = await create_and_sign_tx_direct(k_wallet_b, [
+		const [atu8_raw, si_txn] = await create_and_sign_tx_direct(k_wallet_b, [
 			encodeGoogleProtobufAny(
 				SI_MESSAGE_TYPE_COSMOS_BANK_MSG_SEND,
 				encodeCosmosBankMsgSend(k_wallet_b.addr, k_wallet.addr, [[`${1_000000n}`, 'uscrt']])
 			),
-		], [[`${5000n}`, 'uscrt']], 50_000n);
+		], 50_000n);
 
 		// submit all in parallel
 		const [
@@ -215,7 +215,7 @@ if(B_TEST_EVAPORATION) {
 			k_checker = new GasChecker((g_result_transfer as TransferResult).tracking, (g_result_transfer as TransferResult).gasUsed);
 		}
 
-		xg_max_gas_used_transfer = bigint_greater(xg_max_gas_used_transfer, g_result_transfer.gasUsed);
+		xg_max_gas_used_transfer = bigint_greater(xg_max_gas_used_transfer, g_result_transfer.gasUsed as bigint);
 	}
 
 	// reset checker
@@ -229,11 +229,11 @@ if(B_TEST_EVAPORATION) {
 		const si_owner = i_sim+'';
 		const si_recipient = (i_sim - 1)+'';
 
-		const k_wallet_owner = await Wallet(await sha256(text_to_bytes(si_owner)), SI_SECRET_CHAIN, P_SECRET_LCD, P_SECRET_RPC, 'secret');
-		const k_wallet_recipient = await Wallet(await sha256(text_to_bytes(si_recipient)), SI_SECRET_CHAIN, P_SECRET_LCD, P_SECRET_RPC, 'secret');
+		const k_wallet_owner = await Wallet(await sha256(text_to_bytes(si_owner)), SI_SECRET_CHAIN, P_SECRET_LCD, P_SECRET_RPC, [X_GAS_PRICE, 'uscrt'], 'secret');
+		const k_wallet_recipient = await Wallet(await sha256(text_to_bytes(si_recipient)), SI_SECRET_CHAIN, P_SECRET_LCD, P_SECRET_RPC, [X_GAS_PRICE, 'uscrt'], 'secret');
 
-		const k_app_owner = SecretApp(k_wallet_owner, k_contract, X_GAS_PRICE);
-		const k_app_recipient = SecretApp(k_wallet_recipient, k_contract, X_GAS_PRICE);
+		const k_app_owner = SecretApp(k_wallet_owner, k_contract);
+		const k_app_recipient = SecretApp(k_wallet_recipient, k_contract);
 
 		console.log(`${si_owner} --> ${si_recipient}`);
 

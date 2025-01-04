@@ -16,7 +16,7 @@ export const [k_wallet_a, k_wallet_b, k_wallet_c, k_wallet_d] = await Promise.al
 	'buqil+tLeeW7VLuugvOdTmkP3+tUwlCoScPZxeteBPE=',
 	'UFrCdmofR9iChp6Eg7kE5O3wT+jsOXwJPWwB6kSeuhE=',
 	'MM/1ZSbT5RF1BnaY6ui/i7yEN0mukGzvXUv+jOyjD0E=',
-].map(sb64_sk => Wallet(base64_to_bytes(sb64_sk), SI_SECRET_CHAIN, P_SECRET_LCD, P_SECRET_RPC, 'secret')));
+].map(sb64_sk => Wallet(base64_to_bytes(sb64_sk), SI_SECRET_CHAIN, P_SECRET_LCD, P_SECRET_RPC, [X_GAS_PRICE, 'uscrt'], 'secret')));
 
 export const H_ADDRS = {
 	[k_wallet_a.addr]: 'Alice',

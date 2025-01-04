@@ -1,5 +1,5 @@
 import type {Nilable} from '@blake.regalia/belt';
-import type {CwSecretAccAddr} from '@solar-republic/neutrino';
+import type {CwSecretAccAddr} from '@solar-republic/types';
 
 import {bytes_to_biguint_be, bytes_to_hex} from '@blake.regalia/belt';
 import {bech32_encode} from '@solar-republic/crypto';
