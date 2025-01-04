@@ -1,6 +1,6 @@
 use constant_time_eq::constant_time_eq;
 use cosmwasm_std::{Api, CanonicalAddr, StdError, StdResult, Storage};
-use rand::RngCore;
+use rand_core::RngCore;
 use secret_toolkit::storage::Item;
 use secret_toolkit_crypto::ContractPrng;
 use serde::{Deserialize, Serialize};

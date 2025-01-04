@@ -56,14 +56,14 @@ compile-integration: _compile-integration contract.wasm.gz
 _compile-integration:
 	DWB_CAPACITY=64 BTBE_CAPACITY=64 RUSTFLAGS='-C link-arg=-s' cargo build --features "gas_tracking" --release --target wasm32-unknown-unknown
 	@# The following line is not necessary, may work only on linux (extra size optimization)
-	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/*.wasm --all-features -o ./contract.wasm
+	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/*.wasm -o ./contract.wasm
 
 .PHONY: compile-optimized _compile-optimized
 compile-optimized: _compile-optimized contract.wasm.gz
 _compile-optimized:
 	RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown
 	@# The following line is not necessary, may work only on linux (extra size optimization)
-	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/*.wasm --all-features -o ./contract.wasm
+	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/*.wasm -o ./contract.wasm
 
 .PHONY: compile-optimized-reproducible
 compile-optimized-reproducible:
