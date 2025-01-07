@@ -55,12 +55,15 @@ pub fn try_deposit(
     #[cfg(feature = "gas_tracking")]
     let mut tracker: GasTracker = GasTracker::new(deps.api);
 
+    // use first denom given for tx record
+    let denom = &info.funds[0].denom;
+
     perform_deposit(
         deps.storage,
         rng,
         &sender_address,
         raw_amount,
-        "uscrt".to_string(),
+        denom.clone(),
         &env.block,
         #[cfg(feature = "gas_tracking")]
         &mut tracker,
