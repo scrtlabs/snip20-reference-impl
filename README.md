@@ -21,10 +21,8 @@ The crate `build.rs` file reads two environment values `DWB_CAPACITY` and `BTBE_
 
 A second consideration is how many bytes to use to store user balances in the DWB and BTBE. The default value used in the master branch code is 8 bytes (u64 size). Using only 8 bytes to store balance saves gas when writing the balances in the DWB and BTBE. 8 bytes translates to a maximum token balance in base denomination for a single account equal to approximately 18 quadrillion. For most tokens with 6 decimals, this is more than sufficient. However, some tokens such as secret wrapped ERC-20 tokens can have 18 decimals and this upper bound might not be enough. In that case, you will want to store balances with 16 bytes (u128 size).
 
-There are two tagged releases that we recommend using, depending on the requirements of your token:
-
-- Tokens with 64-bit balances, e.g. sSCRT: [Release-64-bit-balance]() TODO
-- Tokens with 128-bit balances, e.g. wrapped ERC-20 : [Release-128-bit-balance]() TODO
+> [!IMPORTANT] 
+> The version in this branch has 64-bit balances and is recommended for tokens with 6 decimals only.
 
 ## <a name="instantiation"></a>Token instantiation
 
