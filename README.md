@@ -15,9 +15,9 @@ This is an implementation of a [SNIP-20](https://github.com/SecretFoundation/SNI
 
 ## <a name="building"></a>Building
 
-With the introduction delayed write buffers (DWBs) and bitwise trie of bucketed entries (BTBEs) (see [Privacy Enchancements](#privacy) below) developers must configure the code prior to building the contract WASM. 
+With the introduction of delayed write buffers (DWBs) and bitwise trie of bucketed entries (BTBEs) (see [Privacy Enchancements](#privacy) below) developers must configure the code prior to building the contract WASM. 
 
-The crate `build.rs` file reads two environment values `DWB_CAPACITY` and `BTBE_CAPACITY`, which correspond to the size of the DWB and bucket size for the BTBE, respectively. If the environemnt variables are not set, then they will both be set to `64`. The higher these values, the greater the anonymity set but also the higher the gas cost for transactions. See [here](https://hackmd.io/twnenQuoSp61hK_YWJo9oA) for a more technical description of how DWBs and BTBEs work.
+The crate `build.rs` file reads two environment variables `DWB_CAPACITY` and `BTBE_CAPACITY`, which correspond to the size of the DWB and bucket size for the BTBE, respectively. If the environemnt variables are not set, then they will both be set to `64`. The higher these values, the greater the anonymity set but also the higher the gas cost for transactions. See [here](https://hackmd.io/twnenQuoSp61hK_YWJo9oA) for a more technical description of how DWBs and BTBEs work.
 
 A second consideration is how many bytes to use to store user balances in the DWB and BTBE. The default value used in the master branch code is 8 bytes (u64 size). Using only 8 bytes to store balance saves gas when writing the balances in the DWB and BTBE. 8 bytes translates to a maximum token balance in base denomination for a single account equal to approximately 18 quadrillion. For most tokens with 6 decimals, this is more than sufficient. However, some tokens such as secret wrapped ERC-20 tokens can have 18 decimals and this upper bound might not be enough. In that case, you will want to store balances with 16 bytes (u128 size).
 
