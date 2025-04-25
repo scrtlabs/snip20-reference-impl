@@ -23,6 +23,8 @@ A second consideration is how many bytes to use to store user balances in the DW
 
 > [!IMPORTANT] 
 > The version in this branch has 64-bit balances and is recommended for tokens with 6 decimals only.
+>
+> See [here](https://github.com/SolarRepublic/snip20-reference-impl/tree/prod/ref-impl-balance128) for a branch that implements 128-bit balances.
 
 ## <a name="instantiation"></a>Token instantiation
 
