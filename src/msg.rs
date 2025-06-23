@@ -3,11 +3,14 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::batch;
-use crate::batch::HasDecoy;
-use crate::transaction_history::{ExtendedTx, Tx};
-use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128};
-use secret_toolkit::permit::Permit;
+use crate::{batch, transaction_history::Tx};
+#[cfg(feature = "gas_evaporation")]
+use cosmwasm_std::Uint64;
+use cosmwasm_std::{Addr, Api, Binary, StdError, StdResult, Uint128, Uint64};
+use secret_toolkit::{
+    notification::ChannelInfoData,
+    permit::{AllRevocation, AllRevokedInterval, Permit},
+};
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Serialize, Deserialize, Clone, JsonSchema)]
@@ -55,7 +58,7 @@ pub struct InitConfig {
     /// Indicates whether burn functionality should be enabled
     /// default: False
     enable_burn: Option<bool>,
-    /// Indicated whether an admin can modify supported denoms
+    /// Indicates whether an admin can modify supported denoms
     /// default: False
     can_modify_denoms: Option<bool>,
 }
@@ -93,13 +96,13 @@ pub enum ExecuteMsg {
     Redeem {
         amount: Uint128,
         denom: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     Deposit {
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
@@ -108,8 +111,8 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     Send {
@@ -118,37 +121,45 @@ pub enum ExecuteMsg {
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchTransfer {
         actions: Vec<batch::TransferAction>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchSend {
         actions: Vec<batch::SendAction>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     Burn {
         amount: Uint128,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     RegisterReceive {
         code_hash: String,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     CreateViewingKey {
-        entropy: String,
+        entropy: Option<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SetViewingKey {
         key: String,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
@@ -157,12 +168,16 @@ pub enum ExecuteMsg {
         spender: String,
         amount: Uint128,
         expiration: Option<u64>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     DecreaseAllowance {
         spender: String,
         amount: Uint128,
         expiration: Option<u64>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     TransferFrom {
@@ -170,8 +185,8 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SendFrom {
@@ -181,31 +196,34 @@ pub enum ExecuteMsg {
         amount: Uint128,
         msg: Option<Binary>,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchTransferFrom {
         actions: Vec<batch::TransferFromAction>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchSendFrom {
         actions: Vec<batch::SendFromAction>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BurnFrom {
         owner: String,
         amount: Uint128,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchBurnFrom {
         actions: Vec<batch::BurnFromAction>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
@@ -214,119 +232,94 @@ pub enum ExecuteMsg {
         recipient: String,
         amount: Uint128,
         memo: Option<String>,
-        decoys: Option<Vec<Addr>>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     BatchMint {
         actions: Vec<batch::MintAction>,
-        entropy: Option<Binary>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     AddMinters {
         minters: Vec<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     RemoveMinters {
         minters: Vec<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SetMinters {
         minters: Vec<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
 
     // Admin
     ChangeAdmin {
         address: String,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     SetContractStatus {
         level: ContractStatusLevel,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
     /// Add deposit/redeem support for these coin denoms
-    AddSupportedDenoms { denoms: Vec<String> },
+    AddSupportedDenoms {
+        denoms: Vec<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
+    },
     /// Remove deposit/redeem support for these coin denoms
-    RemoveSupportedDenoms { denoms: Vec<String> },
+    RemoveSupportedDenoms {
+        denoms: Vec<String>,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
+    },
+    /// Enable or disable SNIP-52 notifications
+    SetNotificationStatus {
+        enabled: bool,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
+    },
 
     // Permit
     RevokePermit {
         permit_name: String,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
         padding: Option<String>,
     },
-}
 
-pub trait Decoyable {
-    fn get_minimal_decoys_size(&self) -> usize;
-    fn get_entropy(self) -> Option<Binary>;
-}
+    // SNIP 24.1 Blanket Permits
+    /// Revokes all permits. Client can supply a datetime for created_after, created_before, both, or neither.
+    /// * created_before – makes it so any permits using a created value less than this datetime will be rejected
+    /// * created_after – makes it so any permits using a created value greater than this datetime will be rejected
+    /// * both created_before and created_after – makes it so any permits using a created value between these two datetimes will be rejected
+    /// * neither – makes it so ANY permit will be rejected.
+    ///   in this case, the contract MUST return a revocation ID of "REVOKED_ALL". this action is idempotent
+    RevokeAllPermits {
+        interval: AllRevokedInterval,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
+    },
 
-impl Decoyable for ExecuteMsg {
-    fn get_minimal_decoys_size(&self) -> usize {
-        match self {
-            ExecuteMsg::Deposit { decoys, .. }
-            | ExecuteMsg::Redeem { decoys, .. }
-            | ExecuteMsg::Transfer { decoys, .. }
-            | ExecuteMsg::Send { decoys, .. }
-            | ExecuteMsg::Burn { decoys, .. }
-            | ExecuteMsg::Mint { decoys, .. }
-            | ExecuteMsg::TransferFrom { decoys, .. }
-            | ExecuteMsg::SendFrom { decoys, .. }
-            | ExecuteMsg::BurnFrom { decoys, .. } => {
-                if let Some(user_decoys) = decoys {
-                    return user_decoys.len();
-                }
-
-                0
-            }
-            ExecuteMsg::BatchSendFrom { actions, .. } => get_min_decoys_count(actions),
-            ExecuteMsg::BatchTransferFrom { actions, .. } => get_min_decoys_count(actions),
-            ExecuteMsg::BatchTransfer { actions, .. } => get_min_decoys_count(actions),
-            ExecuteMsg::BatchSend { actions, .. } => get_min_decoys_count(actions),
-            ExecuteMsg::BatchBurnFrom { actions, .. } => get_min_decoys_count(actions),
-            ExecuteMsg::BatchMint { actions, .. } => get_min_decoys_count(actions),
-            _ => 0,
-        }
-    }
-
-    fn get_entropy(self) -> Option<Binary> {
-        match self {
-            ExecuteMsg::Deposit { entropy, .. }
-            | ExecuteMsg::Redeem { entropy, .. }
-            | ExecuteMsg::Transfer { entropy, .. }
-            | ExecuteMsg::Send { entropy, .. }
-            | ExecuteMsg::Burn { entropy, .. }
-            | ExecuteMsg::Mint { entropy, .. }
-            | ExecuteMsg::TransferFrom { entropy, .. }
-            | ExecuteMsg::SendFrom { entropy, .. }
-            | ExecuteMsg::BurnFrom { entropy, .. }
-            | ExecuteMsg::BatchTransferFrom { entropy, .. }
-            | ExecuteMsg::BatchSendFrom { entropy, .. }
-            | ExecuteMsg::BatchTransfer { entropy, .. }
-            | ExecuteMsg::BatchSend { entropy, .. }
-            | ExecuteMsg::BatchBurnFrom { entropy, .. }
-            | ExecuteMsg::BatchMint { entropy, .. } => entropy,
-            _ => None,
-        }
-    }
-}
-
-fn get_min_decoys_count<T: HasDecoy>(actions: &[T]) -> usize {
-    let mut min_decoys_count = usize::MAX;
-    for action in actions {
-        if let Some(user_decoys) = &action.decoys() {
-            if user_decoys.len() < min_decoys_count {
-                min_decoys_count = user_decoys.len();
-            }
-        }
-    }
-
-    if min_decoys_count == usize::MAX {
-        0
-    } else {
-        min_decoys_count
-    }
+    /// Deletes a previously issued permit revocation.
+    DeletePermitRevocation {
+        revocation_id: String,
+        #[cfg(feature = "gas_evaporation")]
+        gas_target: Option<Uint64>,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -426,11 +419,79 @@ pub enum ExecuteAnswer {
     RemoveSupportedDenoms {
         status: ResponseStatus,
     },
+    SetNotificationStatus {
+        status: ResponseStatus,
+    },
 
     // Permit
     RevokePermit {
         status: ResponseStatus,
     },
+
+    // SNIP 24.1 - Blanket Permits
+    RevokeAllPermits {
+        status: ResponseStatus,
+        revocation_id: Option<String>,
+    },
+
+    DeletePermitRevocation {
+        status: ResponseStatus,
+    },
+}
+
+#[cfg(feature = "gas_evaporation")]
+pub trait Evaporator {
+    fn evaporate_to_target(&self, api: &dyn Api) -> StdResult<u64>;
+}
+
+#[cfg(feature = "gas_evaporation")]
+impl Evaporator for ExecuteMsg {
+    fn evaporate_to_target(&self, api: &dyn Api) -> StdResult<u64> {
+        match self {
+            ExecuteMsg::Redeem { gas_target, .. }
+            | ExecuteMsg::Deposit { gas_target, .. }
+            | ExecuteMsg::Transfer { gas_target, .. }
+            | ExecuteMsg::Send { gas_target, .. }
+            | ExecuteMsg::BatchTransfer { gas_target, .. }
+            | ExecuteMsg::BatchSend { gas_target, .. }
+            | ExecuteMsg::Burn { gas_target, .. }
+            | ExecuteMsg::RegisterReceive { gas_target, .. }
+            | ExecuteMsg::CreateViewingKey { gas_target, .. }
+            | ExecuteMsg::SetViewingKey { gas_target, .. }
+            | ExecuteMsg::IncreaseAllowance { gas_target, .. }
+            | ExecuteMsg::DecreaseAllowance { gas_target, .. }
+            | ExecuteMsg::TransferFrom { gas_target, .. }
+            | ExecuteMsg::SendFrom { gas_target, .. }
+            | ExecuteMsg::BatchTransferFrom { gas_target, .. }
+            | ExecuteMsg::BatchSendFrom { gas_target, .. }
+            | ExecuteMsg::BurnFrom { gas_target, .. }
+            | ExecuteMsg::BatchBurnFrom { gas_target, .. }
+            | ExecuteMsg::Mint { gas_target, .. }
+            | ExecuteMsg::BatchMint { gas_target, .. }
+            | ExecuteMsg::AddMinters { gas_target, .. }
+            | ExecuteMsg::RemoveMinters { gas_target, .. }
+            | ExecuteMsg::SetMinters { gas_target, .. }
+            | ExecuteMsg::ChangeAdmin { gas_target, .. }
+            | ExecuteMsg::SetContractStatus { gas_target, .. }
+            | ExecuteMsg::AddSupportedDenoms { gas_target, .. }
+            | ExecuteMsg::RemoveSupportedDenoms { gas_target, .. }
+            | ExecuteMsg::SetNotificationStatus { gas_targe, .. }
+            | ExecuteMsg::RevokePermit { gas_target, .. }
+            | ExecuteMsg::RevokeAllPermits { gas_target, .. }
+            | ExecuteMsg::DeletePermitRevocation { gas_target, .. } => match gas_target {
+                Some(gas_target) => {
+                    let gas_used = api.check_gas()?;
+                    if gas_used < gas_target.u64() {
+                        let evaporate_amount = gas_target.u64() - gas_used;
+                        api.gas_evaporate(evaporate_amount as u32)?;
+                        return Ok(evaporate_amount);
+                    }
+                    Ok(0)
+                }
+                None => Ok(0),
+            },
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
@@ -467,20 +528,52 @@ pub enum QueryMsg {
         key: String,
         page: Option<u32>,
         page_size: u32,
-        should_filter_decoys: bool,
     },
     TransactionHistory {
         address: String,
         key: String,
         page: Option<u32>,
         page_size: u32,
-        should_filter_decoys: bool,
     },
     Minters {},
+
+    // SNIP-52 Private Push Notifications
+    /// Public query to list all notification channels
+    ListChannels {},
+    /// Authenticated query allows clients to obtain the seed
+    /// and schema for a specific channel.
+    ChannelInfo {
+        channels: Vec<String>,
+        txhash: Option<String>,
+        viewer: ViewerInfo,
+    },
+
+    // SNIP 24.1
+    ListPermitRevocations {
+        // `page` and `page_size` do nothing here because max revocations is only 10 but included
+        // to satisfy the SNIP24.1 spec
+        page: Option<u32>,
+        page_size: Option<u32>,
+        viewer: ViewerInfo,
+    },
+
     WithPermit {
         permit: Permit,
         query: QueryWithPermit,
     },
+
+    // for debug purposes only
+    #[cfg(feature = "gas_tracking")]
+    Dwb {},
+}
+
+/// the address and viewing key making an authenticated query request
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct ViewerInfo {
+    /// querying address
+    pub address: String,
+    /// authentication key string
+    pub viewing_key: String,
 }
 
 impl QueryMsg {
@@ -517,6 +610,14 @@ impl QueryMsg {
                 let spender = api.addr_validate(spender.as_str())?;
                 Ok((vec![spender], key.clone()))
             }
+            Self::ChannelInfo { viewer, .. } => {
+                let address = api.addr_validate(viewer.address.as_str())?;
+                Ok((vec![address], viewer.viewing_key.clone()))
+            }
+            Self::ListPermitRevocations { viewer, .. } => {
+                let address = api.addr_validate(viewer.address.as_str())?;
+                Ok((vec![address], viewer.viewing_key.clone()))
+            }
             _ => panic!("This query type does not require authentication"),
         }
     }
@@ -544,12 +645,22 @@ pub enum QueryWithPermit {
     TransferHistory {
         page: Option<u32>,
         page_size: u32,
-        should_filter_decoys: bool,
     },
     TransactionHistory {
         page: Option<u32>,
         page_size: u32,
-        should_filter_decoys: bool,
+    },
+    // SNIP-52 Private Push Notifications
+    ChannelInfo {
+        channels: Vec<String>,
+        txhash: Option<String>,
+    },
+    // SNIP 24.1
+    ListPermitRevocations {
+        // `page` and `page_size` do nothing here because max revocations is only 10 but included
+        // to satisfy the SNIP24.1 spec
+        page: Option<u32>,
+        page_size: Option<u32>,
     },
 }
 
@@ -596,12 +707,8 @@ pub enum QueryAnswer {
     Balance {
         amount: Uint128,
     },
-    TransferHistory {
-        txs: Vec<Tx>,
-        total: Option<u64>,
-    },
     TransactionHistory {
-        txs: Vec<ExtendedTx>,
+        txs: Vec<Tx>,
         total: Option<u64>,
     },
     ViewingKeyError {
@@ -609,6 +716,28 @@ pub enum QueryAnswer {
     },
     Minters {
         minters: Vec<Addr>,
+    },
+
+    // SNIP-52 Private Push Notifications
+    ListChannels {
+        channels: Vec<String>,
+    },
+    ChannelInfo {
+        /// scopes validity of this response
+        as_of_block: Uint64,
+        /// shared secret in base64
+        seed: Binary,
+        channels: Vec<ChannelInfoData>,
+    },
+
+    // SNIP-24.1
+    ListPermitRevocations {
+        revocations: Vec<AllRevocation>,
+    },
+
+    #[cfg(feature = "gas_tracking")]
+    Dwb {
+        dwb: String,
     },
 }
 

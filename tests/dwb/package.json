@@ -1,0 +1,30 @@
+{
+  "private": "true",
+  "type": "module",
+  "scripts": {
+    "build": "tsc && tsc-esm-fix --tsconfig tsconfig.tsc-esm-fix.json --target=dist",
+    "make": "pushd ../../ && make compile-integration && popd",
+    "simulate": "bun run --env-file=.env src/main.ts",
+    "test": "bun run make && bun run simulate"
+  },
+  "devDependencies": {
+    "@blake.regalia/belt": "^0.52.1",
+    "@blake.regalia/eslint-config-elite": "^0.5.11",
+    "@blake.regalia/tsconfig": "^0.2.0",
+    "@solar-republic/types": "^0.3.7",
+    "@types/chai": "^5.0.1",
+    "@types/node": "^22.10.5",
+    "chai": "^5.1.2",
+    "chai-bites": "^0.2.0",
+    "eslint": "9",
+    "tsc-esm-fix": "^3.1.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@solar-republic/contractor": "^0.10.3",
+    "@solar-republic/cosmos-grpc": "^0.17.2",
+    "@solar-republic/crypto": "^0.3.2",
+    "@solar-republic/neutrino": "^1.8.5",
+    "bignumber.js": "^9.1.2"
+  }
+}

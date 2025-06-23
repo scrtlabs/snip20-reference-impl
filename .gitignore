@@ -1,5 +1,6 @@
 # Build results
 /target
+/tests/dwb/dist/
 contract.wasm
 contract.wasm.gz
 
@@ -19,3 +20,10 @@ contract.wasm.gz
 # IDEs
 *.iml
 .idea
+
+# Packages
+node_modules/
+
+# Private
+.env
+scrap/
